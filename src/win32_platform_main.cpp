@@ -210,7 +210,8 @@ WinMain(HINSTANCE Instance,
     HDC windowDeviceContext = GetDC(hMainWindow);   // CS_OWNDC allows us to get this just once...
 
     Win32LoadXinput();
-    Win32ResizeBackBuffer(1280, 720);
+    win32_dimensions startDim = Win32GetWindowDimensions(hMainWindow);
+    Win32ResizeBackBuffer(startDim.width, startDim.height);
 
     MSG msg;
     while(g_Running)
@@ -243,7 +244,7 @@ WinMain(HINSTANCE Instance,
                             } break;
                             case 'A':
                             {
-                                g_x_offset += 10;
+                                g_x_offset -= 10;
                             } break;
                             case 'S':
                             {
@@ -251,7 +252,7 @@ WinMain(HINSTANCE Instance,
                             } break;
                             case 'D':
                             {
-                                g_x_offset -= 10;
+                                g_x_offset += 10;
                             } break;
                             case VK_ESCAPE:
                             {
@@ -296,8 +297,8 @@ WinMain(HINSTANCE Instance,
 
                 if(magnitude > XINPUT_LEFT_THUMB_DEADZONE)
                 {
-                    g_x_offset += (int32)(normalizedLX * 10.0f);
-                    g_y_offset += (int32)(normalizedLY * 10.0f);
+                    g_x_offset += (int32)(normalizedLX * 5.0f);
+                    g_y_offset += (int32)(normalizedLY * 5.0f);
 
                     // // clip the magnitude
                     // if(magnitude > 32767) magnitude = 32767;
