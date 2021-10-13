@@ -4,6 +4,9 @@
 #include "project_super.cpp"
 
 #include <windows.h>
+#include <Xinput.h>
+
+#include <math.h>   // for sqrt()
 
 struct win32_dimensions
 {
@@ -18,6 +21,48 @@ global_variable void* g_backbuffer_memory;
 
 global_variable int32 g_x_offset;
 global_variable int32 g_y_offset;
+
+#define XINPUT_LEFT_THUMB_DEADZONE 7849
+#define XINPUT_RIGHT_THUMB_DEADZONE 8689
+#define XINPUT_TRIGGER_THRESHOLD 30
+
+#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
+typedef X_INPUT_GET_STATE(x_input_get_state);
+X_INPUT_GET_STATE(XInputGetStateStub)
+{
+    return(ERROR_DEVICE_NOT_CONNECTED);
+}
+global_variable x_input_get_state *XInputGetState_ = XInputGetStateStub;
+#define XInputGetState XInputGetState_
+
+// NOTE(casey): XInputSetState
+#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_VIBRATION *pVibration)
+typedef X_INPUT_SET_STATE(x_input_set_state);
+X_INPUT_SET_STATE(XInputSetStateStub)
+{
+    return(ERROR_DEVICE_NOT_CONNECTED);
+}
+global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
+#define XInputSetState XInputSetState_
+
+internal void
+Win32LoadXinput()
+{
+    HMODULE hXinputLibrary = LoadLibraryA("xinput1_4.dll");
+
+    if(hXinputLibrary)
+    {
+        XInputGetState = (x_input_get_state *)GetProcAddress(hXinputLibrary, "XInputGetState");
+        if(!XInputGetState) {XInputGetState = XInputGetStateStub;}
+
+        XInputSetState = (x_input_set_state *)GetProcAddress(hXinputLibrary, "XInputSetState");
+        if(!XInputSetState) {XInputSetState = XInputSetStateStub;}
+    }
+    else
+    {
+        // TODO(james): Diagnostic
+    }
+}
 
 
 internal win32_dimensions
@@ -164,6 +209,7 @@ WinMain(HINSTANCE Instance,
 
     HDC windowDeviceContext = GetDC(hMainWindow);   // CS_OWNDC allows us to get this just once...
 
+    Win32LoadXinput();
     Win32ResizeBackBuffer(1280, 720);
 
     MSG msg;
@@ -171,17 +217,118 @@ WinMain(HINSTANCE Instance,
     {
         if(PeekMessageA(&msg, 0, 0, 0, PM_REMOVE))
         {
-            if(msg.message == WM_QUIT)
+            switch(msg.message)
             {
-                break;
-            }
+                case WM_QUIT:
+                {
+                    g_Running = false;
+                } break;
+                case WM_SYSKEYDOWN:
+                case WM_SYSKEYUP:
+                case WM_KEYDOWN:
+                case WM_KEYUP:
+                    {
+                        WORD vkCode = LOWORD(msg.wParam);
 
-            TranslateMessage(&msg);
-            DispatchMessageA(&msg);
+                        bool upFlag = (HIWORD(msg.lParam) & KF_UP) == KF_UP;        // transition-state flag, 1 on keyup
+                        bool repeated = (HIWORD(msg.lParam) & KF_REPEAT) == KF_REPEAT;
+
+                        bool altDownFlag = (HIWORD(msg.lParam) & KF_ALTDOWN) == KF_ALTDOWN;
+
+                        switch(vkCode)
+                        {
+                            case 'W':
+                            {
+                                g_y_offset += 10;
+                            } break;
+                            case 'A':
+                            {
+                                g_x_offset += 10;
+                            } break;
+                            case 'S':
+                            {
+                                g_y_offset -= 10;
+                            } break;
+                            case 'D':
+                            {
+                                g_x_offset -= 10;
+                            } break;
+                            case VK_ESCAPE:
+                            {
+                                g_Running = false;
+                            } break;
+                            case VK_F4:
+                            {
+                                if(altDownFlag)
+                                {
+                                    g_Running = false;
+                                }
+                            } break;
+                        }
+                    } break;
+                default:
+                {
+                    TranslateMessage(&msg);
+                    DispatchMessageA(&msg);
+                } break;
+            }
         }
 
+        // TODO(james): Listen to Windows HID events to detect when controllers are active...
+        //              Will cause performance stall for non-connected controllers like this...
+        for(DWORD dwControllerIndex = 0; dwControllerIndex < XUSER_MAX_COUNT; ++dwControllerIndex)
+        {
+            XINPUT_STATE state = {};
+            DWORD dwResult = XInputGetState(dwControllerIndex, &state);
 
-        Win32RenderGradient(g_x_offset++, g_y_offset++);
+            if(dwResult == ERROR_SUCCESS)
+            {
+                // controller is connected
+                real32 LX = state.Gamepad.sThumbLX;
+                real32 LY = state.Gamepad.sThumbLY;
+
+                // determine magnitude
+                real32 magnitude = sqrt(LX*LX + LY*LY);
+
+                // determine direction
+                real32 normalizedLX = LX / magnitude;
+                real32 normalizedLY = LY / magnitude;
+
+                if(magnitude > XINPUT_LEFT_THUMB_DEADZONE)
+                {
+                    g_x_offset += (int32)(normalizedLX * 10.0f);
+                    g_y_offset += (int32)(normalizedLY * 10.0f);
+
+                    // // clip the magnitude
+                    // if(magnitude > 32767) magnitude = 32767;
+
+                    // // adjust for deadzone
+                    // magnitude -= XINPUT_LEFT_THUMB_DEADZONE;
+
+                    // // normalize the magnitude with respect for the deadzone
+                    // real32 normalizedMagnitude = magnitude / (32767 - XINPUT_LEFT_THUMB_DEADZONE);
+                }
+
+                // for now we'll set the vibration of the left and right motors equal to the trigger magnitude
+                uint8 leftTrigger = state.Gamepad.bLeftTrigger;
+                uint8 rightTrigger = state.Gamepad.bRightTrigger;
+
+                // clamp threshold
+                if(leftTrigger < XINPUT_TRIGGER_THRESHOLD) leftTrigger = 0;
+                if(rightTrigger < XINPUT_TRIGGER_THRESHOLD) rightTrigger = 0;
+
+                XINPUT_VIBRATION vibration;
+                vibration.wLeftMotorSpeed = (WORD)((leftTrigger / 255.0f) * 65535);
+                vibration.wRightMotorSpeed = (WORD)((rightTrigger / 255.0f) * 65535);
+                XInputSetState(dwControllerIndex, &vibration);
+            }
+            else
+            {
+                // controller not connected
+            }
+        }
+
+        Win32RenderGradient(g_x_offset, g_y_offset);
         
         win32_dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
         Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height);
