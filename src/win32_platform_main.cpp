@@ -91,7 +91,6 @@ Win32InitSoundDevice()
     hr = g_pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &g_pDevice);
     if(FAILED(hr)) { /* TODO(james): log error */ return; }
 
-    PROPVARIANT props;
     hr = g_pDevice->Activate(IID_IAudioClient, CLSCTX_ALL, 0, (void**)&g_pAudioClient);
     if(FAILED(hr)) { /* TODO(james): log error */ return; }
 
@@ -154,14 +153,12 @@ Win32RenderAudioTone(real32 fTimeStep, uint16 toneHz)
     }
 
     uint32 samplesPerPeriod = g_nSamplesPerSec / toneHz;
-    uint32 samplesPerHalfPeriod = samplesPerPeriod / 2;
-    uint32 samplesPerQuarterPeriod = samplesPerHalfPeriod / 2;
     uint16 toneVolume = 1000;
 
     // convert the timestep to the number of samples we need to render
     //   samples = 2 channels of 16 bit audio
     //   LEFT RIGHT | LEFT RIGHT | LEFT RIGHT | ...
-    uint32 numRenderSamples = (uint32)(fTimeStep * g_nSamplesPerSec);
+    int numRenderSamples = (uint32)(fTimeStep * g_nSamplesPerSec);
     numRenderSamples += numRenderSamples % 2; 
 
     local_persist uint32 currentAudioIndex = 0;
@@ -256,13 +253,13 @@ internal void
 Win32RenderGradient(int blueOffset, int greenOffset)
 {
     uint8* row = (uint8*)g_backbuffer_memory;
-    for(int y = 0; y < g_backbuffer_dimensions.height; ++y)
+    for(uint32 y = 0; y < g_backbuffer_dimensions.height; ++y)
     {
         uint32* pixel = (uint32*)row;
-        for(int x = 0; x < g_backbuffer_dimensions.width; ++x)
+        for(uint32 x = 0; x < g_backbuffer_dimensions.width; ++x)
         {
-            uint8 green = y + greenOffset;
-            uint8 blue = x + blueOffset;
+            uint8 green = (uint8)(y + greenOffset);
+            uint8 blue = (uint8)(x + blueOffset);
 
             *pixel++ = (green << 8) | blue;
         }
@@ -329,19 +326,18 @@ Win32WindowProc(
     return retValue;
 }
 
-internal
 int CALLBACK
-WinMain(HINSTANCE Instance,
-        HINSTANCE PrevInstance,
-        LPSTR CommandLine,
-        int ShowCode)
+WinMain(_In_ HINSTANCE hInstance,
+    _In_opt_ HINSTANCE hPrevInstance,
+    _In_ LPSTR lpCmdLine,
+    _In_ int nShowCmd)
 {
     HRESULT hr = 0;
 
     WNDCLASSA wndClass = {};
     wndClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
     wndClass.lpfnWndProc = Win32WindowProc;
-    wndClass.hInstance = Instance;
+    wndClass.hInstance = hInstance;
     wndClass.lpszClassName = "ProjectSuperWindow";
 
     RegisterClassA(&wndClass);
@@ -357,7 +353,7 @@ WinMain(HINSTANCE Instance,
             720,
             0,
             0,
-            Instance,
+            hInstance,
             0           // TODO(james): pass a pointer to a struct containing the state variables we might want to use in the message handling
         );
 
@@ -400,8 +396,8 @@ WinMain(HINSTANCE Instance,
                     {
                         WORD vkCode = LOWORD(msg.wParam);
 
-                        bool upFlag = (HIWORD(msg.lParam) & KF_UP) == KF_UP;        // transition-state flag, 1 on keyup
-                        bool repeated = (HIWORD(msg.lParam) & KF_REPEAT) == KF_REPEAT;
+                        //bool upFlag = (HIWORD(msg.lParam) & KF_UP) == KF_UP;        // transition-state flag, 1 on keyup
+                        //bool repeated = (HIWORD(msg.lParam) & KF_REPEAT) == KF_REPEAT;
 
                         bool altDownFlag = (HIWORD(msg.lParam) & KF_ALTDOWN) == KF_ALTDOWN;
 
@@ -460,13 +456,13 @@ WinMain(HINSTANCE Instance,
                 real32 RY = state.Gamepad.sThumbRY;
 
                 // determine magnitude
-                real32 magnitude = sqrt(LX*LX + LY*LY);
-                real32 magR = sqrt(RX*RX + RY*RY);
+                real32 magnitude = sqrtf(LX*LX + LY*LY);
+                real32 magR = sqrtf(RX*RX + RY*RY);
 
                 // determine direction
                 real32 normalizedLX = LX / magnitude;
                 real32 normalizedLY = LY / magnitude;
-                real32 normalizedRX = RX / magR;
+                //real32 normalizedRX = RX / magR;
                 real32 normalizedRY = RY / magR;
 
                 if(magnitude > XINPUT_LEFT_THUMB_DEADZONE)
