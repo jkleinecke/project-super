@@ -1,6 +1,6 @@
 
 
-#include "project_super.h"
+//#include "project_super.h"
 #include "project_super.cpp"
 
 #include <windows.h>
@@ -9,7 +9,12 @@
 #include <mmdeviceapi.h>
 
 #include <math.h>   // for sqrt()
-#define Pi32 3.14159265359f
+
+struct Win32WindowContext
+{
+    HWND hWindow;
+    GraphicsContext graphics;
+};
 
 struct win32_dimensions
 {
@@ -18,12 +23,6 @@ struct win32_dimensions
 };
 
 global_variable bool g_Running = true;
-global_variable win32_dimensions g_backbuffer_dimensions = {1280, 720};
-global_variable BITMAPINFO g_backbuffer_bmpInfo;
-global_variable void* g_backbuffer_memory; 
-
-global_variable int32 g_x_offset;
-global_variable int32 g_y_offset;
 
 #define XINPUT_LEFT_THUMB_DEADZONE 7849
 #define XINPUT_RIGHT_THUMB_DEADZONE 8689
@@ -228,54 +227,39 @@ Win32GetWindowDimensions(HWND hWnd)
 }
 
 internal void 
-Win32ResizeBackBuffer(uint32 width, uint32 height)
+Win32ResizeBackBuffer(GraphicsContext& graphics, uint32 width, uint32 height)
 {
-    if(g_backbuffer_memory)
+    if(graphics.buffer)
     {
-        VirtualFree(&g_backbuffer_memory, 0, MEM_RELEASE);
+        VirtualFree(&graphics.buffer, 0, MEM_RELEASE);
     }
 
-    g_backbuffer_dimensions.width = width;
-    g_backbuffer_dimensions.height = height;
-
-    g_backbuffer_bmpInfo.bmiHeader.biSize = sizeof(g_backbuffer_bmpInfo.bmiHeader);
-    g_backbuffer_bmpInfo.bmiHeader.biWidth = width;
-    g_backbuffer_bmpInfo.bmiHeader.biHeight = height;
-    g_backbuffer_bmpInfo.bmiHeader.biPlanes = 1;
-    g_backbuffer_bmpInfo.bmiHeader.biBitCount = 32;
-    g_backbuffer_bmpInfo.bmiHeader.biCompression = BI_RGB;
-
-    g_backbuffer_memory = VirtualAlloc(0, width*height*4, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE) ;
+    graphics.buffer_width = width;
+    graphics.buffer_height = height;
+    graphics.buffer_pitch = width * 4;
+    
+    graphics.buffer = VirtualAlloc(0, width*height*4, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE) ;
     // TODO(james): verify that we could allocate the memory...
 }
 
-internal void
-Win32RenderGradient(int blueOffset, int greenOffset)
-{
-    uint8* row = (uint8*)g_backbuffer_memory;
-    for(uint32 y = 0; y < g_backbuffer_dimensions.height; ++y)
-    {
-        uint32* pixel = (uint32*)row;
-        for(uint32 x = 0; x < g_backbuffer_dimensions.width; ++x)
-        {
-            uint8 green = (uint8)(y + greenOffset);
-            uint8 blue = (uint8)(x + blueOffset);
 
-            *pixel++ = (green << 8) | blue;
-        }
-
-        row += g_backbuffer_dimensions.width * 4;   // TODO(james): track the pitch
-    }
-}
 
 internal void
-Win32DisplayBufferInWindow(HDC deviceContext, uint32 windowWidth, uint32 windowHeight)
+Win32DisplayBufferInWindow(HDC deviceContext, uint32 windowWidth, uint32 windowHeight, GraphicsContext& graphics)
 {
+    BITMAPINFO bmpInfo = {};
+    bmpInfo.bmiHeader.biSize = sizeof(bmpInfo.bmiHeader);
+    bmpInfo.bmiHeader.biWidth = graphics.buffer_width;
+    bmpInfo.bmiHeader.biHeight = graphics.buffer_height;
+    bmpInfo.bmiHeader.biPlanes = 1;
+    bmpInfo.bmiHeader.biBitCount = 32;
+    bmpInfo.bmiHeader.biCompression = BI_RGB;
+
     StretchDIBits(deviceContext,
      0, 0, windowWidth, windowHeight,
-     0, 0, g_backbuffer_dimensions.width, g_backbuffer_dimensions.height,
-     g_backbuffer_memory,
-     &g_backbuffer_bmpInfo,
+     0, 0, graphics.buffer_width, graphics.buffer_height,
+     graphics.buffer,
+     &bmpInfo,
      DIB_RGB_COLORS, SRCCOPY);
 }
 
@@ -288,6 +272,7 @@ Win32WindowProc(
   LPARAM lParam)
 {
     LRESULT retValue = 0;
+    Win32WindowContext* pContext = (Win32WindowContext*)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
 
     switch(uMsg)
     {
@@ -300,7 +285,7 @@ Win32WindowProc(
             break;
         case WM_SIZE:
             {
-                Win32ResizeBackBuffer(LOWORD(lParam), HIWORD(lParam));
+                Win32ResizeBackBuffer(pContext->graphics, LOWORD(lParam), HIWORD(lParam));
             } break;
         case WM_QUIT:
             g_Running = false;
@@ -314,7 +299,7 @@ Win32WindowProc(
                 HDC deviceContext = BeginPaint(hwnd, &ps);
                 
                 win32_dimensions dimensions = Win32GetWindowDimensions(hwnd);
-                Win32DisplayBufferInWindow(deviceContext, dimensions.width, dimensions.height);
+                Win32DisplayBufferInWindow(deviceContext, dimensions.width, dimensions.height, pContext->graphics);
 
                 EndPaint(hwnd, &ps);
                 
@@ -326,12 +311,56 @@ Win32WindowProc(
     return retValue;
 }
 
+internal void
+Win32ProcessKeyboardButton(InputButton& newState, const InputButton& oldState, bool pressed)
+{
+    newState.pressed = pressed;
+    newState.transitions = oldState.pressed == pressed ? 0 : 1; // only transitioned if the new state doesn't match the old
+}
+
+internal void
+Win32ProcessGamepadStick(Thumbstick& stick, SHORT x, SHORT y, const SHORT deadzone)
+{
+    real32 fX = (real32)x;
+    real32 fY = (real32)y;
+    // determine magnitude
+    real32 magnitude = sqrtf(fX*fX + fY*fY);
+    
+    // determine direction
+    real32 normalizedLX = fX / magnitude;
+    real32 normalizedLY = fY / magnitude;
+    //real32 normalizedRX = RX / magR;
+    //real32 normalizedRY = RY / magR;
+
+    if(magnitude > deadzone)
+    {
+        // clip the magnitude
+        if(magnitude > 32767) magnitude = 32767;
+        // adjust for deadzone
+        magnitude -= XINPUT_LEFT_THUMB_DEADZONE;
+        // normalize the magnitude with respect for the deadzone
+        real32 normalizedMagnitude = magnitude / (32767 - XINPUT_LEFT_THUMB_DEADZONE);
+
+        // produces values between 0..1 with respect to the deadzone
+        stick.x = normalizedLX * normalizedMagnitude; 
+        stick.y = normalizedLY * normalizedMagnitude;
+    }
+    else
+    {
+        stick.x = 0;
+        stick.y = 0;
+    }
+
+}
+
 int CALLBACK
 WinMain(_In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE hPrevInstance,
     _In_ LPSTR lpCmdLine,
     _In_ int nShowCmd)
 {
+    Win32WindowContext mainWindowContext = {};
+
     HRESULT hr = 0;
 
     WNDCLASSA wndClass = {};
@@ -346,7 +375,7 @@ WinMain(_In_ HINSTANCE hInstance,
             0,
             "ProjectSuperWindow",
             "Project Super",
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             1280,
@@ -354,14 +383,17 @@ WinMain(_In_ HINSTANCE hInstance,
             0,
             0,
             hInstance,
-            0           // TODO(james): pass a pointer to a struct containing the state variables we might want to use in the message handling
+            0          
         );
+    mainWindowContext.hWindow = hMainWindow;
+    SetWindowLongPtrA(hMainWindow, GWLP_USERDATA, (LONG_PTR)&mainWindowContext);
+    ShowWindow(hMainWindow, nShowCmd);
 
     HDC windowDeviceContext = GetDC(hMainWindow);   // CS_OWNDC allows us to get this just once...
 
     Win32LoadXinput();
     win32_dimensions startDim = Win32GetWindowDimensions(hMainWindow);
-    Win32ResizeBackBuffer(startDim.width, startDim.height);
+    Win32ResizeBackBuffer(mainWindowContext.graphics, startDim.width, startDim.height);
 
     uint16 toneHz = 262;
     Win32InitSoundDevice();
@@ -369,6 +401,8 @@ WinMain(_In_ HINSTANCE hInstance,
     Win32RenderAudioTone(1.0f / 60.0f, toneHz); // 4 frames worth of 60 fps timing...
     hr = g_pAudioClient->Start();
 
+    InputContext input = {};
+    
     // pre-load the audio buffer with some sound data
 
     LARGE_INTEGER frequency;
@@ -381,6 +415,10 @@ WinMain(_In_ HINSTANCE hInstance,
     MSG msg;
     while(g_Running)
     {
+        InputController keyboard = {};
+        keyboard.isConnected = true;
+        keyboard.isAnalog = false;
+
         if(PeekMessageA(&msg, 0, 0, 0, PM_REMOVE))
         {
             switch(msg.message)
@@ -396,8 +434,9 @@ WinMain(_In_ HINSTANCE hInstance,
                     {
                         WORD vkCode = LOWORD(msg.wParam);
 
-                        //bool upFlag = (HIWORD(msg.lParam) & KF_UP) == KF_UP;        // transition-state flag, 1 on keyup
+                        bool upFlag = (HIWORD(msg.lParam) & KF_UP) == KF_UP;        // transition-state flag, 1 on keyup
                         //bool repeated = (HIWORD(msg.lParam) & KF_REPEAT) == KF_REPEAT;
+                        //WORD repeatCount = LOWORD(msg.lParam);
 
                         bool altDownFlag = (HIWORD(msg.lParam) & KF_ALTDOWN) == KF_ALTDOWN;
 
@@ -405,19 +444,43 @@ WinMain(_In_ HINSTANCE hInstance,
                         {
                             case 'W':
                             {
-                                g_y_offset += 10;
+                                Win32ProcessKeyboardButton(keyboard.up, input.controllers[0].up, !upFlag);
                             } break;
                             case 'A':
                             {
-                                g_x_offset -= 10;
+                                Win32ProcessKeyboardButton(keyboard.left, input.controllers[0].left, !upFlag);
                             } break;
                             case 'S':
                             {
-                                g_y_offset -= 10;
+                                Win32ProcessKeyboardButton(keyboard.down, input.controllers[0].down, !upFlag);
                             } break;
                             case 'D':
                             {
-                                g_x_offset += 10;
+                                Win32ProcessKeyboardButton(keyboard.right, input.controllers[0].right, !upFlag);
+                            } break;
+                            case 'Q':
+                            {
+                                Win32ProcessKeyboardButton(keyboard.leftShoulder, input.controllers[0].leftShoulder, !upFlag);
+                            } break;
+                            case 'E':
+                            {
+                                Win32ProcessKeyboardButton(keyboard.rightShoulder, input.controllers[0].rightShoulder, !upFlag);
+                            } break;
+                            case VK_NUMPAD1:
+                            {
+                                Win32ProcessKeyboardButton(keyboard.x, input.controllers[0].x, !upFlag);
+                            } break;
+                            case VK_NUMPAD2:
+                            {
+                                Win32ProcessKeyboardButton(keyboard.a, input.controllers[0].a, !upFlag);
+                            } break;
+                            case VK_NUMPAD3:
+                            {
+                                Win32ProcessKeyboardButton(keyboard.b, input.controllers[0].b, !upFlag);
+                            } break;
+                            case VK_NUMPAD4:
+                            {
+                                Win32ProcessKeyboardButton(keyboard.y, input.controllers[0].y, !upFlag);
                             } break;
                             case VK_ESCAPE:
                             {
@@ -440,6 +503,8 @@ WinMain(_In_ HINSTANCE hInstance,
             }
         }
 
+        input.controllers[0] = keyboard;
+
         // TODO(james): Listen to Windows HID events to detect when controllers are active...
         //              Will cause performance stall for non-connected controllers like this...
         for(DWORD dwControllerIndex = 0; dwControllerIndex < XUSER_MAX_COUNT; ++dwControllerIndex)
@@ -447,48 +512,15 @@ WinMain(_In_ HINSTANCE hInstance,
             XINPUT_STATE state = {};
             DWORD dwResult = XInputGetState(dwControllerIndex, &state);
 
+            InputController& gamepad = input.controllers[dwControllerIndex+1];
+            gamepad.isAnalog = true;
+
             if(dwResult == ERROR_SUCCESS)
             {
+                gamepad.isConnected = true;
                 // controller is connected
-                real32 LX = state.Gamepad.sThumbLX;
-                real32 LY = state.Gamepad.sThumbLY;
-                real32 RX = state.Gamepad.sThumbRX;
-                real32 RY = state.Gamepad.sThumbRY;
-
-                // determine magnitude
-                real32 magnitude = sqrtf(LX*LX + LY*LY);
-                real32 magR = sqrtf(RX*RX + RY*RY);
-
-                // determine direction
-                real32 normalizedLX = LX / magnitude;
-                real32 normalizedLY = LY / magnitude;
-                //real32 normalizedRX = RX / magR;
-                real32 normalizedRY = RY / magR;
-
-                if(magnitude > XINPUT_LEFT_THUMB_DEADZONE)
-                {
-                    g_x_offset += (int32)(normalizedLX * 5.0f);
-                    g_y_offset += (int32)(normalizedLY * 5.0f);
-
-                    // // clip the magnitude
-                    // if(magnitude > 32767) magnitude = 32767;
-
-                    // // adjust for deadzone
-                    // magnitude -= XINPUT_LEFT_THUMB_DEADZONE;
-
-                    // // normalize the magnitude with respect for the deadzone
-                    // real32 normalizedMagnitude = magnitude / (32767 - XINPUT_LEFT_THUMB_DEADZONE);
-                }
-
-                if(magR > XINPUT_RIGHT_THUMB_DEADZONE)
-                {
-                    toneHz += (uint16)(normalizedRY * 2.0f);
-                    
-                    if(toneHz > 1000)
-                    {
-                        toneHz = 0;
-                    }
-                }
+                Win32ProcessGamepadStick(gamepad.leftStick, state.Gamepad.sThumbLX, state.Gamepad.sThumbLY, XINPUT_LEFT_THUMB_DEADZONE);
+                Win32ProcessGamepadStick(gamepad.rightStick, state.Gamepad.sThumbRX, state.Gamepad.sThumbRY, XINPUT_RIGHT_THUMB_DEADZONE);
 
                 // for now we'll set the vibration of the left and right motors equal to the trigger magnitude
                 uint8 leftTrigger = state.Gamepad.bLeftTrigger;
@@ -498,24 +530,52 @@ WinMain(_In_ HINSTANCE hInstance,
                 if(leftTrigger < XINPUT_TRIGGER_THRESHOLD) leftTrigger = 0;
                 if(rightTrigger < XINPUT_TRIGGER_THRESHOLD) rightTrigger = 0;
 
-                XINPUT_VIBRATION vibration;
-                vibration.wLeftMotorSpeed = (WORD)((leftTrigger / 255.0f) * 65535);
-                vibration.wRightMotorSpeed = (WORD)((rightTrigger / 255.0f) * 65535);
-                XInputSetState(dwControllerIndex, &vibration);
+                gamepad.leftTrigger.value = leftTrigger / 255.0f;
+                gamepad.rightTrigger.value = rightTrigger / 255.0f;
+
+                WORD dwButtonIds[14] = {
+                    XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT,
+                    XINPUT_GAMEPAD_Y, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_B,
+                    XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_RIGHT_SHOULDER,
+                    XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_THUMB,
+                    XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_BACK
+                };
+
+                for(int buttonIndex = 0; buttonIndex < 14; ++buttonIndex)
+                {
+                    InputButton& newButton = gamepad.buttons[buttonIndex];
+                    InputButton oldButton = gamepad.buttons[buttonIndex];
+                    bool pressed = (state.Gamepad.wButtons & dwButtonIds[buttonIndex]) == dwButtonIds[buttonIndex];
+                    Win32ProcessKeyboardButton(newButton, oldButton, pressed);
+                }
             }
             else
             {
                 // controller not connected
+                gamepad.isConnected = false;
             }
         }
 
         // TODO(james): Use pRenderClient GetBuffer/ReleaseBuffer to write audio data out for playback
 
         Win32RenderAudioTone(elapsedMilliseconds / 600.0f, toneHz);
-        Win32RenderGradient(g_x_offset, g_y_offset);
+        //Win32RenderGradient(g_x_offset, g_y_offset);
+        GameUpdateAndRender(mainWindowContext.graphics, input);
+
+        for(uint32 gamepadIndex = 1; gamepadIndex < 5; ++gamepadIndex)
+        {
+            InputController& gamepad = input.controllers[gamepadIndex];
+            if(gamepad.isConnected)
+            {
+                XINPUT_VIBRATION vibration;
+                vibration.wLeftMotorSpeed = (WORD)(gamepad.leftFeedbackMotor * 65535);
+                vibration.wRightMotorSpeed = (WORD)(gamepad.rightFeedbackMotor * 65535);
+                XInputSetState(gamepadIndex-1, &vibration);
+            }
+        }
         
         win32_dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
-        Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height);
+        Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindowContext.graphics);
 
         uint64 startTicks = currentTicks.QuadPart;
         QueryPerformanceCounter(&currentTicks);
