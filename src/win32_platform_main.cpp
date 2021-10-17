@@ -5,8 +5,11 @@
 
 #include <windows.h>
 #include <Xinput.h>
+#include <Audioclient.h>
+#include <mmdeviceapi.h>
 
 #include <math.h>   // for sqrt()
+#define Pi32 3.14159265359f
 
 struct win32_dimensions
 {
@@ -44,6 +47,155 @@ X_INPUT_SET_STATE(XInputSetStateStub)
 }
 global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
 #define XInputSetState XInputSetState_
+
+
+#define REF_MILLI(milli) ((milli) * 10000)
+#define REF_SECONDS(seconds) (REF_MILLI(seconds) * 1000)
+
+#define SAFE_RELEASE(punk)  \
+              if ((punk) != NULL)  \
+                { (punk)->Release(); (punk) = NULL; }
+
+const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
+const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
+const IID IID_IAudioClient = __uuidof(IAudioClient);
+const IID IID_IAudioRenderClient = __uuidof(IAudioRenderClient);
+
+global_variable IMMDeviceEnumerator* g_pEnumerator = 0;
+global_variable IMMDevice* g_pDevice = 0;
+global_variable IAudioClient* g_pAudioClient = 0;
+global_variable IAudioRenderClient *g_pRenderClient = 0;
+global_variable uint32 g_nSamplesPerSec = 44100;
+
+internal void
+Win32InitSoundDevice()
+{
+    // TODO(james): Enumerate available sound devices and/or output formats
+    
+    
+    const uint16 nNumChannels = 2;
+    const uint16 nNumBitsPerSample = 16;
+
+    // buffer size is expressed in terms of duration (presumably calced against the sample rate etc..)
+    REFERENCE_TIME bufferTime = REF_SECONDS(2);
+
+    HRESULT hr = 0;
+
+
+    hr = CoCreateInstance(
+        CLSID_MMDeviceEnumerator, 0, CLSCTX_ALL, 
+        IID_IMMDeviceEnumerator, (void**)&g_pEnumerator
+        );
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+    hr = g_pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &g_pDevice);
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+    PROPVARIANT props;
+    hr = g_pDevice->Activate(IID_IAudioClient, CLSCTX_ALL, 0, (void**)&g_pAudioClient);
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+    // Negotiate an exclusive mode audio stream with the device
+    WAVEFORMATEX wave_format = {};
+    wave_format.wFormatTag = WAVE_FORMAT_PCM;
+    wave_format.nChannels = nNumChannels;
+    wave_format.nSamplesPerSec = g_nSamplesPerSec;
+    wave_format.nBlockAlign = nNumChannels * nNumBitsPerSample / 8;
+    wave_format.nAvgBytesPerSec = g_nSamplesPerSec * wave_format.nBlockAlign;    
+    wave_format.wBitsPerSample = nNumBitsPerSample;
+
+    hr = g_pAudioClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, &wave_format, 0);  // can't have a closest format in exclusive mode
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+    hr = g_pAudioClient->Initialize(
+            AUDCLNT_SHAREMODE_EXCLUSIVE, 0,
+            bufferTime, bufferTime, 
+            &wave_format, 0
+        );
+    if(hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED)
+    {
+        // align the buffer I guess
+        UINT32 nFrames = 0;
+        hr = g_pAudioClient->GetBufferSize(&nFrames);
+        if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+        bufferTime = (REFERENCE_TIME)((double)REF_SECONDS(1) / g_nSamplesPerSec * nFrames + 0.5);
+        hr = g_pAudioClient->Initialize(
+            AUDCLNT_SHAREMODE_EXCLUSIVE, 0,
+            bufferTime, bufferTime, 
+            &wave_format, 0
+        );
+    }
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+    // Create an event handle to signal Windows that we've got a
+    // new audio buffer available
+    // HANDLE hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  // probably should be global
+    // if(!hEvent) { /* TODO(james): logging */ return; }
+
+    // hr = g_pAudioClient->SetEventHandle(hEvent);
+    // if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+    // Get the actual size of the two allocated buffers
+    UINT32 nBufferFrameCount = 0;
+    hr = g_pAudioClient->GetBufferSize(&nBufferFrameCount);
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+    hr = g_pAudioClient->GetService(IID_IAudioRenderClient, (void**)&g_pRenderClient);
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+}
+
+internal void
+Win32RenderAudioTone(real32 fTimeStep, uint16 toneHz)
+{
+    if( fTimeStep <= 0.0f)
+    {
+        return;
+    }
+
+    uint32 samplesPerPeriod = g_nSamplesPerSec / toneHz;
+    uint32 samplesPerHalfPeriod = samplesPerPeriod / 2;
+    uint32 samplesPerQuarterPeriod = samplesPerHalfPeriod / 2;
+    uint16 toneVolume = 1000;
+
+    // convert the timestep to the number of samples we need to render
+    //   samples = 2 channels of 16 bit audio
+    //   LEFT RIGHT | LEFT RIGHT | LEFT RIGHT | ...
+    uint32 numRenderSamples = (uint32)(fTimeStep * g_nSamplesPerSec);
+    numRenderSamples += numRenderSamples % 2; 
+
+    local_persist uint32 currentAudioIndex = 0;
+    
+    HRESULT hr = 0;
+
+    BYTE* pBuffer = 0;
+    hr = g_pRenderClient->GetBuffer(numRenderSamples, &pBuffer);
+    if(SUCCEEDED(hr))
+    {
+        local_persist real32 tSine;
+        
+        // copy data to buffer
+        int16 *SampleOut = (int16*)pBuffer;
+        for(int sampleIndex = 0;
+            sampleIndex < numRenderSamples;
+            ++sampleIndex)
+        {
+            real32 SineValue = sinf(tSine);
+            int16 SampleValue = (int16)(SineValue * toneVolume);
+            *SampleOut++ = SampleValue;
+            *SampleOut++ = SampleValue;
+
+            tSine += 2.0f*Pi32*1.0f/(real32)samplesPerPeriod;
+        }
+
+        hr = g_pRenderClient->ReleaseBuffer(numRenderSamples, 0);
+        if(FAILED(hr))
+        {
+            // TODO(james): logging
+        }
+    }
+
+}
 
 internal void
 Win32LoadXinput()
@@ -184,6 +336,8 @@ WinMain(HINSTANCE Instance,
         LPSTR CommandLine,
         int ShowCode)
 {
+    HRESULT hr = 0;
+
     WNDCLASSA wndClass = {};
     wndClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
     wndClass.lpfnWndProc = Win32WindowProc;
@@ -212,6 +366,21 @@ WinMain(HINSTANCE Instance,
     Win32LoadXinput();
     win32_dimensions startDim = Win32GetWindowDimensions(hMainWindow);
     Win32ResizeBackBuffer(startDim.width, startDim.height);
+
+    uint16 toneHz = 262;
+    Win32InitSoundDevice();
+    hr = g_pAudioClient->Reset();
+    Win32RenderAudioTone(1.0f / 60.0f, toneHz); // 4 frames worth of 60 fps timing...
+    hr = g_pAudioClient->Start();
+
+    // pre-load the audio buffer with some sound data
+
+    LARGE_INTEGER frequency;
+    LARGE_INTEGER currentTicks = {};
+    uint64 elapsedMilliseconds = 0;
+
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&currentTicks);
 
     MSG msg;
     while(g_Running)
@@ -287,13 +456,18 @@ WinMain(HINSTANCE Instance,
                 // controller is connected
                 real32 LX = state.Gamepad.sThumbLX;
                 real32 LY = state.Gamepad.sThumbLY;
+                real32 RX = state.Gamepad.sThumbRX;
+                real32 RY = state.Gamepad.sThumbRY;
 
                 // determine magnitude
                 real32 magnitude = sqrt(LX*LX + LY*LY);
+                real32 magR = sqrt(RX*RX + RY*RY);
 
                 // determine direction
                 real32 normalizedLX = LX / magnitude;
                 real32 normalizedLY = LY / magnitude;
+                real32 normalizedRX = RX / magR;
+                real32 normalizedRY = RY / magR;
 
                 if(magnitude > XINPUT_LEFT_THUMB_DEADZONE)
                 {
@@ -308,6 +482,16 @@ WinMain(HINSTANCE Instance,
 
                     // // normalize the magnitude with respect for the deadzone
                     // real32 normalizedMagnitude = magnitude / (32767 - XINPUT_LEFT_THUMB_DEADZONE);
+                }
+
+                if(magR > XINPUT_RIGHT_THUMB_DEADZONE)
+                {
+                    toneHz += (uint16)(normalizedRY * 2.0f);
+                    
+                    if(toneHz > 1000)
+                    {
+                        toneHz = 0;
+                    }
                 }
 
                 // for now we'll set the vibration of the left and right motors equal to the trigger magnitude
@@ -329,12 +513,23 @@ WinMain(HINSTANCE Instance,
             }
         }
 
+        // TODO(james): Use pRenderClient GetBuffer/ReleaseBuffer to write audio data out for playback
+
+        Win32RenderAudioTone(elapsedMilliseconds / 600.0f, toneHz);
         Win32RenderGradient(g_x_offset, g_y_offset);
         
         win32_dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
         Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height);
+
+        uint64 startTicks = currentTicks.QuadPart;
+        QueryPerformanceCounter(&currentTicks);
+        elapsedMilliseconds = ((currentTicks.QuadPart - startTicks) * 1000) / frequency.QuadPart;
     }
-    
+
+    SAFE_RELEASE(g_pEnumerator);
+    SAFE_RELEASE(g_pDevice);
+    SAFE_RELEASE(g_pAudioClient);
+    SAFE_RELEASE(g_pRenderClient);   
 
     return 0;
 }
