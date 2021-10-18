@@ -30,6 +30,12 @@ typedef int32 bool32;
 #define local_persist static
 #define global_variable static
 
+#ifdef PROJECTSUPER_SLOW
+#define ASSERT(cond) if(!(cond)) { *((int*)0) = 0; }
+#else
+#define ASSERT(cond)
+#endif
+
 //===================== PLATFORM API =================================
 
 
@@ -92,6 +98,17 @@ struct InputController
     real32 rightFeedbackMotor;  
 };
 
+struct AudioContext
+{
+    uint32 samplesPerSecond;
+    uint32 bufferSize;
+    uint32 bufferBytesFilled;
+    // uint16 numChannels;
+    // uint16 bitsPerSample;
+    // uint16 blockAlignment;
+    void* buffer;
+};
+
 struct InputContext
 {
     // keyboard, gamepad 1-4
@@ -107,7 +124,7 @@ struct GraphicsContext
     void* buffer;
 };
 
-internal void GameUpdateAndRender(GraphicsContext& graphics, InputContext& input);
+internal void GameUpdateAndRender(real32 fTimeStep, GraphicsContext& graphics, InputContext& input, AudioContext& audio);
 
 
 #endif

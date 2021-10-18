@@ -2,7 +2,8 @@
 
 REM ctime -begin project_super.ctm
 
-set CompilerFlags=-nologo -GR- -EHa- -Od -Oi -WX -W4 -wd4100 -wd4201 -FC -Zi -analyze
+set CompilerFlags=-nologo -GR- -EHa- -Od -Oi -WX -W4 -wd4100 -wd4201 -FC -Zi 
+REM -analyze
 set CompilerDefines=-DPROJECTSUPER_INTERNAL=1 -DPROJECTSUPER_SLOW=1 -DPROJECTSUPER_WIN32=1
 set LinkerFlags=user32.lib gdi32.lib Ole32.lib
 
