@@ -8,6 +8,7 @@
 #include <Audioclient.h>
 #include <mmdeviceapi.h>
 
+#include <stdio.h>
 #include <math.h>   // for sqrt()
 
 struct Win32WindowContext
@@ -25,13 +26,19 @@ struct Win32AudioContext
     AudioContext gameAudioBuffer;
 };
 
-struct win32_dimensions
+struct Win32Clock
+{
+    int64 counter;
+};
+
+struct Win32Dimensions
 {
     uint32 width;
     uint32 height;
 };
 
-global_variable bool g_Running = true;
+global_variable bool GlobalRunning = true;
+global_variable int64 GlobalFrequency;
 
 #define XINPUT_LEFT_THUMB_DEADZONE 7849
 #define XINPUT_RIGHT_THUMB_DEADZONE 8689
@@ -69,7 +76,36 @@ const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
 const IID IID_IAudioClient = __uuidof(IAudioClient);
 const IID IID_IAudioRenderClient = __uuidof(IAudioRenderClient);
 
+inline internal void
+Win32InitClockFrequency()
+{
+    LARGE_INTEGER freq;
+    QueryPerformanceFrequency(&freq);
+    GlobalFrequency = freq.QuadPart;
+}
 
+inline internal Win32Clock
+Win32GetWallClock()
+{
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return Win32Clock{(int64)counter.QuadPart};
+}
+
+inline internal real32
+Win32GetElapsedTime(Win32Clock& clock)
+{
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    real32 elapsed = (real32)(counter.QuadPart - clock.counter) / (real32)GlobalFrequency;
+    return elapsed;
+}
+
+inline internal real32
+Win32GetElapsedTime(Win32Clock& start, Win32Clock& end)
+{
+    return (real32)(end.counter - start.counter) / (real32)GlobalFrequency;
+}
 
 internal void
 Win32InitSoundDevice(Win32AudioContext& audio)
@@ -95,7 +131,7 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     // now acquire access to the audio hardware
 
     // buffer size is expressed in terms of duration (presumably calced against the sample rate etc..)
-    REFERENCE_TIME bufferTime = REF_SECONDS(1);
+    REFERENCE_TIME bufferTime = REF_SECONDS(1/60);
 
     HRESULT hr = 0;
 
@@ -213,10 +249,10 @@ Win32LoadXinput()
 }
 
 
-internal win32_dimensions
+internal Win32Dimensions
 Win32GetWindowDimensions(HWND hWnd)
 {
-    win32_dimensions result;
+    Win32Dimensions result;
 
     RECT clientRect;
     GetClientRect(hWnd, &clientRect);
@@ -281,24 +317,24 @@ Win32WindowProc(
             break;
         case WM_CLOSE:
             // TODO(james): verify that we should actually close here
-            g_Running = false;
+            GlobalRunning = false;
             break;
         case WM_SIZE:
             {
                 Win32ResizeBackBuffer(pContext->graphics, LOWORD(lParam), HIWORD(lParam));
             } break;
         case WM_QUIT:
-            g_Running = false;
+            GlobalRunning = false;
             break;
         case WM_DESTROY:
-            g_Running = false;
+            GlobalRunning = false;
             break;
         case WM_PAINT:
             {
                 PAINTSTRUCT ps;
                 HDC deviceContext = BeginPaint(hwnd, &ps);
                 
-                win32_dimensions dimensions = Win32GetWindowDimensions(hwnd);
+                Win32Dimensions dimensions = Win32GetWindowDimensions(hwnd);
                 Win32DisplayBufferInWindow(deviceContext, dimensions.width, dimensions.height, pContext->graphics);
 
                 EndPaint(hwnd, &ps);
@@ -359,6 +395,11 @@ WinMain(_In_ HINSTANCE hInstance,
     _In_ LPSTR lpCmdLine,
     _In_ int nShowCmd)
 {
+    Win32InitClockFrequency();
+
+    // NOTE(james): Set the windows scheduler granularity to 1ms so that our sleep can be more granular
+    bool32 bSleepIsMs = timeBeginPeriod(1) == TIMERR_NOERROR;
+
     Win32WindowContext mainWindowContext = {};
 
     HRESULT hr = 0;
@@ -392,7 +433,7 @@ WinMain(_In_ HINSTANCE hInstance,
     HDC windowDeviceContext = GetDC(hMainWindow);   // CS_OWNDC allows us to get this just once...
 
     Win32LoadXinput();
-    win32_dimensions startDim = Win32GetWindowDimensions(hMainWindow);
+    Win32Dimensions startDim = Win32GetWindowDimensions(hMainWindow);
     Win32ResizeBackBuffer(mainWindowContext.graphics, startDim.width, startDim.height);
 
     Win32AudioContext audio = {};
@@ -406,16 +447,18 @@ WinMain(_In_ HINSTANCE hInstance,
     
     // pre-load the audio buffer with some sound data
 
-    LARGE_INTEGER frequency;
-    LARGE_INTEGER currentTicks = {};
-    real32 elapsedSeconds = 0.0f;
-
-    QueryPerformanceFrequency(&frequency);
-    QueryPerformanceCounter(&currentTicks);
+    // TODO(james): pull the refresh rate from the monitor
+    int targetRefreshRateHz = 60;
+    real32 targetFrameRateSeconds = 1.0f / targetRefreshRateHz;
+    uint64 frameCounter = 0;
+    Win32Clock frameCounterTime = Win32GetWallClock();
+    Win32Clock lastFrameStartTime = Win32GetWallClock();
 
     MSG msg;
-    while(g_Running)
+    while(GlobalRunning)
     {
+        
+
         InputController keyboard = {};
         keyboard.isConnected = true;
         keyboard.isAnalog = false;
@@ -426,7 +469,7 @@ WinMain(_In_ HINSTANCE hInstance,
             {
                 case WM_QUIT:
                 {
-                    g_Running = false;
+                    GlobalRunning = false;
                 } break;
                 case WM_SYSKEYDOWN:
                 case WM_SYSKEYUP:
@@ -485,13 +528,13 @@ WinMain(_In_ HINSTANCE hInstance,
                             } break;
                             case VK_ESCAPE:
                             {
-                                g_Running = false;
+                                GlobalRunning = false;
                             } break;
                             case VK_F4:
                             {
                                 if(altDownFlag)
                                 {
-                                    g_Running = false;
+                                    GlobalRunning = false;
                                 }
                             } break;
                         }
@@ -557,7 +600,32 @@ WinMain(_In_ HINSTANCE hInstance,
             }
         }
 
-        GameUpdateAndRender(elapsedSeconds, mainWindowContext.graphics, input, audio.gameAudioBuffer);
+        GameUpdateAndRender(targetFrameRateSeconds, mainWindowContext.graphics, input, audio.gameAudioBuffer);
+        
+        Win32Clock gameSimTime = Win32GetWallClock();
+        real32 elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime, gameSimTime);
+
+        if(elapsedFrameTime < targetFrameRateSeconds)
+        {
+            while(elapsedFrameTime < (targetFrameRateSeconds))
+            {
+                if(bSleepIsMs)
+                {
+                    // truncate to whole milliseconds
+                    DWORD dwSleepTimeMS = (DWORD)((targetFrameRateSeconds - elapsedFrameTime) * 1000.0f);
+                    Sleep(dwSleepTimeMS);
+                }
+                elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime);
+            }
+        }
+        else
+        {
+            // oops... we missed our frametime limit here...
+            // TODO(james): log this out
+        }
+
+        lastFrameStartTime = Win32GetWallClock();
+        
         Win32CopyAudioBuffer(audio);
 
         for(uint32 gamepadIndex = 1; gamepadIndex < 5; ++gamepadIndex)
@@ -572,12 +640,20 @@ WinMain(_In_ HINSTANCE hInstance,
             }
         }
         
-        win32_dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
+        Win32Dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
         Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindowContext.graphics);
 
-        uint64 startTicks = currentTicks.QuadPart;
-        QueryPerformanceCounter(&currentTicks);
-        elapsedSeconds = (real32)(currentTicks.QuadPart - startTicks) / (real32)frequency.QuadPart;
+        real32 frameCounterElapsed = Win32GetElapsedTime(frameCounterTime);
+        if(frameCounterElapsed >= 1)
+        {
+            real32 frameRate = frameCounter / frameCounterElapsed;
+            char szTitle[256];
+            sprintf_s(szTitle, "Project Super - %.02f fps", frameRate);
+            SetWindowTextA(hMainWindow, szTitle);
+            frameCounterTime = Win32GetWallClock();
+            frameCounter = 0;
+        }
+        ++frameCounter;
     }
 
     SAFE_RELEASE(audio.pEnumerator);
