@@ -102,7 +102,8 @@ struct AudioContext
 {
     uint32 samplesPerSecond;
     uint32 bufferSize;
-    uint32 bufferBytesFilled;
+    uint32 samplesWritten;
+    uint32 samplesRequested;   // 
     // uint16 numChannels;
     // uint16 bitsPerSample;
     // uint16 blockAlignment;

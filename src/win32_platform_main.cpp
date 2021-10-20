@@ -24,6 +24,8 @@ struct Win32AudioContext
     IAudioClient* pClient;
     IAudioRenderClient* pRenderClient;
     AudioContext gameAudioBuffer;
+
+    uint32 targetBufferFill;
 };
 
 struct Win32Clock
@@ -64,7 +66,7 @@ global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
 #define XInputSetState XInputSetState_
 
 
-#define REF_MILLI(milli) ((milli) * 10000)
+#define REF_MILLI(milli) ((REFERENCE_TIME)((milli) * 10000))
 #define REF_SECONDS(seconds) (REF_MILLI(seconds) * 1000)
 
 #define SAFE_RELEASE(punk)  \
@@ -111,27 +113,14 @@ internal void
 Win32InitSoundDevice(Win32AudioContext& audio)
 {
     // TODO(james): Enumerate available sound devices and/or output formats
-    const uint32 samplesPerSecond = 44100;
+    const uint32 samplesPerSecond = 48000;
     const uint16 nNumChannels = 2;
     const uint16 nNumBitsPerSample = 16;
-
-    // setup the game audio buffer
-
-    audio.gameAudioBuffer.samplesPerSecond = samplesPerSecond;
-    audio.gameAudioBuffer.bufferSize = 44100 * 4; 
-    audio.gameAudioBuffer.buffer = VirtualAlloc(0, audio.gameAudioBuffer.bufferSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-
-    // now reset the buffer
-    uint8* pBuffer = (uint8*)audio.gameAudioBuffer.buffer;
-    for(uint32 i = 0; i < audio.gameAudioBuffer.bufferSize; ++i)
-    {   
-        *pBuffer++ = 0;
-    }
 
     // now acquire access to the audio hardware
 
     // buffer size is expressed in terms of duration (presumably calced against the sample rate etc..)
-    REFERENCE_TIME bufferTime = REF_SECONDS(1/60);
+    REFERENCE_TIME bufferTime = REF_SECONDS(1.5/60.0);
 
     HRESULT hr = 0;
 
@@ -156,8 +145,18 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     wave_format.nAvgBytesPerSec = samplesPerSecond * wave_format.nBlockAlign;    
     wave_format.wBitsPerSample = nNumBitsPerSample;
 
+    REFERENCE_TIME defLatency = 0;
+    REFERENCE_TIME minLatency = 0;
+    hr = audio.pClient->GetDevicePeriod(&defLatency, &minLatency);
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+    char szOut[256];
+    _snprintf_s(szOut, 256, "Audio Caps\n\tDefault Period: %.02f ms\n\tMinimum Period: %.02f ms\n\tRequested Period: %.02f ms\n", defLatency/10000.0f, minLatency/10000.0f, bufferTime/10000.0f);
+    OutputDebugStringA(szOut);
+
     hr = audio.pClient->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, &wave_format, 0);  // can't have a closest format in exclusive mode
     if(FAILED(hr)) { /* TODO(james): log error */ return; }
+    
 
     hr = audio.pClient->Initialize(
             AUDCLNT_SHAREMODE_EXCLUSIVE, 0,
@@ -180,6 +179,12 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     }
     if(FAILED(hr)) { /* TODO(james): log error */ return; }
 
+    REFERENCE_TIME maxLatency = 0;
+    hr = audio.pClient->GetStreamLatency(&maxLatency);
+    if(FAILED(hr)) { /* TODO(james): log error */ return; }
+    char szMaxLatency[256];
+    _snprintf_s(szMaxLatency, 256, "\tMax Latency: %.02f ms\n", maxLatency/10000.0f);
+    OutputDebugStringA(szMaxLatency);
     // Create an event handle to signal Windows that we've got a
     // new audio buffer available
     // HANDLE hEvent = CreateEvent(NULL, FALSE, FALSE, NULL);  // probably should be global
@@ -193,17 +198,62 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     hr = audio.pClient->GetBufferSize(&nBufferFrameCount);
     if(FAILED(hr)) { /* TODO(james): log error */ return; }
 
+    audio.targetBufferFill = nBufferFrameCount/2;   // since we doubled the frame size, aim to keep the buffer half full
+
     hr = audio.pClient->GetService(IID_IAudioRenderClient, (void**)&audio.pRenderClient);
     if(FAILED(hr)) { /* TODO(james): log error */ return; }
+
+        // setup the game audio buffer
+
+    audio.gameAudioBuffer.samplesPerSecond = samplesPerSecond;
+    audio.gameAudioBuffer.bufferSize = nBufferFrameCount * 4; // buffer size here is only as big as the buffer size of the main audio buffer
+    audio.gameAudioBuffer.samplesRequested = audio.targetBufferFill; // request a full buffer initially
+    audio.gameAudioBuffer.buffer = VirtualAlloc(0, audio.gameAudioBuffer.bufferSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
+    // now reset the buffer
+    {
+        uint8* pBuffer = (uint8*)audio.gameAudioBuffer.buffer;
+        for(uint32 i = 0; i < audio.gameAudioBuffer.bufferSize; ++i)
+        {   
+            *pBuffer++ = 0;
+        }
+    }
+
+    // flush the initial buffer
+    // BYTE* pBuffer = 0;
+    // hr = audio.pRenderClient->GetBuffer(nBufferFrameCount, &pBuffer);
+    // if(SUCCEEDED(hr))
+    // {
+    //     memset(pBuffer, 0, nBufferFrameCount*4);
+    //     audio.pRenderClient->ReleaseBuffer(nBufferFrameCount, 0);
+    // }
 }
 
 internal void
-Win32CopyAudioBuffer(Win32AudioContext& audio)
+Win32CopyAudioBuffer(Win32AudioContext& audio, float fFrameTimeStep)
 {
     HRESULT hr = 0;
 
+    UINT32 curPadding = 0;
+    audio.pClient->GetCurrentPadding(&curPadding);
+    real32 curAudioLatencyMS = (real32)curPadding/(real32)audio.gameAudioBuffer.samplesPerSecond * 1000.0f;
+
     BYTE* pBuffer = 0;
-    uint32 numSamples = audio.gameAudioBuffer.bufferBytesFilled/4;
+    uint32 numSamples = audio.gameAudioBuffer.samplesWritten;
+    int32 maxAvailableBuffer = audio.targetBufferFill - curPadding;
+
+    char szOut[256];
+    _snprintf_s(szOut, 256, "Cur Latency: %.02f ms\tAvail. Buffer: %d\tPadding: %d\tWrite Frame Samples: %d\n", curAudioLatencyMS, maxAvailableBuffer, curPadding, numSamples);
+    OutputDebugStringA(szOut);
+
+    //ASSERT(numSamples <= maxAvailableBuffer);
+    // update the number of samples requested from the next frame
+    // based on the amount of available buffer space and the current
+    // frame rate
+    audio.gameAudioBuffer.samplesRequested = 
+        (uint32)(fFrameTimeStep * audio.gameAudioBuffer.samplesPerSecond)
+        + (maxAvailableBuffer - numSamples);
+
     hr = audio.pRenderClient->GetBuffer(numSamples, &pBuffer);
     if(SUCCEEDED(hr))
     {
@@ -432,6 +482,10 @@ WinMain(_In_ HINSTANCE hInstance,
 
     HDC windowDeviceContext = GetDC(hMainWindow);   // CS_OWNDC allows us to get this just once...
 
+    // TODO(james): pull the refresh rate from the monitor
+    int targetRefreshRateHz = 60;
+    real32 targetFrameRateSeconds = 1.0f / targetRefreshRateHz;
+
     Win32LoadXinput();
     Win32Dimensions startDim = Win32GetWindowDimensions(hMainWindow);
     Win32ResizeBackBuffer(mainWindowContext.graphics, startDim.width, startDim.height);
@@ -439,17 +493,15 @@ WinMain(_In_ HINSTANCE hInstance,
     Win32AudioContext audio = {};
     Win32InitSoundDevice(audio);
     hr = audio.pClient->Reset();
-    audio.gameAudioBuffer.bufferBytesFilled = 1024;
-    Win32CopyAudioBuffer(audio);
+    // 
+    //audio.gameAudioBuffer.bufferBytesFilled = (1024+256)*4;
+    //Win32CopyAudioBuffer(audio);
     hr = audio.pClient->Start();
 
     InputContext input = {};
     
     // pre-load the audio buffer with some sound data
 
-    // TODO(james): pull the refresh rate from the monitor
-    int targetRefreshRateHz = 60;
-    real32 targetFrameRateSeconds = 1.0f / targetRefreshRateHz;
     uint64 frameCounter = 0;
     Win32Clock frameCounterTime = Win32GetWallClock();
     Win32Clock lastFrameStartTime = Win32GetWallClock();
@@ -626,8 +678,6 @@ WinMain(_In_ HINSTANCE hInstance,
 
         lastFrameStartTime = Win32GetWallClock();
         
-        Win32CopyAudioBuffer(audio);
-
         for(uint32 gamepadIndex = 1; gamepadIndex < 5; ++gamepadIndex)
         {
             InputController& gamepad = input.controllers[gamepadIndex];
@@ -639,6 +689,8 @@ WinMain(_In_ HINSTANCE hInstance,
                 XInputSetState(gamepadIndex-1, &vibration);
             }
         }
+
+        Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
         
         Win32Dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
         Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindowContext.graphics);

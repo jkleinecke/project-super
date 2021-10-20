@@ -22,21 +22,21 @@ RenderGradient(const GraphicsContext& graphics, int blueOffset, int greenOffset)
 }
 
 internal void
-FillSoundBuffer(AudioContext& audio, real32 fTimeStep, uint16 toneHz)
+FillSoundBuffer(AudioContext& audio, real32 fTimeStep, real32 toneHz)
 {
-    //fTimeStep += 1/60.0f;
+    fTimeStep *= 1.0f;
 
-    uint32 samplesPerPeriod = audio.samplesPerSecond / toneHz;
+    real32 samplesPerPeriod = audio.samplesPerSecond / toneHz;
     uint16 toneVolume = 1000;
 
     // convert the timestep to the number of samples we need to render
     //   samples = 2 channels of 16 bit audio
     //   LEFT RIGHT | LEFT RIGHT | LEFT RIGHT | ...
-    uint32 numRenderSamples = (uint32)(fTimeStep * audio.samplesPerSecond);
-    numRenderSamples += (numRenderSamples % 2); 
+    uint32 numRenderSamples = audio.samplesRequested;
+    //uint32 numSamplesOverfilled = (uint32)((fTimeStep * 0.1f) * audio.samplesPerSecond);
 
     ASSERT(audio.bufferSize >= numRenderSamples * 4);
-    audio.bufferBytesFilled = numRenderSamples * 4;
+    audio.samplesWritten = numRenderSamples;    
     
     local_persist real32 tSine;
     
@@ -51,7 +51,7 @@ FillSoundBuffer(AudioContext& audio, real32 fTimeStep, uint16 toneHz)
         *SampleOut++ = SampleValue;
         *SampleOut++ = SampleValue;
 
-        tSine += 2.0f*Pi32*1.0f/(real32)samplesPerPeriod;
+        tSine += 2.0f*Pi32*1.0f/samplesPerPeriod;
     }
 }
 
@@ -60,7 +60,7 @@ GameUpdateAndRender(float fTimeStep, GraphicsContext& graphics, InputContext& in
 {
     local_persist int x_offset = 0;
     local_persist int y_offset = 0;
-    local_persist uint16 toneHz = 262;
+    local_persist real32 toneHz = 278.4375f;
 
     for(int controllerIndex = 0; controllerIndex < 5; ++controllerIndex)
     {
@@ -74,7 +74,7 @@ GameUpdateAndRender(float fTimeStep, GraphicsContext& graphics, InputContext& in
                 y_offset += (int)(controller.leftStick.y * 5.0f);
 
                 // frequency range of 80Hz -> 1200Hz
-                toneHz = (uint16)(640 + (controller.rightStick.y * 560.0f));
+                toneHz = 80.0f + (560.0f + (controller.rightStick.y * 560.0f));
             }
 
             if(controller.left.pressed)
