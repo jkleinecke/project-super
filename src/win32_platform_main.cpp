@@ -257,8 +257,6 @@ Win32CopyAudioBuffer(Win32AudioContext& audio, float fFrameTimeStep)
     hr = audio.pRenderClient->GetBuffer(numSamples, &pBuffer);
     if(SUCCEEDED(hr))
     {
-        local_persist real32 tSine;
-        
         // copy data to buffer
         int16 *SampleOut = (int16*)pBuffer;
         int16 *SampleIn = (int16*)audio.gameAudioBuffer.buffer;
@@ -397,7 +395,7 @@ Win32WindowProc(
     return retValue;
 }
 
-internal void
+inline internal void
 Win32ProcessKeyboardButton(InputButton& newState, const InputButton& oldState, bool pressed)
 {
     newState.pressed = pressed;
@@ -415,8 +413,6 @@ Win32ProcessGamepadStick(Thumbstick& stick, SHORT x, SHORT y, const SHORT deadzo
     // determine direction
     real32 normalizedLX = fX / magnitude;
     real32 normalizedLY = fY / magnitude;
-    //real32 normalizedRX = RX / magR;
-    //real32 normalizedRY = RY / magR;
 
     if(magnitude > deadzone)
     {
@@ -436,7 +432,6 @@ Win32ProcessGamepadStick(Thumbstick& stick, SHORT x, SHORT y, const SHORT deadzo
         stick.x = 0;
         stick.y = 0;
     }
-
 }
 
 int CALLBACK
@@ -446,6 +441,31 @@ WinMain(_In_ HINSTANCE hInstance,
     _In_ int nShowCmd)
 {
     Win32InitClockFrequency();
+
+    GameContext gameContext = {};
+    gameContext.persistantMemory.size = Megabytes(64);
+    gameContext.transientMemory.size = Gigabytes(4);
+    LPVOID baseAddress = 0;
+#ifdef PROJECTSUPER_INTERNAL
+    baseAddress = (LPVOID)Terabytes(2);
+#endif
+    // TODO(james): include some extra memory for some fences to check for memory overwrites
+    uint64 memorySize = gameContext.persistantMemory.size + gameContext.transientMemory.size;
+    uint8* memory = (uint8*)VirtualAlloc(baseAddress, memorySize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+
+    if(!memory)
+    {
+        // failed to allocate enough memory for the game... might as well quit now
+        // TODO(james): Log the reason...
+        return 0x80000000;
+    }
+
+    gameContext.persistantMemory.basePointer = memory;
+    gameContext.persistantMemory.freePointer = memory;
+    memory += gameContext.persistantMemory.size;
+    gameContext.transientMemory.basePointer = memory;
+    gameContext.transientMemory.freePointer = memory;
+    
 
     // NOTE(james): Set the windows scheduler granularity to 1ms so that our sleep can be more granular
     bool32 bSleepIsMs = timeBeginPeriod(1) == TIMERR_NOERROR;
@@ -493,16 +513,11 @@ WinMain(_In_ HINSTANCE hInstance,
     Win32AudioContext audio = {};
     Win32InitSoundDevice(audio);
     hr = audio.pClient->Reset();
-    // 
-    //audio.gameAudioBuffer.bufferBytesFilled = (1024+256)*4;
-    //Win32CopyAudioBuffer(audio);
     hr = audio.pClient->Start();
 
     InputContext input = {};
     
-    // pre-load the audio buffer with some sound data
-
-    uint64 frameCounter = 0;
+ 
     Win32Clock frameCounterTime = Win32GetWallClock();
     Win32Clock lastFrameStartTime = Win32GetWallClock();
 
@@ -652,7 +667,7 @@ WinMain(_In_ HINSTANCE hInstance,
             }
         }
 
-        GameUpdateAndRender(targetFrameRateSeconds, mainWindowContext.graphics, input, audio.gameAudioBuffer);
+        GameUpdateAndRender(gameContext, mainWindowContext.graphics, input, audio.gameAudioBuffer);
         
         Win32Clock gameSimTime = Win32GetWallClock();
         real32 elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime, gameSimTime);
@@ -675,7 +690,7 @@ WinMain(_In_ HINSTANCE hInstance,
             // oops... we missed our frametime limit here...
             // TODO(james): log this out
         }
-
+        gameContext.clock.elapsedFrameTime = elapsedFrameTime;
         lastFrameStartTime = Win32GetWallClock();
         
         for(uint32 gamepadIndex = 1; gamepadIndex < 5; ++gamepadIndex)
@@ -695,17 +710,8 @@ WinMain(_In_ HINSTANCE hInstance,
         Win32Dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
         Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindowContext.graphics);
 
-        real32 frameCounterElapsed = Win32GetElapsedTime(frameCounterTime);
-        if(frameCounterElapsed >= 1)
-        {
-            real32 frameRate = frameCounter / frameCounterElapsed;
-            char szTitle[256];
-            sprintf_s(szTitle, "Project Super - %.02f fps", frameRate);
-            SetWindowTextA(hMainWindow, szTitle);
-            frameCounterTime = Win32GetWallClock();
-            frameCounter = 0;
-        }
-        ++frameCounter;
+
+        ++gameContext.clock.frameCounter;
     }
 
     SAFE_RELEASE(audio.pEnumerator);

@@ -20,7 +20,7 @@ typedef uint64_t uint64;
 typedef float   real32;
 typedef double  real64;
 
-typedef int32 bool32;
+typedef int32   bool32;
 
 //===================== Standard Defines =============================
 #define Pi32 3.14159265359f
@@ -36,12 +36,38 @@ typedef int32 bool32;
 #define ASSERT(cond)
 #endif
 
+#define Kilobytes(n) ((n) * 1024LL)
+#define Megabytes(n) (Kilobytes(n) * 1024LL)
+#define Gigabytes(n) (Megabytes(n) * 1024LL)
+#define Terabytes(n) (Gigabytes(n) * 1024LL)
+
 //===================== PLATFORM API =================================
 
 
 
 
 //===================== GAME API =====================================
+
+struct GameClock
+{
+    uint64 frameCounter;
+    real32 elapsedFrameTime;  // seconds since the last frame
+};
+
+struct GameMemory
+{
+    uint64 size;
+    void* basePointer;
+    void* freePointer;
+};
+
+struct GameContext
+{
+    GameClock clock;
+
+    GameMemory persistantMemory;
+    GameMemory transientMemory;
+};
 
 struct Thumbstick
 {
@@ -103,10 +129,7 @@ struct AudioContext
     uint32 samplesPerSecond;
     uint32 bufferSize;
     uint32 samplesWritten;
-    uint32 samplesRequested;   // 
-    // uint16 numChannels;
-    // uint16 bitsPerSample;
-    // uint16 blockAlignment;
+    uint32 samplesRequested;  
     void* buffer;
 };
 
@@ -125,7 +148,7 @@ struct GraphicsContext
     void* buffer;
 };
 
-internal void GameUpdateAndRender(real32 fTimeStep, GraphicsContext& graphics, InputContext& input, AudioContext& audio);
+internal void GameUpdateAndRender(GameContext& gameContext, GraphicsContext& graphics, InputContext& input, AudioContext& audio);
 
 
 #endif
