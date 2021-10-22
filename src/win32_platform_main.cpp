@@ -1,43 +1,12 @@
 
-
-//#include "project_super.h"
-#include "project_super.cpp"
-
 #include <windows.h>
-#include <Xinput.h>
-#include <Audioclient.h>
-#include <mmdeviceapi.h>
-
 #include <stdio.h>
 #include <math.h>   // for sqrt()
 
-struct Win32WindowContext
-{
-    HWND hWindow;
-    GraphicsContext graphics;
-};
+#include <Xinput.h>
+#include "win32_platform_main.h"
 
-struct Win32AudioContext
-{
-    IMMDeviceEnumerator* pEnumerator;
-    IMMDevice* pDevice;
-    IAudioClient* pClient;
-    IAudioRenderClient* pRenderClient;
-    AudioContext gameAudioBuffer;
-
-    uint32 targetBufferFill;
-};
-
-struct Win32Clock
-{
-    int64 counter;
-};
-
-struct Win32Dimensions
-{
-    uint32 width;
-    uint32 height;
-};
+GAME_UPDATE_AND_RENDER(GameUpdateAndRenderStub) {}
 
 global_variable bool GlobalRunning = true;
 global_variable int64 GlobalFrequency;
@@ -434,6 +403,56 @@ Win32ProcessGamepadStick(Thumbstick& stick, SHORT x, SHORT y, const SHORT deadzo
     }
 }
 
+internal FILETIME
+Win32GetFileWriteTime(const char* szFilename)
+{
+    FILETIME ft = {};
+
+    HANDLE hFile = CreateFileA(szFilename, 0, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
+    if(hFile != INVALID_HANDLE_VALUE)
+    {
+        GetFileTime(hFile, 0, 0, &ft);
+        CloseHandle(hFile);
+    }
+
+    return ft;
+}
+
+internal void
+Win32LoadGameCode(Win32GameCode& gameCode)
+{
+    const char* szGameCodeLibrary = "project_super.dll";
+    const char* szTempCodeLibrary = "temp_project_super.dll";
+
+    gameCode.ftLastFileWriteTime = Win32GetFileWriteTime(szGameCodeLibrary);
+    CopyFileA(szGameCodeLibrary, szTempCodeLibrary, FALSE);
+    gameCode.hLibrary = LoadLibraryA(szTempCodeLibrary);
+    if(gameCode.hLibrary)
+    {
+        gameCode.GameUpdateAndRender = (game_update_and_render*)GetProcAddress(gameCode.hLibrary, "GameUpdateAndRender");
+        gameCode.isValid = gameCode.GameUpdateAndRender != 0;
+    }
+    else
+    {
+        gameCode.isValid = false;
+    }
+
+    if(!gameCode.isValid)
+    {
+        gameCode.GameUpdateAndRender = &GameUpdateAndRenderStub;
+    }
+}
+
+internal void
+Win32UnloadGameCode(Win32GameCode& gameCode)
+{
+    gameCode.GameUpdateAndRender = &GameUpdateAndRenderStub;
+    gameCode.isValid = false;
+    FreeLibrary(gameCode.hLibrary);
+    gameCode.hLibrary = 0;
+    gameCode.ftLastFileWriteTime = {};
+}
+
 int CALLBACK
 WinMain(_In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE hPrevInstance,
@@ -516,15 +535,23 @@ WinMain(_In_ HINSTANCE hInstance,
     hr = audio.pClient->Start();
 
     InputContext input = {};
-    
- 
+     
     Win32Clock frameCounterTime = Win32GetWallClock();
     Win32Clock lastFrameStartTime = Win32GetWallClock();
+
+    const char* szGameCodeFile = "project_super.dll";
+    Win32GameCode gameCode = {};
+    Win32LoadGameCode(gameCode);
 
     MSG msg;
     while(GlobalRunning)
     {
-        
+        FILETIME ftLastWriteTime = Win32GetFileWriteTime(szGameCodeFile);
+        if(CompareFileTime(&ftLastWriteTime, &gameCode.ftLastFileWriteTime) != 0)
+        {
+            Win32UnloadGameCode(gameCode);
+            Win32LoadGameCode(gameCode);
+        }
 
         InputController keyboard = {};
         keyboard.isConnected = true;
@@ -667,7 +694,7 @@ WinMain(_In_ HINSTANCE hInstance,
             }
         }
 
-        GameUpdateAndRender(gameContext, mainWindowContext.graphics, input, audio.gameAudioBuffer);
+        gameCode.GameUpdateAndRender(gameContext, mainWindowContext.graphics, input, audio.gameAudioBuffer);
         
         Win32Clock gameSimTime = Win32GetWallClock();
         real32 elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime, gameSimTime);

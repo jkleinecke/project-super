@@ -148,7 +148,10 @@ struct GraphicsContext
     void* buffer;
 };
 
-internal void GameUpdateAndRender(GameContext& gameContext, GraphicsContext& graphics, InputContext& input, AudioContext& audio);
+#define GAME_UPDATE_AND_RENDER(name) void name(GameContext& gameContext, GraphicsContext& graphics, InputContext& input, AudioContext& audio)
+typedef GAME_UPDATE_AND_RENDER(game_update_and_render);
+
+
 
 
 #endif

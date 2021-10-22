@@ -60,8 +60,8 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState)
     }
 }
 
-internal void
-GameUpdateAndRender(GameContext& gameContext, GraphicsContext& graphics, InputContext& input, AudioContext& audio)
+extern "C"
+GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
     // TODO(james): needs a better allocation scheme 
     GameTestState& gameState = (GameTestState&)gameContext.persistantMemory.basePointer;
@@ -91,6 +91,10 @@ GameUpdateAndRender(GameContext& gameContext, GraphicsContext& graphics, InputCo
                 const real32 max = 278.0f;
                 const real32 halfMagnitude = (max - min)/2.0f;
                 gameState.toneHz = min + halfMagnitude + controller.rightStick.y * halfMagnitude;
+            }
+            else
+            {
+                gameState.toneHz = 264.0f;
             }
 
             if(controller.left.pressed)

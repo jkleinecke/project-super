@@ -9,8 +9,10 @@ set LinkerFlags=user32.lib gdi32.lib Ole32.lib winmm.lib
 
 IF NOT EXIST build mkdir build
 pushd build
-
-cl %CompilerDefines% %CompilerFlags% ..\src\win32_platform_main.cpp %LinkerFlags%
+del *.pdb > NUL 2> NUL
+del temp_project_super.dll > NUL 2> NUL 
+cl %CompilerDefines% %CompilerFlags% ..\src\project_super.cpp /LD /link -incremental:no -opt:ref -PDB:project_super_%random%.pdb /DLL /EXPORT:GameUpdateAndRender
+cl %CompilerDefines% %CompilerFlags% ..\src\win32_platform_main.cpp /link -incremental:no %LinkerFlags%
 set LastError=%ERRORLEVEL%
 
 popd
