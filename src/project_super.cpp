@@ -38,7 +38,7 @@ FillSoundBuffer(AudioContext& audio, real32 fTimeStep, real32 toneHz)
     ASSERT(audio.bufferSize >= numRenderSamples * 4);
     audio.samplesWritten = numRenderSamples;    
     
-    local_persist real32 tSine;
+    local_persist real64 tSine;
     
     // copy data to buffer
     int16 *SampleOut = (int16*)audio.buffer;
@@ -46,12 +46,12 @@ FillSoundBuffer(AudioContext& audio, real32 fTimeStep, real32 toneHz)
         sampleIndex < numRenderSamples;
         ++sampleIndex)
     {
-        real32 SineValue = sinf(tSine);
+        real64 SineValue = sin(tSine);
         int16 SampleValue = (int16)(SineValue * toneVolume);
         *SampleOut++ = SampleValue;
         *SampleOut++ = SampleValue;
 
-        tSine += 2.0f*Pi32*1.0f/samplesPerPeriod;
+        tSine += 2.0*Pi32*1.0/samplesPerPeriod;
     }
 }
 
@@ -60,7 +60,7 @@ GameUpdateAndRender(float fTimeStep, GraphicsContext& graphics, InputContext& in
 {
     local_persist int x_offset = 0;
     local_persist int y_offset = 0;
-    local_persist real32 toneHz = 278.4375f;
+    local_persist real32 toneHz = 264.0f;
 
     for(int controllerIndex = 0; controllerIndex < 5; ++controllerIndex)
     {
@@ -74,7 +74,10 @@ GameUpdateAndRender(float fTimeStep, GraphicsContext& graphics, InputContext& in
                 y_offset += (int)(controller.leftStick.y * 5.0f);
 
                 // frequency range of 80Hz -> 1200Hz
-                toneHz = 80.0f + (560.0f + (controller.rightStick.y * 560.0f));
+                const real32 min = 250.0f;
+                const real32 max = 278.0f;
+                const real32 halfMagnitude = (max - min)/2.0f;
+                toneHz = min + halfMagnitude + controller.rightStick.y * halfMagnitude;
             }
 
             if(controller.left.pressed)
