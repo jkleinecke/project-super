@@ -1,4 +1,6 @@
-
+#pragma once
+#ifndef WIN32_LOG_HPP_INCLUDED
+#define WIN32_LOG_HPP_INCLUDED
 #include <stdio.h>
 #include "win32_platform.h"
 
@@ -28,3 +30,5 @@ Win32Log(const char* file, int lineno, const char* format, ...)
     // TODO(james): use console and/or log file
     OutputDebugStringA(logLine);
 }
+
+#endif

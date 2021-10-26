@@ -9,7 +9,7 @@ REM -analyze
 set CompilerDefines=-DPROJECTSUPER_INTERNAL=1 -DPROJECTSUPER_SLOW=1 -DPROJECTSUPER_WIN32=1
 REM set CompilerDefines=-DPROJECTSUPER_INTERNAL=0 -DPROJECTSUPER_SLOW=0 -DPROJECTSUPER_WIN32=1
 
-set CompilerFlags=%CompilerDefines% %DebugFlags% -nologo -GR- -EHa- -WX -W4 -wd4100 -wd4201 -FC -Zi 
+set CompilerFlags=%CompilerDefines% %DebugFlags% -nologo -GR- -EHa- -WX -W4 -wd4100 -wd4201 -wd4505 -FC -Zi 
 REM set CompilerFlags=%ReleaseFlags% -nologo -GR- -EHa- -WX -W4 -wd4100 -wd4201 -FC -Zi 
 
 set LinkerFlags=-incremental:no -opt:ref

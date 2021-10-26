@@ -8,34 +8,14 @@
 
 #include "win32_log.hpp"
 #include "win32_audio.hpp"
+#include "win32_xinput.hpp"
+#include "win32_file.hpp"
 
 GAME_UPDATE_AND_RENDER(GameUpdateAndRenderStub) {}
 
 global_variable bool GlobalRunning = true;
 global_variable int64 GlobalFrequency;
 
-#define XINPUT_LEFT_THUMB_DEADZONE 7849
-#define XINPUT_RIGHT_THUMB_DEADZONE 8689
-#define XINPUT_TRIGGER_THRESHOLD 30
-
-#define X_INPUT_GET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_STATE *pState)
-typedef X_INPUT_GET_STATE(x_input_get_state);
-X_INPUT_GET_STATE(XInputGetStateStub)
-{
-    return(ERROR_DEVICE_NOT_CONNECTED);
-}
-global_variable x_input_get_state *XInputGetState_ = XInputGetStateStub;
-#define XInputGetState XInputGetState_
-
-// NOTE(casey): XInputSetState
-#define X_INPUT_SET_STATE(name) DWORD WINAPI name(DWORD dwUserIndex, XINPUT_VIBRATION *pVibration)
-typedef X_INPUT_SET_STATE(x_input_set_state);
-X_INPUT_SET_STATE(XInputSetStateStub)
-{
-    return(ERROR_DEVICE_NOT_CONNECTED);
-}
-global_variable x_input_set_state *XInputSetState_ = XInputSetStateStub;
-#define XInputSetState XInputSetState_
 
 inline internal void
 Win32InitClockFrequency()
@@ -69,27 +49,9 @@ Win32GetElapsedTime(Win32Clock& start, Win32Clock& end)
 }
 
 
-internal void
-Win32LoadXinput()
-{
-    HMODULE hXinputLibrary = LoadLibraryA("xinput1_4.dll");
-
-    if(hXinputLibrary)
-    {
-        XInputGetState = (x_input_get_state *)GetProcAddress(hXinputLibrary, "XInputGetState");
-        if(!XInputGetState) {XInputGetState = XInputGetStateStub;}
-
-        XInputSetState = (x_input_set_state *)GetProcAddress(hXinputLibrary, "XInputSetState");
-        if(!XInputSetState) {XInputSetState = XInputSetStateStub;}
-    }
-    else
-    {
-        // TODO(james): Diagnostic
-    }
-}
 
 
-internal Win32Dimensions
+inline internal Win32Dimensions
 Win32GetWindowDimensions(HWND hWnd)
 {
     Win32Dimensions result;
@@ -194,87 +156,6 @@ Win32ProcessKeyboardButton(InputButton& newState, const InputButton& oldState, b
     newState.transitions = oldState.pressed == pressed ? 0 : 1; // only transitioned if the new state doesn't match the old
 }
 
-internal void
-Win32ProcessGamepadStick(Thumbstick& stick, SHORT x, SHORT y, const SHORT deadzone)
-{
-    real32 fX = (real32)x;
-    real32 fY = (real32)y;
-    // determine magnitude
-    real32 magnitude = sqrtf(fX*fX + fY*fY);
-    
-    // determine direction
-    real32 normalizedLX = fX / magnitude;
-    real32 normalizedLY = fY / magnitude;
-
-    if(magnitude > deadzone)
-    {
-        // clip the magnitude
-        if(magnitude > 32767) magnitude = 32767;
-        // adjust for deadzone
-        magnitude -= XINPUT_LEFT_THUMB_DEADZONE;
-        // normalize the magnitude with respect for the deadzone
-        real32 normalizedMagnitude = magnitude / (32767 - XINPUT_LEFT_THUMB_DEADZONE);
-
-        // produces values between 0..1 with respect to the deadzone
-        stick.x = normalizedLX * normalizedMagnitude; 
-        stick.y = normalizedLY * normalizedMagnitude;
-    }
-    else
-    {
-        stick.x = 0;
-        stick.y = 0;
-    }
-}
-
-internal FILETIME
-Win32GetFileWriteTime(const char* szFilename)
-{
-    FILETIME ft = {};
-
-    HANDLE hFile = CreateFileA(szFilename, 0, FILE_SHARE_READ, 0, OPEN_EXISTING, 0, 0);
-    if(hFile != INVALID_HANDLE_VALUE)
-    {
-        GetFileTime(hFile, 0, 0, &ft);
-        CloseHandle(hFile);
-    }
-
-    return ft;
-}
-
-internal void
-Win32LoadGameCode(Win32GameCode& gameCode)
-{
-    const char* szGameCodeLibrary = "ps_game.dll";
-    const char* szTempCodeLibrary = "temp_ps_game.dll";
-
-    gameCode.ftLastFileWriteTime = Win32GetFileWriteTime(szGameCodeLibrary);
-    CopyFileA(szGameCodeLibrary, szTempCodeLibrary, FALSE);
-    gameCode.hLibrary = LoadLibraryA(szTempCodeLibrary);
-    if(gameCode.hLibrary)
-    {
-        gameCode.GameUpdateAndRender = (game_update_and_render*)GetProcAddress(gameCode.hLibrary, "GameUpdateAndRender");
-        gameCode.isValid = gameCode.GameUpdateAndRender != 0;
-    }
-    else
-    {
-        gameCode.isValid = false;
-    }
-
-    if(!gameCode.isValid)
-    {
-        gameCode.GameUpdateAndRender = &GameUpdateAndRenderStub;
-    }
-}
-
-internal void
-Win32UnloadGameCode(Win32GameCode& gameCode)
-{
-    gameCode.GameUpdateAndRender = &GameUpdateAndRenderStub;
-    gameCode.isValid = false;
-    FreeLibrary(gameCode.hLibrary);
-    gameCode.hLibrary = 0;
-    gameCode.ftLastFileWriteTime = {};
-}
 
 int CALLBACK
 WinMain(_In_ HINSTANCE hInstance,
@@ -283,6 +164,9 @@ WinMain(_In_ HINSTANCE hInstance,
     _In_ int nShowCmd)
 {
     Win32InitClockFrequency();
+
+    win32_state win32State = {};
+    Win32GetExecutablePath(win32State);
 
     GameContext gameContext = {};
     gameContext.persistantMemory.size = Megabytes(64);
@@ -342,6 +226,8 @@ WinMain(_In_ HINSTANCE hInstance,
     SetWindowLongPtrA(hMainWindow, GWLP_USERDATA, (LONG_PTR)&mainWindowContext);
     ShowWindow(hMainWindow, nShowCmd);
 
+    win32State.DefaultWindowHandle = hMainWindow;
+
     HDC windowDeviceContext = GetDC(hMainWindow);   // CS_OWNDC allows us to get this just once...
 
     // TODO(james): pull the refresh rate from the monitor
@@ -362,18 +248,27 @@ WinMain(_In_ HINSTANCE hInstance,
     Win32Clock frameCounterTime = Win32GetWallClock();
     Win32Clock lastFrameStartTime = Win32GetWallClock();
 
-    const char* szGameCodeFile = "project_super.dll";
-    Win32GameCode gameCode = {};
-    Win32LoadGameCode(gameCode);
+    string sExeFolder = MakeString(win32State.EXEFileName, win32State.OnePastLastEXEFileNameSlash);
+    char szDllFullPath[WIN32_STATE_FILE_NAME_COUNT] = {};
+    win32_game_function_table gameFunctions = {};
+    win32_loaded_code gameCode = {};
+    gameCode.pszDLLFullPath = ConcatString(szDllFullPath, WIN32_STATE_FILE_NAME_COUNT, (const char*)sExeFolder.memory, sExeFolder.size, "ps_game.dll" );
+    gameCode.pszTransientDLLName = "ps_game_temp.dll";
+    gameCode.nFunctionCount = SIZEOF_ARRAY(Win32GameFunctionTableNames);
+    gameCode.ppFunctions = (void**)&gameFunctions;
+    gameCode.ppszFunctionNames = (char**)&Win32GameFunctionTableNames;
+    
+    Win32LoadCode(win32State, gameCode);
+    ASSERT(gameCode.isValid);
 
     MSG msg;
     while(GlobalRunning)
     {
-        FILETIME ftLastWriteTime = Win32GetFileWriteTime(szGameCodeFile);
+        FILETIME ftLastWriteTime = Win32GetFileWriteTime(gameCode.pszDLLFullPath);
         if(CompareFileTime(&ftLastWriteTime, &gameCode.ftLastFileWriteTime) != 0)
         {
             Win32UnloadGameCode(gameCode);
-            Win32LoadGameCode(gameCode);
+            Win32LoadCode(win32State, gameCode);
         }
 
         InputController keyboard = {};
@@ -470,55 +365,14 @@ WinMain(_In_ HINSTANCE hInstance,
         //              Will cause performance stall for non-connected controllers like this...
         for(DWORD dwControllerIndex = 0; dwControllerIndex < XUSER_MAX_COUNT; ++dwControllerIndex)
         {
-            XINPUT_STATE state = {};
-            DWORD dwResult = XInputGetState(dwControllerIndex, &state);
-
-            InputController& gamepad = input.controllers[dwControllerIndex+1];
-            gamepad.isAnalog = true;
-
-            if(dwResult == ERROR_SUCCESS)
-            {
-                gamepad.isConnected = true;
-                // controller is connected
-                Win32ProcessGamepadStick(gamepad.leftStick, state.Gamepad.sThumbLX, state.Gamepad.sThumbLY, XINPUT_LEFT_THUMB_DEADZONE);
-                Win32ProcessGamepadStick(gamepad.rightStick, state.Gamepad.sThumbRX, state.Gamepad.sThumbRY, XINPUT_RIGHT_THUMB_DEADZONE);
-
-                // for now we'll set the vibration of the left and right motors equal to the trigger magnitude
-                uint8 leftTrigger = state.Gamepad.bLeftTrigger;
-                uint8 rightTrigger = state.Gamepad.bRightTrigger;
-
-                // clamp threshold
-                if(leftTrigger < XINPUT_TRIGGER_THRESHOLD) leftTrigger = 0;
-                if(rightTrigger < XINPUT_TRIGGER_THRESHOLD) rightTrigger = 0;
-
-                gamepad.leftTrigger.value = leftTrigger / 255.0f;
-                gamepad.rightTrigger.value = rightTrigger / 255.0f;
-
-                WORD dwButtonIds[14] = {
-                    XINPUT_GAMEPAD_DPAD_UP, XINPUT_GAMEPAD_DPAD_DOWN, XINPUT_GAMEPAD_DPAD_LEFT, XINPUT_GAMEPAD_DPAD_RIGHT,
-                    XINPUT_GAMEPAD_Y, XINPUT_GAMEPAD_A, XINPUT_GAMEPAD_X, XINPUT_GAMEPAD_B,
-                    XINPUT_GAMEPAD_LEFT_SHOULDER, XINPUT_GAMEPAD_RIGHT_SHOULDER,
-                    XINPUT_GAMEPAD_LEFT_THUMB, XINPUT_GAMEPAD_RIGHT_THUMB,
-                    XINPUT_GAMEPAD_START, XINPUT_GAMEPAD_BACK
-                };
-
-                for(int buttonIndex = 0; buttonIndex < 14; ++buttonIndex)
-                {
-                    InputButton& newButton = gamepad.buttons[buttonIndex];
-                    InputButton oldButton = gamepad.buttons[buttonIndex];
-                    bool pressed = (state.Gamepad.wButtons & dwButtonIds[buttonIndex]) == dwButtonIds[buttonIndex];
-                    Win32ProcessKeyboardButton(newButton, oldButton, pressed);
-                }
-            }
-            else
-            {
-                // controller not connected
-                gamepad.isConnected = false;
-            }
+            Win32ReadGamepad(dwControllerIndex, input.controllers[dwControllerIndex+1]);
         }
 
-        gameCode.GameUpdateAndRender(gameContext, mainWindowContext.graphics, input, audio.gameAudioBuffer);
-        
+        if(gameFunctions.GameUpdateAndRender)
+        {
+            gameFunctions.GameUpdateAndRender(gameContext, mainWindowContext.graphics, input, audio.gameAudioBuffer);
+        }
+
         Win32Clock gameSimTime = Win32GetWallClock();
         real32 elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime, gameSimTime);
 
@@ -540,7 +394,7 @@ WinMain(_In_ HINSTANCE hInstance,
             // oops... we missed our frametime limit here...
             // TODO(james): log this out
         }
-        gameContext.clock.elapsedFrameTime = elapsedFrameTime;
+        input.clock.elapsedFrameTime = elapsedFrameTime;
         lastFrameStartTime = Win32GetWallClock();
         
         for(uint32 gamepadIndex = 1; gamepadIndex < 5; ++gamepadIndex)
@@ -560,8 +414,7 @@ WinMain(_In_ HINSTANCE hInstance,
         Win32Dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
         Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindowContext.graphics);
 
-
-        ++gameContext.clock.frameCounter;
+        ++input.clock.frameCounter;
     }
 
     SAFE_RELEASE(audio.pEnumerator);

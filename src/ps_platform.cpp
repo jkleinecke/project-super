@@ -57,6 +57,10 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState)
         *SampleOut++ = SampleValue;
 
         gameState.tSine += 2.0*Pi32*1.0/samplesPerPeriod;
+        if(gameState.tSine > 2.0*Pi32)
+        {
+            gameState.tSine -= 2.0*Pi32;
+        }
     }
 }
 
