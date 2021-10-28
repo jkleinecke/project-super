@@ -15,7 +15,45 @@ struct GameTestState
     int y_offset;
 
     SoundTone tones[6];
+
+    i16 lastSecondAudioSamples[48000 * 2];
+    u32 indexIntoLastSecondSamples;
 };
+
+internal void
+RenderAudioWave(const GraphicsContext& graphics, GameTestState& gameState)
+{
+    // first clear the buffer
+    memset(graphics.buffer, 0, graphics.buffer_height*graphics.buffer_pitch);
+
+    // now render the audio wave
+    u32* pixels = (u32*)graphics.buffer;
+    i16* audioSamples = gameState.lastSecondAudioSamples; 
+    int samplesPerColumn = 48000 / graphics.buffer_width;
+
+    int midY = (int)graphics.buffer_height / 2;
+
+    for(u32 x = 0; x < graphics.buffer_width; ++x)
+    {
+        // now average the normalized sample values (-1..1)
+        f32 fLeftSampleValue = 0.0f;
+        f32 fRightSampleValue = 0.0f;
+        for(int sampleIndex = 0; sampleIndex < samplesPerColumn; ++sampleIndex)
+        {
+            fLeftSampleValue += (f32)*audioSamples++ / 0x7FFF;
+            fRightSampleValue += (f32)*audioSamples++ / 0x7FFF;
+        }
+        fLeftSampleValue /= samplesPerColumn;
+        fRightSampleValue /= samplesPerColumn;
+
+        // now map the -1..1 sample values into the y coordinate
+        int ly = midY + (int)(fLeftSampleValue * midY);
+        int ry = midY + (int)(fRightSampleValue * midY);
+
+        pixels[(ly * graphics.buffer_width) + x] = 255;
+        pixels[(ry * graphics.buffer_width) + x] = 255 << 16;
+    }
+}
 
 internal void
 RenderGradient(const GraphicsContext& graphics, GameTestState& gameState)
@@ -62,7 +100,19 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
         {
             if(tone.isActive)
             {
-                toneSamples[sampleIndex] += sinf(tone.tSine);
+                const int max_harmonics = 40;
+                f32 fValue = 0.0f;
+                f32 fRemainingContrib = 1.0f;
+                for(int harmonic = 1; harmonic <= max_harmonics; ++harmonic)
+                {
+                    //f32 contrib = (f32)(max_harmonics - harmonic)/(f32)max_harmonics * fRemainingContrib;//logf((f32)(max_harmonics - harmonic));
+                    f32 contrib = .8f * fRemainingContrib;
+                    fValue += sinf(tone.tSine * harmonic) * contrib;
+                    fRemainingContrib -= contrib;
+                }
+                
+                toneSamples[sampleIndex] += fValue;
+                
             }
 
             tone.tSine += 2.0f*Pi32*1.0f/samplesPerPeriod;
@@ -125,6 +175,9 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             tone.freq = frequencies[toneIndex];
             tone.tSine = 0.0f;
         }
+
+        memset(&gameState.lastSecondAudioSamples, 0, sizeof(gameState.lastSecondAudioSamples));
+        gameState.indexIntoLastSecondSamples = 0;
     }
 
     for(int controllerIndex = 0; controllerIndex < 5; ++controllerIndex)
@@ -178,7 +231,25 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     }
 
     FillSoundBuffer(audio, gameState, gameContext);
-    RenderGradient(graphics, gameState); 
+
+    // now keep a ring buffer copy of the frames audio samples
+    u32 nextIndex = gameState.indexIntoLastSecondSamples + (audio.samplesWritten * 2); 
+
+    if(nextIndex > 48000*2)
+    {
+        // have to do 2 copies
+        memcpy(&gameState.lastSecondAudioSamples[gameState.indexIntoLastSecondSamples], audio.buffer, ((48000*2) - gameState.indexIntoLastSecondSamples) * sizeof(i16));
+        nextIndex -= 48000*2;
+        memcpy(&gameState.lastSecondAudioSamples[0], ((i16*)audio.buffer + ((48000*2) - gameState.indexIntoLastSecondSamples)), nextIndex);
+    }
+    else
+    {
+        memcpy(&gameState.lastSecondAudioSamples[gameState.indexIntoLastSecondSamples], audio.buffer, audio.samplesWritten * 2 * sizeof(i16));
+    }
+    gameState.indexIntoLastSecondSamples = nextIndex;
+
+    //RenderGradient(graphics, gameState); 
+    RenderAudioWave(graphics, gameState);
 
     ResetArena(gameContext.transientMemory);
 }
