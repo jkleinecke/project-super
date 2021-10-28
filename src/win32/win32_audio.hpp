@@ -105,7 +105,8 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     hr = audio.pClient->GetBufferSize(&nBufferFrameCount);
     if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }
     
-    audio.targetBufferFill = nBufferFrameCount;//(uint32)(SECONDS_REF(bufferTime) * samplesPerSecond);   // since we doubled the frame size, aim to keep the buffer half full
+    // target the minimum latency value of the audio hardware
+    audio.targetBufferFill = (uint32)(((1.0/60.0) + SECONDS_REF(minLatency)) * samplesPerSecond + 0.5);
 
     hr = audio.pClient->GetService(IID_IAudioRenderClient, (void**)&audio.pRenderClient);
     if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }

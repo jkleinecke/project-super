@@ -34,7 +34,10 @@ typedef uint32_t u32;
 typedef uint64_t u64;
 
 typedef float   f32;
+typedef float   r32;
+
 typedef double  f64;
+typedef double  r64;
 
 typedef i32   b32;
 typedef b32   b32x;
@@ -125,7 +128,6 @@ char* ConcatString(
     return szOut;
 }
 
-
 //===================== GAME API =====================================
 
 struct GameClock
@@ -134,7 +136,7 @@ struct GameClock
     real32 elapsedFrameTime;  // seconds since the last frame
 };
 
-struct GameMemory
+struct MemoryArena
 {
     uint64 size;
     void* basePointer;
@@ -143,8 +145,8 @@ struct GameMemory
 
 struct GameContext
 {
-    GameMemory persistantMemory;
-    GameMemory transientMemory;
+    MemoryArena persistantMemory;
+    MemoryArena transientMemory;
 };
 
 struct Thumbstick
@@ -230,7 +232,32 @@ struct GraphicsContext
 #define GAME_UPDATE_AND_RENDER(name) void name(GameContext& gameContext, GraphicsContext& graphics, InputContext& input, AudioContext& audio)
 typedef GAME_UPDATE_AND_RENDER(game_update_and_render);
 
+inline internal
+void* PushStruct(MemoryArena& memory, u32 size)
+{
+    void* ret = memory.freePointer;
+    memory.freePointer = ((u8*)memory.freePointer) + size;
+    // TODO(james): handle overrun more gracefully
+    ASSERT(memory.size > (u64)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
+    return ret;
+}
 
+inline internal
+void* PushArray(MemoryArena& memory, u32 size, u32 count)
+{
+    void* ret = memory.freePointer;
+    memory.freePointer = ((u8*)memory.freePointer) + (size*count);
+    // TODO(james): handle overrun more gracefully
+    ASSERT(memory.size > (u64)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
+    return ret;
+}
+
+inline internal
+void ResetArena(MemoryArena& memory)
+{
+    memset(memory.basePointer, 0, (u8*)memory.freePointer - (u8*)memory.basePointer);
+    memory.freePointer = memory.basePointer;
+}
 
 
 #endif
