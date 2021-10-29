@@ -4,12 +4,18 @@
 		{
 			"type": "shell",
 			"label": "BuildMainPlatform",
-			"command": "src/build.bat",
+			"windows":{
+				"command": "src/build.bat"
+			},
+			"osx": {
+				"command": "src/build_mac.sh"
+			},
 			"options": {
 				"cwd": "${workspaceFolder}"
 			},
 			"problemMatcher": [
-				"$msCompile"
+				"$msCompile",
+				"$gcc"
 			],
 			"group": {
 				"kind": "build",

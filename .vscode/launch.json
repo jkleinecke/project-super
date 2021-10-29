@@ -5,10 +5,15 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(Windows) Launch",
             "type": "cppvsdbg",
+            "program": "${workspaceRoot}/build/win32_platform_main.exe",
+            "osx": {
+                "type": "lldb",
+                "MIMode": "lldb",
+                "program": "${workspaceRoot}/build/macos_platform_main"
+            },
+            "name": "Launch",
             "request": "launch",
-            "program": "build/win32_platform_main.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
