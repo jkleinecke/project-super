@@ -48,9 +48,6 @@ Win32GetElapsedTime(Win32Clock& start, Win32Clock& end)
     return (real32)(end.counter - start.counter) / (real32)GlobalFrequency;
 }
 
-
-
-
 inline internal Win32Dimensions
 Win32GetWindowDimensions(HWND hWnd)
 {
@@ -99,6 +96,60 @@ Win32DisplayBufferInWindow(HDC deviceContext, uint32 windowWidth, uint32 windowH
      graphics.buffer,
      &bmpInfo,
      DIB_RGB_COLORS, SRCCOPY);
+}
+
+internal bool32
+Win32BeginRecordingInput(win32_state& state, const GameContext& memory)
+{
+    // maybe verify that a file isn't open?
+    state.hInputRecordHandle = CreateFileA("recorded_input.psi", GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
+
+    // save out game state
+    Win32WriteMemoryArena(state.hInputRecordHandle, memory.persistantMemory);
+    Win32WriteMemoryArena(state.hInputRecordHandle, memory.transientMemory);
+
+    return state.hInputRecordHandle != INVALID_HANDLE_VALUE;
+}
+
+internal void
+Win32RecordInput(win32_state& state, const InputContext& input)
+{
+    DWORD dwBytesWritten = 0;
+    WriteFile(state.hInputRecordHandle, &input, sizeof(input), &dwBytesWritten, 0);
+}
+
+internal void
+Win32StopRecordingInput(win32_state& state)
+{
+    CloseHandle(state.hInputRecordHandle);
+    state.hInputRecordHandle = 0;
+}
+
+internal bool32
+Win32BeginInputPlayback(win32_state& state, GameContext& memory)
+{
+    state.hInputRecordHandle = CreateFileA("recorded_input.psi", GENERIC_READ, 0, 0, OPEN_EXISTING, 0, 0);
+
+    // read in game state
+    Win32ReadMemoryArena(state.hInputRecordHandle, memory.persistantMemory);
+    Win32ReadMemoryArena(state.hInputRecordHandle, memory.transientMemory);
+
+    return state.hInputRecordHandle != INVALID_HANDLE_VALUE;
+}
+
+internal bool32
+Win32PlaybackInput(win32_state& state, InputContext& input)
+{
+    DWORD dwBytesRead = 0;
+    ReadFile(state.hInputRecordHandle, &input, sizeof(input), &dwBytesRead, 0);
+    return dwBytesRead == sizeof(input);
+}
+
+internal void
+Win32StopInputPlayback(win32_state& state)
+{
+    CloseHandle(state.hInputRecordHandle);
+    state.hInputRecordHandle = 0;
 }
 
 internal
@@ -156,6 +207,12 @@ Win32ProcessKeyboardButton(InputButton& newState, const InputButton& oldState, b
     newState.transitions = oldState.pressed == pressed ? 0 : 1; // only transitioned if the new state doesn't match the old
 }
 
+enum RunLoopMode
+{
+    RLM_NORMAL,
+    RLM_RECORDINPUT,
+    RLM_PLAYBACKINPUT
+};
 
 int CALLBACK
 WinMain(_In_ HINSTANCE hInstance,
@@ -170,7 +227,7 @@ WinMain(_In_ HINSTANCE hInstance,
 
     GameContext gameContext = {};
     gameContext.persistantMemory.size = Megabytes(64);
-    gameContext.transientMemory.size = Gigabytes(4);
+    gameContext.transientMemory.size = Gigabytes(1);
     LPVOID baseAddress = 0;
 #ifdef PROJECTSUPER_INTERNAL
     baseAddress = (LPVOID)Terabytes(2);
@@ -261,6 +318,8 @@ WinMain(_In_ HINSTANCE hInstance,
     Win32LoadCode(win32State, gameCode);
     ASSERT(gameCode.isValid);
 
+    RunLoopMode runMode = RLM_NORMAL;
+
     MSG msg;
     while(GlobalRunning)
     {
@@ -291,7 +350,7 @@ WinMain(_In_ HINSTANCE hInstance,
                         WORD vkCode = LOWORD(msg.wParam);
 
                         bool upFlag = (HIWORD(msg.lParam) & KF_UP) == KF_UP;        // transition-state flag, 1 on keyup
-                        //bool repeated = (HIWORD(msg.lParam) & KF_REPEAT) == KF_REPEAT;
+                        bool repeated = (HIWORD(msg.lParam) & KF_REPEAT) == KF_REPEAT;
                         //WORD repeatCount = LOWORD(msg.lParam);
 
                         bool altDownFlag = (HIWORD(msg.lParam) & KF_ALTDOWN) == KF_ALTDOWN;
@@ -349,6 +408,50 @@ WinMain(_In_ HINSTANCE hInstance,
                                     GlobalRunning = false;
                                 }
                             } break;
+                            case 'R':
+                            {
+                                if(altDownFlag && !upFlag && !repeated)
+                                {
+                                    switch(runMode)
+                                    {
+                                        case RLM_NORMAL:
+                                            runMode = RLM_RECORDINPUT;
+                                            Win32BeginRecordingInput(win32State, gameContext);
+                                            break;
+                                        case RLM_RECORDINPUT:
+                                            runMode = RLM_NORMAL;
+                                            Win32StopRecordingInput(win32State);
+                                            break;
+                                        case RLM_PLAYBACKINPUT:
+                                            runMode = RLM_RECORDINPUT;
+                                            Win32StopInputPlayback(win32State);
+                                            Win32BeginRecordingInput(win32State, gameContext);
+                                            break;
+                                    }
+                                }
+                            } break;
+                            case 'P':
+                            {
+                                if(altDownFlag && !upFlag && !repeated)
+                                {
+                                    switch(runMode)
+                                    {
+                                        case RLM_NORMAL:
+                                            runMode = RLM_PLAYBACKINPUT;
+                                            Win32BeginInputPlayback(win32State, gameContext);
+                                            break;
+                                        case RLM_RECORDINPUT:
+                                            runMode = RLM_PLAYBACKINPUT;
+                                            Win32StopRecordingInput(win32State);
+                                            Win32BeginInputPlayback(win32State, gameContext);
+                                            break;
+                                        case RLM_PLAYBACKINPUT:
+                                            runMode = RLM_NORMAL;
+                                            Win32StopInputPlayback(win32State);
+                                            break;
+                                    }
+                                }
+                            }
                         }
                     } break;
                 default:
@@ -366,6 +469,22 @@ WinMain(_In_ HINSTANCE hInstance,
         for(DWORD dwControllerIndex = 0; dwControllerIndex < XUSER_MAX_COUNT; ++dwControllerIndex)
         {
             Win32ReadGamepad(dwControllerIndex, input.controllers[dwControllerIndex+1]);
+        }
+
+        switch(runMode)
+        {
+            case RLM_RECORDINPUT:
+                Win32RecordInput(win32State, input);
+                break;
+            case RLM_PLAYBACKINPUT:
+                // read the input from a file
+                if(!Win32PlaybackInput(win32State, input))
+                {
+                    // No more input to read, so let's loop the playback
+                    Win32StopInputPlayback(win32State);
+                    Win32BeginInputPlayback(win32State, gameContext);
+                }
+                break;
         }
 
         if(gameFunctions.GameUpdateAndRender)

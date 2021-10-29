@@ -39,11 +39,7 @@ struct Win32Dimensions
 #define WIN32_STATE_FILE_NAME_COUNT MAX_PATH
 struct win32_state
 {
-    // HANDLE RecordingHandle;
-    // int InputRecordingIndex;
-    
-    // HANDLE PlaybackHandle;
-    // int InputPlayingIndex;
+    HANDLE hInputRecordHandle;
     
     char EXEFileName[WIN32_STATE_FILE_NAME_COUNT];
     char *OnePastLastEXEFileNameSlash;
