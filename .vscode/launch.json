@@ -6,7 +6,6 @@
     "configurations": [
         {
             "type": "cppvsdbg",
-            "program": "${workspaceRoot}/build/win32_platform_main.exe",
             "osx": {
                 "type": "lldb",
                 "MIMode": "lldb",
@@ -14,9 +13,10 @@
             },
             "name": "Launch",
             "request": "launch",
+            "program": "project_super.exe",
             "args": [],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/build",
             "environment": [],
             "console": "internalConsole",
             "internalConsoleOptions": "openOnSessionStart",
