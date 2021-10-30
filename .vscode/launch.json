@@ -9,7 +9,7 @@
             "osx": {
                 "type": "lldb",
                 "MIMode": "lldb",
-                "program": "${workspaceRoot}/build/macos_platform_main"
+                "program": "${workspaceRoot}/build/project_super"
             },
             "name": "Launch",
             "request": "launch",

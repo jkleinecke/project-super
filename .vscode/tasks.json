@@ -5,10 +5,10 @@
 			"type": "shell",
 			"label": "BuildMainPlatform",
 			"windows":{
-				"command": "src/build.bat"
+				"command": "src/win32/build.bat"
 			},
 			"osx": {
-				"command": "src/build_mac.sh"
+				"command": "src/macos/build_mac.sh",
 			},
 			"options": {
 				"cwd": "${workspaceFolder}"
