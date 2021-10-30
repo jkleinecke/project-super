@@ -13,26 +13,28 @@ Win32GetFileWriteTime(const char* szFilepath)
 internal void
 Win32GetExecutablePath(win32_state& state)
 {
-    DWORD dwPathSize = GetModuleFileNameA(0, state.EXEFileName, WIN32_STATE_FILE_NAME_COUNT);
+    char filepath[WIN32_STATE_FILE_NAME_COUNT];
+    DWORD dwPathSize = GetModuleFileNameA(0, filepath, WIN32_STATE_FILE_NAME_COUNT);
 
-    char* szFolderSeperator = state.EXEFileName + dwPathSize;
-    for(;*szFolderSeperator != '\\';--szFolderSeperator) {}
-    state.OnePastLastEXEFileNameSlash = ++szFolderSeperator;    // add one back to preserve the slash
+    string strPath = MakeString((umm)dwPathSize, filepath);
+    umm pathIndex = ReverseIndexOf(strPath, '\\');
+    ASSERT(pathIndex != INDEX_NOT_FOUND);
+
+    // add 1 back to preserve the forward slash
+    Copy(pathIndex+1, filepath, state.EXEFolder);
+    Copy(strPath.size-pathIndex+1, &filepath[pathIndex+1], state.EXEFilename);
 }
 
 internal void
 Win32LoadCode(win32_state& state, win32_loaded_code& code)
 {
-    const char* pszSourceLibraryPath = code.pszDLLFullPath;
-    const char* pszTempLibraryName = code.pszTransientDLLName;
-    string sExeFolder = MakeString(state.EXEFileName, state.OnePastLastEXEFileNameSlash);
+    char szSourceLibraryPath[WIN32_STATE_FILE_NAME_COUNT] = {};
+    FormatString(WIN32_STATE_FILE_NAME_COUNT, szSourceLibraryPath, "%s%s", state.EXEFolder, code.pszDLLName);
+    char szTempLibraryPath[WIN32_STATE_FILE_NAME_COUNT] = {};
+    FormatString(WIN32_STATE_FILE_NAME_COUNT, szTempLibraryPath, "%s%s", state.EXEFolder, code.pszTransientDLLName);
     
-
-    char szTempLibraryPath[WIN32_STATE_FILE_NAME_COUNT];
-    ConcatString(szTempLibraryPath, WIN32_STATE_FILE_NAME_COUNT, (const char*)sExeFolder.memory, sExeFolder.size, pszTempLibraryName, StringLength(pszTempLibraryName));
-
-    code.ftLastFileWriteTime = Win32GetFileWriteTime(pszSourceLibraryPath);
-    CopyFileA(pszSourceLibraryPath, szTempLibraryPath, FALSE);
+    code.ftLastFileWriteTime = Win32GetFileWriteTime(szSourceLibraryPath);
+    CopyFileA(szSourceLibraryPath, szTempLibraryPath, FALSE);
     HMODULE hLibrary = LoadLibraryA(szTempLibraryPath);
     code.hDLL = hLibrary;
     if(hLibrary)

@@ -4,136 +4,15 @@
 
 // Main header file for the game and platform interface
 
-#ifdef PROJECTSUPER_SLOW
-#define NDEBUG 1
-#endif
+#include <algorithm>
+#include <stdarg.h>
 
-//==================== Standard includes and types ====================
-#include <stdint.h>
-#include <memory.h>
-#include <assert.h>
-
-typedef int8_t  int8;
-typedef int16_t int16;
-typedef int32_t int32;
-typedef int64_t int64;
-
-typedef uint8_t  uint8;
-typedef uint16_t uint16;
-typedef uint32_t uint32;
-typedef uint64_t uint64;
-
-typedef float   real32;
-typedef double  real64;
-
-typedef int32   bool32;
-
-typedef int8_t  i8;
-typedef int16_t i16;
-typedef int32_t i32;
-typedef int64_t i64;
-
-typedef uint8_t  u8;
-typedef uint16_t u16;
-typedef uint32_t u32;
-typedef uint64_t u64;
-
-typedef float   f32;
-typedef float   r32;
-
-typedef double  f64;
-typedef double  r64;
-
-typedef i32   b32;
-typedef b32   b32x;
-
-struct buffer
-{
-    u32 size;
-    void* memory;
-};
-
-typedef buffer string;
-
-//===================== Standard Defines =============================
-#define Pi32 3.14159265359f
-
-// Clarify usage of static keyword with these defines
-#define internal static
-#define local_persist static
-#define global_variable static
-
-#ifndef ASSERT
-#define ASSERT(cond) assert(cond)
-#endif
-
-#define Kilobytes(n) ((n) * 1024LL)
-#define Megabytes(n) (Kilobytes(n) * 1024LL)
-#define Gigabytes(n) (Megabytes(n) * 1024LL)
-#define Terabytes(n) (Gigabytes(n) * 1024LL)
-
-#ifndef SIZEOF_ARRAY
-#define SIZEOF_ARRAY(array) (sizeof(array)/sizeof(array[0]))
-#endif
-
-#ifndef MAX
-#define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
-#ifndef MIN
-#define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif 
-
-#ifndef memcpy_s
-#define memcpy_s(dest, dest_size, src, src_size) memcpy(dest, src, src_size)
-#endif
+#include "ps_types.h"
+#include "ps_shared.h"
+#include "ps_intrinsics.h"
 
 //===================== PLATFORM API =================================
 
-inline internal 
-int StringLength(const char* s)
-{
-    int length = 0;
-    for(char* ch = (char*)s; *ch; ++ch, ++length) {}
-    return length;
-}
-
-inline internal
-string MakeString(const char* s)
-{
-    return { (u32)StringLength(s), (void*)s };
-}
-
-inline internal
-string MakeString(const char* szBase, u32 size)
-{
-    return { size, (void*)szBase };
-}
-
-inline internal
-string MakeString(const char* szBase, const char* szEnd)
-{
-    return { (u32)(szEnd - szBase), (void*)szBase };
-}
-
-internal
-char* ConcatString(
-        char* szOut, u32 maxSize, 
-        const char* szLHS, u32 lhsSize, 
-        const char* szRHS, u32 rhsSize = 0
-    )
-{
-    ASSERT(maxSize > lhsSize + rhsSize);
-    if(rhsSize == 0)
-    {
-        rhsSize = StringLength(szRHS);
-    }
-
-    memcpy_s(szOut, maxSize, szLHS, lhsSize);
-    memcpy_s(szOut + lhsSize, (int)maxSize - lhsSize, szRHS, rhsSize);
-    *(szOut + lhsSize + rhsSize) = 0;
-
-    return szOut;
-}
 
 //===================== GAME API =====================================
 

@@ -305,11 +305,9 @@ WinMain(_In_ HINSTANCE hInstance,
     Win32Clock frameCounterTime = Win32GetWallClock();
     Win32Clock lastFrameStartTime = Win32GetWallClock();
 
-    string sExeFolder = MakeString(win32State.EXEFileName, win32State.OnePastLastEXEFileNameSlash);
-    char szDllFullPath[WIN32_STATE_FILE_NAME_COUNT] = {};
     win32_game_function_table gameFunctions = {};
     win32_loaded_code gameCode = {};
-    gameCode.pszDLLFullPath = ConcatString(szDllFullPath, WIN32_STATE_FILE_NAME_COUNT, (const char*)sExeFolder.memory, sExeFolder.size, "ps_game.dll" );
+    gameCode.pszDLLName = "ps_game.dll";
     gameCode.pszTransientDLLName = "ps_game_temp.dll";
     gameCode.nFunctionCount = SIZEOF_ARRAY(Win32GameFunctionTableNames);
     gameCode.ppFunctions = (void**)&gameFunctions;
@@ -323,7 +321,7 @@ WinMain(_In_ HINSTANCE hInstance,
     MSG msg;
     while(GlobalRunning)
     {
-        FILETIME ftLastWriteTime = Win32GetFileWriteTime(gameCode.pszDLLFullPath);
+        FILETIME ftLastWriteTime = Win32GetFileWriteTime(gameCode.pszDLLName);
         if(CompareFileTime(&ftLastWriteTime, &gameCode.ftLastFileWriteTime) != 0)
         {
             Win32UnloadGameCode(gameCode);

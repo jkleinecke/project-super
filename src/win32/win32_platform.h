@@ -41,8 +41,8 @@ struct win32_state
 {
     HANDLE hInputRecordHandle;
     
-    char EXEFileName[WIN32_STATE_FILE_NAME_COUNT];
-    char *OnePastLastEXEFileNameSlash;
+    char EXEFolder[WIN32_STATE_FILE_NAME_COUNT];
+    char EXEFilename[WIN32_STATE_FILE_NAME_COUNT];
     
     HWND DefaultWindowHandle;    
 };
@@ -53,7 +53,7 @@ struct win32_loaded_code
     u32 nTempDLLNumber;
     
     char *pszTransientDLLName;
-    char *pszDLLFullPath;
+    char *pszDLLName;
     //char *pszLockFullPath;
     
     HMODULE hDLL;

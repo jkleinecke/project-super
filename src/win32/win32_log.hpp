@@ -19,7 +19,7 @@ Win32Log(const char* file, int lineno, const char* format, ...)
     va_start(args, format);
 
     char logMessage[512];
-    int n = vsprintf_s(logMessage, format, args);
+    vsprintf_s(logMessage, format, args);
     ASSERT(n < 512);    // overflowed the log buffer
 
     va_end(args);

@@ -1,6 +1,7 @@
 
 #include "ps_platform.h"
-#include <math.h>
+#include "ps_math.h"
+#include "ps_simd.h"
 
 struct SoundTone
 {
@@ -24,10 +25,22 @@ internal void
 RenderAudioWave(const GraphicsContext& graphics, GameTestState& gameState)
 {
     // first clear the buffer
-    memset(graphics.buffer, 0, graphics.buffer_height*graphics.buffer_pitch);
+    //memset(graphics.buffer, 0, graphics.buffer_height*graphics.buffer_pitch);
+
+    u32* pixels = (u32*)graphics.buffer;
+    u32* row = pixels;
+    for(u32 y = 0; y < graphics.buffer_height; ++y)
+    {
+        u32* col = row;
+        for(u32 x = 0; x < graphics.buffer_width; ++x)
+        {
+            *col++ = 0x00AA00AA;
+        }
+        row += graphics.buffer_width;
+    }
 
     // now render the audio wave
-    u32* pixels = (u32*)graphics.buffer;
+    //u32* pixels = (u32*)graphics.buffer;
     i16* audioSamples = gameState.lastSecondAudioSamples; 
     int samplesPerColumn = 48000 / graphics.buffer_width;
 
@@ -47,11 +60,11 @@ RenderAudioWave(const GraphicsContext& graphics, GameTestState& gameState)
         fRightSampleValue /= samplesPerColumn;
 
         // now map the -1..1 sample values into the y coordinate
-        int ly = midY + (int)(fLeftSampleValue * midY);
-        int ry = midY + (int)(fRightSampleValue * midY);
+        int ly = midY + (int)(fLeftSampleValue * (midY));
+        int ry = midY + (int)(fRightSampleValue * (midY));
 
         pixels[(ly * graphics.buffer_width) + x] = 255;
-        pixels[(ry * graphics.buffer_width) + x] = 255 << 16;
+        pixels[(ry * graphics.buffer_width) + x] = (0xFF << 16) | (0xFF << 8) | (0xFF);
     }
 }
 
@@ -113,12 +126,17 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
                 
                 toneSamples[sampleIndex] += fValue;
                 
-            }
+            
 
-            tone.tSine += 2.0f*Pi32*1.0f/samplesPerPeriod;
-            if(tone.tSine > 2.0f*Pi32)
+                tone.tSine += 2.0f*Pi32*1.0f/samplesPerPeriod;
+                if(tone.tSine > 2.0f*Pi32)
+                {
+                    tone.tSine -= 2.0f*Pi32;
+                }
+            }
+            else
             {
-                tone.tSine -= 2.0f*Pi32;
+                tone.tSine = 0.0f;
             }
         }
     
@@ -130,6 +148,7 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
 
     // convert the timestep to the number of samples we need to render
     //   samples = 2 channels of 16 bit audio
+    
     //   LEFT RIGHT | LEFT RIGHT | LEFT RIGHT | ...
     
     audio.samplesWritten = numRenderSamples;    
@@ -159,12 +178,12 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.x_offset = 0;
         gameState.y_offset = 0;
 
-        // 1 (E)	329.63 Hz	E4
-        // 2 (B)	246.94 Hz	B3
-        // 3 (G)	196.00 Hz	G3
-        // 4 (D)	146.83 Hz	D3
-        // 5 (A)	110.00 Hz	A2
-        // 6 (E)	82.41 Hz	E2
+        // 6 (E)	329.63 Hz	E4
+        // 5 (B)	246.94 Hz	B3
+        // 4 (G)	196.00 Hz	G3
+        // 3 (D)	146.83 Hz	D3
+        // 2 (A)	110.00 Hz	A2
+        // 1 (E)	82.41 Hz	E2
 
         f32 frequencies[] = {82.41f, 110.0f, 146.83f, 196.0f, 246.94f, 329.63f};
         

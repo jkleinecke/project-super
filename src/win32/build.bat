@@ -6,7 +6,7 @@ set DebugFlags=-MTd -Oi -Od
 set ReleaseFlags=-MT -Oi -O2 -Zo
 
 REM -analyze
-set CompilerDefines=-DPROJECTSUPER_INTERNAL=1 -DPROJECTSUPER_SLOW=1 -DPROJECTSUPER_WIN32=1
+set CompilerDefines=-DPROJECTSUPER_INTERNAL=1 -DPROJECTSUPER_SLOW=1 -DPROJECTSUPER_WIN32=1 -D_CRT_SECURE_NO_WARNINGS=1
 REM set CompilerDefines=-DPROJECTSUPER_INTERNAL=0 -DPROJECTSUPER_SLOW=0 -DPROJECTSUPER_WIN32=1
 
 set CompilerFlags=%CompilerDefines% %DebugFlags% -nologo -GR- -EHa- -WX -W4 -wd4100 -wd4201 -wd4505 -wd4310 -wd4309 -FC -Zi 

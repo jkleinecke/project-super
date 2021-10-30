@@ -1,0 +1,20 @@
+{
+    "C_Cpp.default.cppStandard": "c++17",
+    "C_Cpp.default.cStandard": "c17",
+    "C_Cpp.default.defines": [
+        "PROJECTSUPER_INTERNAL=1",
+        "PROJECTSUPER_SLOW=1"
+    ],
+    "C_Cpp.default.forcedInclude": [
+        "ps_platform.h"
+    ],
+    "files.associations": {
+        "algorithm": "cpp",
+        "exception": "cpp",
+        "functional": "cpp",
+        "memory": "cpp",
+        "xlocnum": "cpp",
+        "xmemory0": "cpp",
+        "xstring": "cpp"
+    }
+}

@@ -118,7 +118,7 @@ typedef struct timing_entry_array
 } timing_entry_array;
 
 //
-// TODO(casey): More platforms?  Sadly, ANSI C doesn't support high-resolution timing across runs of a process AFAICT :(
+// TODO(james): More platforms?  Sadly, ANSI C doesn't support high-resolution timing across runs of a process AFAICT :(
 //
 
 #include <windows.h>
@@ -174,7 +174,7 @@ MillisecondDifference(timing_file_date A, timing_file_date B)
     B64.LowPart = B.E[0];
     B64.HighPart = B.E[1];
 
-    // NOTE(casey): FILETIME is in 100-nanosecond ticks, so there's a
+    // NOTE: FILETIME is in 100-nanosecond ticks, so there's a
     // coefficient to convert to milliseconds.
     return((double)(A64.QuadPart - B64.QuadPart) * 0.0001);
 }
@@ -189,7 +189,7 @@ DayIndex(timing_file_date A)
     A64.LowPart = A.E[0];
     A64.HighPart = A.E[1];
 #else
-    // NOTE(casey): To help keeps things aligned with the user's local conception
+    // NOTE: To help keeps things aligned with the user's local conception
     // of "day", we have the operating system floor to real local days here.
 
     FILETIME FileTime;
@@ -615,12 +615,12 @@ Stats(timing_entry_array Array, char *TimingFileName)
 int
 main(int ArgCount, char **Args)
 {    
-    // TODO(casey): It would be nice if this supported 64-bit file sizes, but I can't really
+    // TODO(james): It would be nice if this supported 64-bit file sizes, but I can't really
     // tell right now if "ANSI C" supports this.  I feel like it should by now, but the
     // MSVC docs seem to suggest you have to use __int64 to do 64-bit stuff with the CRT
     // low-level IO routines, and I'm pretty sure that isn't a portable type :(
 
-    // NOTE(casey): We snap the clock time right on entry, to minimize any overhead on
+    // NOTE: We snap the clock time right on entry, to minimize any overhead on
     // "end" times that might occur from opening the file.  
     int unsigned EntryClock = GetClock();
 
@@ -634,11 +634,11 @@ main(int ArgCount, char **Args)
         int Handle = _open(TimingFileName, _O_RDWR|_O_BINARY, _S_IREAD|_S_IWRITE);
         if(Handle != -1)
         {
-            // NOTE(casey): The file exists - check the magic value
+            // NOTE: The file exists - check the magic value
             _read(Handle, &Header, sizeof(Header));
             if(Header.MagicValue == MAGIC_VALUE)
             {
-                // NOTE(casey): The file is at least nominally valid.
+                // NOTE: The file is at least nominally valid.
             }
             else
             {
@@ -650,7 +650,7 @@ main(int ArgCount, char **Args)
         }
         else if(ModeIsBegin)
         {
-            // NOTE(casey): The file doesn't exist and we're starting a new timing, so create it.
+            // NOTE: The file doesn't exist and we're starting a new timing, so create it.
 
             Handle = _open(TimingFileName, _O_RDWR|_O_CREAT|_O_BINARY, _S_IREAD|_S_IWRITE);
             if(Handle != -1)
@@ -658,7 +658,7 @@ main(int ArgCount, char **Args)
                 Header.MagicValue = MAGIC_VALUE;
                 if(_write(Handle, &Header, sizeof(Header)) == sizeof(Header))
                 {
-                    // NOTE(casey): File creation was (presumably) successful.
+                    // NOTE: File creation was (presumably) successful.
                 }
                 else
                 {
@@ -681,7 +681,7 @@ main(int ArgCount, char **Args)
                 if((_lseek(Handle, 0, SEEK_END) >= 0) &&
                    (_write(Handle, &NewEntry, sizeof(NewEntry)) == sizeof(NewEntry)))
                 {
-                    // NOTE(casey): Timer begin entry was written successfully.
+                    // NOTE: Timer begin entry was written successfully.
                 }
                 else
                 {
