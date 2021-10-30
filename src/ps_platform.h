@@ -4,9 +4,14 @@
 
 // Main header file for the game and platform interface
 
+#ifdef PROJECTSUPER_SLOW
+#define NDEBUG 1
+#endif
+
 //==================== Standard includes and types ====================
 #include <stdint.h>
 #include <memory.h>
+#include <assert.h>
 
 typedef int8_t  int8;
 typedef int16_t int16;
@@ -58,10 +63,8 @@ typedef buffer string;
 #define local_persist static
 #define global_variable static
 
-#ifdef PROJECTSUPER_SLOW
-#define ASSERT(cond) if(!(cond)) { *((int*)0) = 0; }
-#else
-#define ASSERT(cond)
+#ifndef ASSERT
+#define ASSERT(cond) assert(cond)
 #endif
 
 #define Kilobytes(n) ((n) * 1024LL)
@@ -79,6 +82,10 @@ typedef buffer string;
 #ifndef MIN
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif 
+
+#ifndef memcpy_s
+#define memcpy_s(dest, dest_size, src, src_size) memcpy(dest, src, src_size)
+#endif
 
 //===================== PLATFORM API =================================
 

@@ -5,8 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(Windows) Launch",
             "type": "cppvsdbg",
+            "osx": {
+                "type": "lldb",
+                "MIMode": "lldb",
+                "program": "${workspaceRoot}/build/project_super"
+            },
+            "name": "Launch",
             "request": "launch",
             "program": "project_super.exe",
             "args": [],
