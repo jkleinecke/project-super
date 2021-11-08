@@ -9,7 +9,6 @@
 
 #include "ps_types.h"
 #include "ps_shared.h"
-#include "ps_intrinsics.h"
 
 //===================== PLATFORM API =================================
 

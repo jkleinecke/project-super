@@ -31,6 +31,9 @@
 #error SEE/NEON optimizations are not available for this compiler yet!!!!
 #endif
 
+// turn off the handmade math prefix to simplify code
+#define HMM_PREFIX
+
 #include <stdint.h>
 #include <stddef.h>
 #include <limits.h>
