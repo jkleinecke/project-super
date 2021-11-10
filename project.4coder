@@ -1,0 +1,67 @@
+version(1);
+
+project_name = "Project-Super";
+
+patterns =
+{
+    "*.c",
+    "*.cpp",
+    "*.jai",
+    "*.odin",
+    "*.zig",
+    "*.h",
+    "*.inc",
+    "*.bat",
+    "*.sh",
+    "*.4coder",
+    "*.txt",
+};
+
+blacklist_patterns =
+{
+    ".*",
+};
+
+load_paths_base = {
+    { ".", .relative = true, .recursive = true, },
+};
+load_paths = {
+    { load_paths_base, .os = "win", },
+    { load_paths_base, .os = "linux", },
+    { load_paths_base, .os = "mac", },
+};
+
+command_list =
+{
+    {
+        .name = "build",
+        .out = "*compilation*",
+        .footer_panel = true,
+        .save_dirty_files = true,
+        .cursor_at_end = false,
+        .cmd =
+        {
+            { ".\\src\win32\build.bat", .os = "win" },
+            { ".\\src\macos\build_mac.sh", .os = "mac" },
+            { "echo Linux build command not implemented for 4coder project.", .os = "linux" },
+        },
+    },
+    
+    {
+        .name = "run",
+        .out = "*compilation*",
+        .footer_panel = true,
+        .save_dirty_files = true,
+        .cursor_at_end = false,
+        .cmd =
+        {
+            { ".\\build\\project_super.exe", .os = "win" },
+            { "./build/project_super", .os = "mac" },
+            { "echo Linux run command not implemented for 4coder project.", .os = "linux" },
+        },
+    },
+    
+};
+
+fkey_command[7] = "build";
+fkey_command[5] = "run";

@@ -23,4 +23,4 @@ Remove-Item $tempFile
 Pop-Location
 
 # Add the misc folder to our path for easier execution of utilities
-$env:Path = $PSScriptRoot + ";" + $env:Path
+$env:Path = $PSScriptRoot + ";" + "e:\tools\4coder;" + $env:Path
