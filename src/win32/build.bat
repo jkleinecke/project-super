@@ -17,8 +17,8 @@ set LinkerFlags=-incremental:no -opt:ref
 set GameCompilerFlags=%CompilerDefines% %CompilerFlags% /LD 
 set GameLinkerFlags=%LinkerFlags% -PDB:ps_game_%random%.pdb /DLL /EXPORT:GameUpdateAndRender -out:ps_game.dll
 
-set HostCompilerFlags=%CompilerDefines% %CompilerFlags%
-set HostLinkerFlags=%LinkerFlags% user32.lib gdi32.lib Ole32.lib winmm.lib -out:project_super.exe
+set HostCompilerFlags=%CompilerDefines% %CompilerFlags% 
+set HostLinkerFlags=%LinkerFlags% user32.lib gdi32.lib Ole32.lib winmm.lib opengl32.lib -out:project_super.exe
 
 IF NOT EXIST build mkdir build
 pushd build

@@ -11,6 +11,8 @@
 struct Win32WindowContext
 {
     HWND hWindow;
+    HDC hDeviceContext;
+    HGLRC hGlContext;
     GraphicsContext graphics;
 };
 
@@ -44,7 +46,8 @@ struct win32_state
     char EXEFolder[WIN32_STATE_FILE_NAME_COUNT];
     char EXEFilename[WIN32_STATE_FILE_NAME_COUNT];
     
-    HWND DefaultWindowHandle;    
+    HINSTANCE Instance;
+    Win32WindowContext mainWindow;    
 };
 
 struct win32_loaded_code

@@ -10,6 +10,7 @@
 #include "win32_audio.hpp"
 #include "win32_xinput.hpp"
 #include "win32_file.hpp"
+#include "win32_opengl.h"
 
 GAME_UPDATE_AND_RENDER(GameUpdateAndRenderStub) {}
 
@@ -161,7 +162,7 @@ Win32WindowProc(
   LPARAM lParam)
 {
     LRESULT retValue = 0;
-    Win32WindowContext* pContext = (Win32WindowContext*)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
+    //Win32WindowContext* pContext = (Win32WindowContext*)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
 
     switch(uMsg)
     {
@@ -172,27 +173,27 @@ Win32WindowProc(
             // TODO(james): verify that we should actually close here
             GlobalRunning = false;
             break;
-        case WM_SIZE:
-            {
-                Win32ResizeBackBuffer(pContext->graphics, LOWORD(lParam), HIWORD(lParam));
-            } break;
+        //case WM_SIZE:
+            //{
+                //Win32ResizeBackBuffer(pContext->graphics, LOWORD(lParam), HIWORD(lParam));
+            //} break;
         case WM_QUIT:
             GlobalRunning = false;
             break;
         case WM_DESTROY:
-            GlobalRunning = false;
+            //GlobalRunning = false;
             break;
-        case WM_PAINT:
-            {
-                PAINTSTRUCT ps;
-                HDC deviceContext = BeginPaint(hwnd, &ps);
-                
-                Win32Dimensions dimensions = Win32GetWindowDimensions(hwnd);
-                Win32DisplayBufferInWindow(deviceContext, dimensions.width, dimensions.height, pContext->graphics);
+        //case WM_PAINT:
+            //{
+                //PAINTSTRUCT ps;
+                //HDC deviceContext = BeginPaint(hwnd, &ps);
+                //
+                //Win32Dimensions dimensions = Win32GetWindowDimensions(hwnd);
+                //Win32DisplayBufferInWindow(deviceContext, dimensions.width, dimensions.height, pContext->graphics);
 
-                EndPaint(hwnd, &ps);
+                //EndPaint(hwnd, &ps);
                 
-            } break;
+            //} break;
         default:
             retValue = DefWindowProcA(hwnd, uMsg, wParam, lParam);
     }
@@ -220,11 +221,32 @@ WinMain(_In_ HINSTANCE hInstance,
     _In_ LPSTR lpCmdLine,
     _In_ int nShowCmd)
 {
+    WNDCLASSEXA wndClass = {};
+    wndClass.cbSize = sizeof(wndClass);
+    wndClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+    wndClass.lpfnWndProc = Win32WindowProc;
+    wndClass.hInstance = hInstance;
+    wndClass.hCursor = LoadCursorA(NULL, IDC_ARROW);
+    wndClass.lpszClassName = "ProjectSuperWindow";
+    RegisterClassExA(&wndClass);
+    
+    
+    HWND hMainWindow = CreateWindowExA(0,
+                                       "ProjectSuperWindow", "Project Super",
+                                       WS_OVERLAPPEDWINDOW,
+                                       CW_USEDEFAULT, CW_USEDEFAULT,
+                                       1280, 720,
+                                       0, 0,
+                                       hInstance, 0   
+                                       );
+    
+            
     Win32InitClockFrequency();
 
     win32_state win32State = {};
     Win32GetExecutablePath(win32State);
-
+  
+    
     GameContext gameContext = {};
     gameContext.persistantMemory.size = Megabytes(64);
     gameContext.transientMemory.size = Gigabytes(1);
@@ -253,47 +275,25 @@ WinMain(_In_ HINSTANCE hInstance,
     // NOTE(james): Set the windows scheduler granularity to 1ms so that our sleep can be more granular
     bool32 bSleepIsMs = timeBeginPeriod(1) == TIMERR_NOERROR;
 
-    Win32WindowContext mainWindowContext = {};
+    Win32WindowContext& mainWindow = win32State.mainWindow;
+    mainWindow.hWindow = hMainWindow;
+    mainWindow.hDeviceContext = GetDC(hMainWindow);
 
     HRESULT hr = 0;
-
-    WNDCLASSA wndClass = {};
-    wndClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-    wndClass.lpfnWndProc = Win32WindowProc;
-    wndClass.hInstance = hInstance;
-    wndClass.lpszClassName = "ProjectSuperWindow";
-
-    RegisterClassA(&wndClass);
-
-    HWND hMainWindow = CreateWindowExA(
-            0,
-            "ProjectSuperWindow",
-            "Project Super",
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            1280,
-            720,
-            0,
-            0,
-            hInstance,
-            0          
-        );
-    mainWindowContext.hWindow = hMainWindow;
-    SetWindowLongPtrA(hMainWindow, GWLP_USERDATA, (LONG_PTR)&mainWindowContext);
-    ShowWindow(hMainWindow, nShowCmd);
-
-    win32State.DefaultWindowHandle = hMainWindow;
-
-    HDC windowDeviceContext = GetDC(hMainWindow);   // CS_OWNDC allows us to get this just once...
-
+    
+    // TODO(james): Generalize this part to support more than one window? 
+    Win32InitOpenGL(mainWindow);
+    
+    SetWindowLongPtrA(mainWindow.hWindow, GWLP_USERDATA, (LONG_PTR)&mainWindow);
+    ShowWindow(mainWindow.hWindow, nShowCmd);
+    
     // TODO(james): pull the refresh rate from the monitor
     int targetRefreshRateHz = 60;
     real32 targetFrameRateSeconds = 1.0f / targetRefreshRateHz;
 
     Win32LoadXinput();
-    Win32Dimensions startDim = Win32GetWindowDimensions(hMainWindow);
-    Win32ResizeBackBuffer(mainWindowContext.graphics, startDim.width, startDim.height);
+    Win32Dimensions startDim = Win32GetWindowDimensions(mainWindow.hWindow);
+    Win32ResizeBackBuffer(mainWindow.graphics, startDim.width, startDim.height);
 
     Win32AudioContext audio = {};
     Win32InitSoundDevice(audio);
@@ -487,7 +487,7 @@ WinMain(_In_ HINSTANCE hInstance,
 
         if(gameFunctions.GameUpdateAndRender)
         {
-            gameFunctions.GameUpdateAndRender(gameContext, mainWindowContext.graphics, input, audio.gameAudioBuffer);
+            gameFunctions.GameUpdateAndRender(gameContext, mainWindow.graphics, input, audio.gameAudioBuffer);
         }
 
         Win32Clock gameSimTime = Win32GetWallClock();
@@ -527,9 +527,12 @@ WinMain(_In_ HINSTANCE hInstance,
         }
 
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
-        
-        Win32Dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
-        Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindowContext.graphics);
+                        
+        glClearColor(0.129f, 0.586f, 0.949f, 1.0f); // rgb(33,150,243) sky blue?
+        glClear(GL_COLOR_BUFFER_BIT);
+        SwapBuffers(mainWindow.hDeviceContext);
+        //Win32Dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
+        //Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindow.graphics);
 
         ++input.clock.frameCounter;
     }

@@ -131,32 +131,28 @@ Win32SetPixelFormat(HDC hDeviceContext)
 }
 
 internal void
-Win32InitOpenGLWindow(win32_state& state)
+Win32InitOpenGL(Win32WindowContext& windowContext)
 {
-    // Because OpenGL and Windows had a fight once, we have to trick
-    // OpenGL into working as well as it possibly can.
-    WNDCLASSEXA wndClass = {};
-    wndClass.cbSize = sizeof(wndClass);
-    wndClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-    wndClass.lpfnWndProc = Win32WindowProc;
-    wndClass.hInstance = state.Instance;
-    wndClass.hCursor = LoadCursorA(NULL, IDC_ARROW);
-    wndClass.lpszClassName = "ProjectSuperWindow";
-    RegisterClassExA(&wndClass);
+    WNDCLASSEXA loaderClass = {};
+    loaderClass.cbSize = sizeof(loaderClass);
+    loaderClass.lpfnWndProc = DefWindowProcA;
+    loaderClass.hInstance = GetModuleHandle(0);
+    loaderClass.lpszClassName = "GlLoader";
+    RegisterClassExA(&loaderClass);
+    
     
     // We first have to create a fake window and then
     // initialize OpenGL on that window to get the
     // wglChoosePixelFormatARB extension function.
     HWND hFakeWnd = CreateWindowExA(0,
-                                    "ProjectSuperWindow", "Fake", 
-                                 WS_OVERLAPPEDWINDOW,
-                                 0,0,1,1,
+                                    loaderClass.lpszClassName, "Loader", 
+                                 0,
+                                 CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,CW_USEDEFAULT,
                                  0,0,
-                                 state.Instance, 0
+                                 loaderClass.hInstance, 0
                                  );
     
     HDC hFakeDC = GetDC(hFakeWnd);
-    
     Win32SetPixelFormat(hFakeDC);
     
     HGLRC hFakeRC = wglCreateContext(hFakeDC);
@@ -164,7 +160,6 @@ Win32InitOpenGLWindow(win32_state& state)
     
     if(wglMakeCurrent(hFakeDC, hFakeRC))
     {
-        
         // Now we can access the extended pixel formats with the full set of 
         // functionality available.  Petty Windows was trying to hide this stuff
         // from us because it got mad...
@@ -180,29 +175,17 @@ Win32InitOpenGLWindow(win32_state& state)
     wglDeleteContext(hFakeRC);
     ReleaseDC(hFakeWnd, hFakeDC);
     DestroyWindow(hFakeWnd);
-    
-    HWND hMainWindow = CreateWindowExA(0,
-                                       "ProjectSuperWindow", "Project Super",
-                                       WS_OVERLAPPEDWINDOW,
-                                       CW_USEDEFAULT, CW_USEDEFAULT,
-                                       1280, 720,
-                                       0, 0,
-                                       state.Instance, 0   
-                                       );
-
-   
-    state.hMainWindow = hMainWindow;
                                  
-    HDC windowDeviceContext = GetDC(hMainWindow);   // CS_OWNDC allows us to get this just once...
-    Win32SetPixelFormat(windowDeviceContext);
+    Win32SetPixelFormat(windowContext.hDeviceContext);
     
-    HGLRC hRC = wglCreateContextAttribsARB(windowDeviceContext, 0, Win32OpenGLAttribs);
-    ASSERT(hRC); // TODO(james): more better verification
+    windowContext.hGlContext = wglCreateContextAttribsARB(windowContext.hDeviceContext, 0, Win32OpenGLAttribs);
+    ASSERT(windowContext.hGlContext); // TODO(james): more better verification
     
-    wglMakeCurrent(windowDeviceContext, hRC);
+    wglMakeCurrent(windowContext.hDeviceContext, windowContext.hGlContext);
     
+    // TODO(james): Load all opengl extensions here
     // testing code
-    SetWindowText(hMainWindow, (LPCSTR)glGetString(GL_VERSION));
+    SetWindowText(windowContext.hWindow, (LPCSTR)glGetString(GL_VERSION));
 
 }
 

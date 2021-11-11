@@ -122,6 +122,7 @@ typedef intptr_t imm;
 // Clarify usage of static keyword with these defines
 #define internal static
 #define local_persist static
+#define global static
 #define global_variable static
 
 #ifndef ASSERT

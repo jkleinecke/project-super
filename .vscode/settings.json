@@ -15,6 +15,7 @@
         "memory": "cpp",
         "xlocnum": "cpp",
         "xmemory0": "cpp",
-        "xstring": "cpp"
+        "xstring": "cpp",
+        "glad.c": "cpp"
     }
 }

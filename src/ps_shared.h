@@ -103,7 +103,7 @@ internal umm
 ReverseIndexOf(string src, char val, umm start_pos = 0)
 {
     ASSERT( src.size - start_pos >= 0 );
-    for(umm index = start_pos; index >= 0; --index)
+    for(umm index = start_pos + src.size; index >= 0; --index)
     {
         if(src.data[index] == val)
         {
