@@ -1,5 +1,6 @@
 
-#include "win32_platform.h"
+#include <Audioclient.h>
+#include <mmdeviceapi.h>
 
 #define REF_MILLI(milli) ((REFERENCE_TIME)((milli) * 10000))
 #define REF_SECONDS(seconds) (REF_MILLI(seconds) * 1000)
@@ -144,14 +145,16 @@ Win32CopyAudioBuffer(Win32AudioContext& audio, float fFrameTimeStep)
 
     UINT32 curPadding = 0;
     audio.pClient->GetCurrentPadding(&curPadding);
-    real32 curAudioLatencyMS = (real32)curPadding/(real32)audio.gameAudioBuffer.samplesPerSecond * 1000.0f;
 
     BYTE* pBuffer = 0;
     uint32 numSamples = audio.gameAudioBuffer.samplesWritten;
     int32 maxAvailableBuffer = audio.targetBufferFill - curPadding;
 
+#if 0
+    real32 curAudioLatencyMS = (real32)curPadding/(real32)audio.gameAudioBuffer.samplesPerSecond * 1000.0f;
     LOG_DEBUG("Cur Latency: %.02f ms\tAvail. Buffer: %d\tPadding: %d\tWrite Frame Samples: %d\n", curAudioLatencyMS, maxAvailableBuffer, curPadding, numSamples);
-    
+#endif
+
     //ASSERT(numSamples <= maxAvailableBuffer);
     // update the number of samples requested from the next frame
     // based on the amount of available buffer space and the current

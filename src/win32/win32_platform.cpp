@@ -3,14 +3,28 @@
 #include <stdio.h>
 #include <math.h>   // for sqrt()
 
-#include <Xinput.h>
-#include "win32_platform.h"
+#include "../ps_platform.h"
 
-#include "win32_log.hpp"
-#include "win32_audio.hpp"
-#include "win32_xinput.hpp"
-#include "win32_file.hpp"
-#include "win32_opengl.h"
+#include "win32_platform.h"
+#include "win32_log.cpp"
+
+#include "win32_audio.cpp"
+#include "win32_xinput.cpp"
+#include "win32_file.cpp"
+#include "win32_opengl.cpp"
+
+/*******************************************************************************
+
+    Things to do:
+    1) Threading + Work Queue
+    2) File API
+       - Streaming API
+    3) WM_ACTIVEAPP
+    4) Harden sound latency with framerate
+    5) Hardware Capabilities
+    6) Finish logging system
+
+********************************************************************************/
 
 GAME_UPDATE_AND_RENDER(GameUpdateAndRenderStub) {}
 
@@ -527,11 +541,11 @@ WinMain(_In_ HINSTANCE hInstance,
         }
 
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
-                        
-        glClearColor(0.129f, 0.586f, 0.949f, 1.0f); // rgb(33,150,243) sky blue?
-        glClear(GL_COLOR_BUFFER_BIT);
+
+        Win32Dimensions dimensions = Win32GetWindowDimensions(mainWindow.hWindow);              
+        Win32Render(dimensions.width, dimensions.height);
         SwapBuffers(mainWindow.hDeviceContext);
-        //Win32Dimensions dimensions = Win32GetWindowDimensions(hMainWindow);
+        //
         //Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindow.graphics);
 
         ++input.clock.frameCounter;

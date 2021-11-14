@@ -2,11 +2,6 @@
 #ifndef WIN32_PLATFORM_MAIN_H_
 #define WIN32_PLATFORM_MAIN_H_
 
-#include <windows.h>
-#include <Audioclient.h>
-#include <mmdeviceapi.h>
-
-#include "../ps_platform.h"
 
 struct Win32WindowContext
 {
@@ -15,6 +10,11 @@ struct Win32WindowContext
     HGLRC hGlContext;
     GraphicsContext graphics;
 };
+
+struct IMMDeviceEnumerator;
+struct IMMDevice;
+struct IAudioClient;
+struct IAudioRenderClient;
 
 struct Win32AudioContext
 {

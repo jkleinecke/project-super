@@ -2,11 +2,6 @@
 #include <Xinput.h>
 #include <math.h>
 
-#include "win32_platform.h"
-
-#include "win32_log.hpp"
-
-
 #define XINPUT_LEFT_THUMB_DEADZONE 7849
 #define XINPUT_RIGHT_THUMB_DEADZONE 8689
 #define XINPUT_TRIGGER_THRESHOLD 30

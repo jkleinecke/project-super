@@ -1,6 +1,4 @@
 
-#include "win32_platform.h"
-#include "win32_log.hpp"
 
 inline internal FILETIME
 Win32GetFileWriteTime(const char* szFilepath)

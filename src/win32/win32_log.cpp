@@ -2,7 +2,6 @@
 #ifndef WIN32_LOG_HPP_INCLUDED
 #define WIN32_LOG_HPP_INCLUDED
 #include <stdio.h>
-#include "win32_platform.h"
 
 // TODO(james): support multiple log levels
 

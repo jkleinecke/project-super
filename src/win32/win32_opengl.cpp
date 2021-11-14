@@ -1,13 +1,16 @@
-// GLAD PERMALINK
-#pragma once
-#ifndef WIN32_OPENGL_H_
-#define WIN32_OPENGL_H_
 
-#include "win32_platform.h"
 #include <gl/gl.h>
-// TODO(james): copy out the defines we need and get rid of these files 
-//#include "glext.h"
-//#include "wglext.h"
+
+/*******************************************************************************
+
+    Things to do:
+    1) Load the extensions we'll need for a 4.1 profile.
+       - Pass opengl struct to Platform Agnostic OpenGL renderer
+    2) V-Sync
+    3) Determine GPU Capabilities
+
+********************************************************************************/
+
 
 #define WGL_CONTEXT_DEBUG_BIT_ARB         0x00000001
 #define WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB 0x00000002
@@ -33,8 +36,7 @@
 #define WGL_SAMPLE_BUFFERS_ARB            0x2041
 #define WGL_SAMPLES_ARB                   0x2042
 
-// forward declare the winproc for now
-internal LRESULT CALLBACK Win32WindowProc(HWND,UINT,WPARAM,LPARAM);
+#define GLAPI WINAPI
 
 typedef HGLRC WINAPI wgl_create_context_attribs_arb(HDC hDC, HGLRC hShareContext,
                                                     const int *attribList);
@@ -73,7 +75,7 @@ global int Win32OpenGLAttribs[] =
     WGL_CONTEXT_MAJOR_VERSION_ARB, 3,
     WGL_CONTEXT_MINOR_VERSION_ARB, 3,
     WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB
-#if HANDMADE_INTERNAL
+#if PROJECTSUPER_INTERNAL
     |WGL_CONTEXT_DEBUG_BIT_ARB
 #endif
     ,
@@ -84,6 +86,10 @@ global int Win32OpenGLAttribs[] =
 #endif
     0,
 };
+
+#include "../opengl/ps_renderer_opengl.cpp"
+
+global opengl gl_instance;
 
 internal void
 Win32SetPixelFormat(HDC hDeviceContext)
@@ -167,7 +173,6 @@ Win32InitOpenGL(Win32WindowContext& windowContext)
         wglCreateContextAttribsARB = (wgl_create_context_attribs_arb*)wglGetProcAddress("wglCreateContextAttribsARB");
         
         // TODO(james): use wglGetExtensionsStringEXT to gather a basic set of capabilities 
-        // TODO(james): Load the rest of extensions here 
         
         wglMakeCurrent(0, 0);
     }
@@ -183,10 +188,44 @@ Win32InitOpenGL(Win32WindowContext& windowContext)
     
     wglMakeCurrent(windowContext.hDeviceContext, windowContext.hGlContext);
     
-    // TODO(james): Load all opengl extensions here
     // testing code
     SetWindowText(windowContext.hWindow, (LPCSTR)glGetString(GL_VERSION));
 
+    // TODO(james): Load all opengl extensions here
+    #define LoadOpenGLFunction(name)  gl_instance.##name = (type_##name *)wglGetProcAddress(#name)
+
+    LoadOpenGLFunction(glGenBuffers);
+    LoadOpenGLFunction(glBindBuffer);
+    LoadOpenGLFunction(glBufferData);
+    LoadOpenGLFunction(glVertexAttribPointer);
+    LoadOpenGLFunction(glCreateShader);
+    LoadOpenGLFunction(glDeleteShader);
+    LoadOpenGLFunction(glShaderSource);
+    LoadOpenGLFunction(glCompileShader);
+    LoadOpenGLFunction(glCreateProgram);
+    LoadOpenGLFunction(glAttachShader);
+    LoadOpenGLFunction(glDetachShader);
+    LoadOpenGLFunction(glLinkProgram);
+    LoadOpenGLFunction(glUseProgram);
+    LoadOpenGLFunction(glGetProgramiv);
+    LoadOpenGLFunction(glGetShaderiv);
+    LoadOpenGLFunction(glGetShaderInfoLog);
+    LoadOpenGLFunction(glGetProgramInfoLog);
+    LoadOpenGLFunction(glGenVertexArrays);
+    LoadOpenGLFunction(glBindVertexArray);
+    LoadOpenGLFunction(glEnableVertexAttribArray);
+
+    init_test_gl(gl_instance);
+}   
+
+internal void
+Win32Render(u32 windowWidth, u32 windowHeight)
+{
+    glViewport(0, 0, windowWidth, windowHeight);
+    
+    glClearColor(0.129f, 0.586f, 0.949f, 1.0f); // rgb(33,150,243) sky blue?
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    RenderOpenGL(gl_instance);
 }
 
-#endif
