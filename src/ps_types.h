@@ -1,4 +1,6 @@
-
+#pragma once
+#ifndef PS_TYPES_H
+#define PS_TYPES_H
 
 #ifdef PROJECTSUPER_SLOW
 // define NDEBUG so that assert.h will compile out assert(..)
@@ -30,9 +32,6 @@
 #else
 #error SEE/NEON optimizations are not available for this compiler yet!!!!
 #endif
-
-// turn off the handmade math prefix to simplify code
-#define HMM_PREFIX
 
 #include <stdint.h>
 #include <stddef.h>
@@ -134,8 +133,8 @@ typedef intptr_t imm;
 #define Gigabytes(n) (Megabytes(n) * 1024LL)
 #define Terabytes(n) (Gigabytes(n) * 1024LL)
 
-#ifndef SIZEOF_ARRAY
-#define SIZEOF_ARRAY(array) (sizeof(array)/sizeof(array[0]))
+#ifndef ARRAY_COUNT
+#define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #endif
 
 #ifndef MAX
@@ -145,12 +144,14 @@ typedef intptr_t imm;
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif 
 
-#define CTAssert(Expr) static_assert(Expr, "Assertion failed: " #Expr)
+#ifndef CompileAssert
+#define CompileAssert(Expr) static_assert(Expr, "Assertion failed: " #Expr)
+#endif
 
 #if PROJECTSUPER_INTERNAL
 #define NotImplemented ASSERT(!"NotImplemented")
 #else
-#define NotImplemented NotImplemented!!!!!!!!!!!!
+#define NotImplemented CompileAssert(!"NotImplemented!!!!!!!!!!!!")
 #endif
 
 #define AlignPow2(Value, Alignment) (((Value) + ((Alignment) - 1)) & ~(((Value) - (Value)) + (Alignment) - 1))
@@ -165,159 +166,161 @@ struct buffer
 };
 typedef buffer string;
 
-union v2
-{
-    struct
-    {
-        f32 x, y;
-    };
-    struct
-    {
-        f32 u, v;
-    };
-    struct
-    {
-        f32 Width, Height;
-    };
-    f32 E[2];
-};
+// union v2
+// {
+//     struct
+//     {
+//         f32 x, y;
+//     };
+//     struct
+//     {
+//         f32 u, v;
+//     };
+//     struct
+//     {
+//         f32 Width, Height;
+//     };
+//     f32 E[2];
+// };
 
-union v2u
-{
-    struct
-    {
-        u32 x, y;
-    };
-    struct
-    {
-        u32 Width, Height;
-    };
-    u32 E[2];
-};
+// union v2u
+// {
+//     struct
+//     {
+//         u32 x, y;
+//     };
+//     struct
+//     {
+//         u32 Width, Height;
+//     };
+//     u32 E[2];
+// };
 
-union v3
-{
-    struct
-    {
-        f32 x, y, z;
-    };
-    struct
-    {
-        f32 u, v, __;
-    };
-    struct
-    {
-        f32 r, g, b;
-    };
-    struct
-    {
-        v2 xy;
-        f32 Ignored0_;
-    };
-    struct
-    {
-        f32 Ignored1_;
-        v2 yz;
-    };
-    struct
-    {
-        v2 uv;
-        f32 Ignored2_;
-    };
-    struct
-    {
-        f32 Ignored3_;
-        v2 v__;
-    };
-    f32 E[3];
-};
+// union v3
+// {
+//     struct
+//     {
+//         f32 x, y, z;
+//     };
+//     struct
+//     {
+//         f32 u, v, __;
+//     };
+//     struct
+//     {
+//         f32 r, g, b;
+//     };
+//     struct
+//     {
+//         v2 xy;
+//         f32 Ignored0_;
+//     };
+//     struct
+//     {
+//         f32 Ignored1_;
+//         v2 yz;
+//     };
+//     struct
+//     {
+//         v2 uv;
+//         f32 Ignored2_;
+//     };
+//     struct
+//     {
+//         f32 Ignored3_;
+//         v2 v__;
+//     };
+//     f32 E[3];
+// };
 
-union v3s
-{
-    struct
-    {
-        i32 x;
-        i32 y;
-        i32 z;
-    };
-    i32 E[3];
-};
+// union v3s
+// {
+//     struct
+//     {
+//         i32 x;
+//         i32 y;
+//         i32 z;
+//     };
+//     i32 E[3];
+// };
 
-union v4
-{
-    struct
-    {
-        union
-        {
-            v3 xyz;
-            struct
-            {
-                f32 x, y, z;
-            };
-        };
+// union v4
+// {
+//     struct
+//     {
+//         union
+//         {
+//             v3 xyz;
+//             struct
+//             {
+//                 f32 x, y, z;
+//             };
+//         };
         
-        f32 w;
-    };
-    struct
-    {
-        union
-        {
-            v3 rgb;
-            struct
-            {
-                f32 r, g, b;
-            };
-        };
+//         f32 w;
+//     };
+//     struct
+//     {
+//         union
+//         {
+//             v3 rgb;
+//             struct
+//             {
+//                 f32 r, g, b;
+//             };
+//         };
         
-        f32 a;
-    };
-    struct
-    {
-        v2 xy;
-        f32 Ignored0_;
-        f32 Ignored1_;
-    };
-    struct
-    {
-        f32 Ignored2_;
-        v2 yz;
-        f32 Ignored3_;
-    };
-    struct
-    {
-        f32 Ignored4_;
-        f32 Ignored5_;
-        v2 zw;
-    };
-    f32 E[4];
-};
+//         f32 a;
+//     };
+//     struct
+//     {
+//         v2 xy;
+//         f32 Ignored0_;
+//         f32 Ignored1_;
+//     };
+//     struct
+//     {
+//         f32 Ignored2_;
+//         v2 yz;
+//         f32 Ignored3_;
+//     };
+//     struct
+//     {
+//         f32 Ignored4_;
+//         f32 Ignored5_;
+//         v2 zw;
+//     };
+//     f32 E[4];
+// };
 
-struct m4x4
-{
-    // NOTE: These are stored ROW MAJOR - E[ROW][COLUMN]!!!
-    f32 E[4][4];
-};
+// struct m4x4
+// {
+//     // NOTE: These are stored ROW MAJOR - E[ROW][COLUMN]!!!
+//     f32 E[4][4];
+// };
 
-struct m4x4_inv
-{
-    m4x4 Forward;
-    m4x4 Inverse;
-};
+// struct m4x4_inv
+// {
+//     m4x4 Forward;
+//     m4x4 Inverse;
+// };
 
-struct rectangle2i
-{
-    i32 MinX, MinY;
-    i32 MaxX, MaxY;
-};
+// struct rectangle2i
+// {
+//     i32 MinX, MinY;
+//     i32 MaxX, MaxY;
+// };
 
-struct rectangle2
-{
-    v2 Min;
-    v2 Max;
-};
+// struct rectangle2
+// {
+//     v2 Min;
+//     v2 Max;
+// };
 
-struct rectangle3
-{
-    v3 Min;
-    v3 Max;
-};
+// struct rectangle3
+// {
+//     v3 Min;
+//     v3 Max;
+// };
+
+#endif

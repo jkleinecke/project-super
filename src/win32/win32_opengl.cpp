@@ -198,6 +198,8 @@ Win32InitOpenGL(Win32WindowContext& windowContext)
     LoadOpenGLFunction(glBindBuffer);
     LoadOpenGLFunction(glBufferData);
     LoadOpenGLFunction(glVertexAttribPointer);
+    LoadOpenGLFunction(glGetAttribLocation);
+    LoadOpenGLFunction(glGetUniformLocation);
     LoadOpenGLFunction(glCreateShader);
     LoadOpenGLFunction(glDeleteShader);
     LoadOpenGLFunction(glShaderSource);
@@ -206,6 +208,7 @@ Win32InitOpenGL(Win32WindowContext& windowContext)
     LoadOpenGLFunction(glAttachShader);
     LoadOpenGLFunction(glDetachShader);
     LoadOpenGLFunction(glLinkProgram);
+    LoadOpenGLFunction(glValidateProgram);
     LoadOpenGLFunction(glUseProgram);
     LoadOpenGLFunction(glGetProgramiv);
     LoadOpenGLFunction(glGetShaderiv);
@@ -226,6 +229,6 @@ Win32Render(u32 windowWidth, u32 windowHeight)
     glClearColor(0.129f, 0.586f, 0.949f, 1.0f); // rgb(33,150,243) sky blue?
     glClear(GL_COLOR_BUFFER_BIT);
 
-    RenderOpenGL(gl_instance);
+    OpenGLRender(gl_instance);
 }
 

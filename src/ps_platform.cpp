@@ -1,6 +1,5 @@
 
 #include "ps_platform.h"
-#include "ps_math.h"
 
 struct SoundTone
 {

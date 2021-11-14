@@ -1,4 +1,6 @@
-
+#pragma once
+#ifndef PS_RENDERER_OPENGL_H
+#define PS_RENDERER_OPENGL_H
 
 
 #define GL_ARRAY_BUFFER 0x8892
@@ -9,6 +11,7 @@
 #define GL_FRAGMENT_SHADER 0x8B30
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
+#define GL_VALIDATE_STATUS 0x8B83
 
 typedef char GLchar;
 typedef ptrdiff_t GLsizeiptr;
@@ -20,6 +23,8 @@ typedef void GLAPI type_glBindBuffer(GLenum target, GLuint buffer);
 typedef void GLAPI type_glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage);
 // GL 2.0
 typedef void GLAPI type_glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const void *pointer);
+typedef GLint GLAPI type_glGetAttribLocation(GLuint program, const GLchar *name);
+typedef GLint GLAPI type_glGetUniformLocation(GLuint program, const GLchar *name);
 typedef GLuint GLAPI type_glCreateShader(GLenum type);
 typedef void GLAPI type_glDeleteShader(GLuint shader);
 typedef void GLAPI type_glShaderSource(GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length);
@@ -28,6 +33,7 @@ typedef GLuint GLAPI type_glCreateProgram();
 typedef void GLAPI type_glAttachShader(GLuint program, GLuint shader);
 typedef void GLAPI type_glDetachShader(GLuint program, GLuint shader);
 typedef void GLAPI type_glLinkProgram(GLuint program);
+typedef void GLAPI type_glValidateProgram(GLuint program);
 typedef void GLAPI type_glUseProgram(GLuint program);
 typedef void GLAPI type_glGetProgramiv(GLuint program, GLenum pname, GLint *params);
 typedef void GLAPI type_glGetShaderiv(GLuint shader, GLenum pname, GLint *params);
@@ -51,6 +57,8 @@ struct opengl
     
     // GL 2.0
     GLFunction(glVertexAttribPointer);
+    GLFunction(glGetAttribLocation);
+    GLFunction(glGetUniformLocation);
     GLFunction(glCreateShader);
     GLFunction(glDeleteShader);
     GLFunction(glShaderSource);
@@ -59,6 +67,7 @@ struct opengl
     GLFunction(glAttachShader);
     GLFunction(glDetachShader);
     GLFunction(glLinkProgram);
+    GLFunction(glValidateProgram);
     GLFunction(glUseProgram);
     GLFunction(glGetProgramiv);
     GLFunction(glGetShaderiv);
@@ -70,3 +79,12 @@ struct opengl
     GLFunction(glBindVertexArray);
     GLFunction(glEnableVertexAttribArray);
 };
+
+struct gl_program
+{
+    GLuint id;
+
+    GLint idVertP;
+};
+
+#endif

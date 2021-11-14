@@ -323,7 +323,7 @@ WinMain(_In_ HINSTANCE hInstance,
     win32_loaded_code gameCode = {};
     gameCode.pszDLLName = "ps_game.dll";
     gameCode.pszTransientDLLName = "ps_game_temp.dll";
-    gameCode.nFunctionCount = SIZEOF_ARRAY(Win32GameFunctionTableNames);
+    gameCode.nFunctionCount = ARRAY_COUNT(Win32GameFunctionTableNames);
     gameCode.ppFunctions = (void**)&gameFunctions;
     gameCode.ppszFunctionNames = (char**)&Win32GameFunctionTableNames;
     
