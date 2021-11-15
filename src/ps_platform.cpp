@@ -5,7 +5,7 @@ struct SoundTone
 {
     b32 isActive;
     f32 freq;
-    f32 tSine;
+    f32 tPhase;
 };
 
 struct GameTestState
@@ -44,6 +44,9 @@ RenderAudioWave(const GraphicsContext& graphics, GameTestState& gameState)
 
     int midY = (int)graphics.buffer_height / 2;
 
+    u32 leftColor = 255;        // blue
+    u32 rightColor = 255 << 16; // red
+
     for(u32 x = 0; x < graphics.buffer_width; ++x)
     {
         // now average the normalized sample values (-1..1)
@@ -51,18 +54,16 @@ RenderAudioWave(const GraphicsContext& graphics, GameTestState& gameState)
         f32 fRightSampleValue = 0.0f;
         for(int sampleIndex = 0; sampleIndex < samplesPerColumn; ++sampleIndex)
         {
-            fLeftSampleValue += (f32)*audioSamples++ / 0x7FFF;
-            fRightSampleValue += (f32)*audioSamples++ / 0x7FFF;
+            fLeftSampleValue = (f32)*audioSamples++ / 0x7FFF;
+            fRightSampleValue = (f32)*audioSamples++ / 0x7FFF;
+
+            // now map the -1..1 sample values into the y coordinate
+            int ly = midY + (int)(fLeftSampleValue * (midY));
+            int ry = midY + (int)(fRightSampleValue * (midY));
+
+            pixels[(ly * graphics.buffer_width) + x] = leftColor;
+            pixels[(ry * graphics.buffer_width) + x] = rightColor;
         }
-        fLeftSampleValue /= samplesPerColumn;
-        fRightSampleValue /= samplesPerColumn;
-
-        // now map the -1..1 sample values into the y coordinate
-        int ly = midY + (int)(fLeftSampleValue * (midY));
-        int ry = midY + (int)(fRightSampleValue * (midY));
-
-        pixels[(ly * graphics.buffer_width) + x] = 255;
-        pixels[(ry * graphics.buffer_width) + x] = 255 << 16;
     }
 }
 
@@ -85,14 +86,109 @@ RenderGradient(const GraphicsContext& graphics, GameTestState& gameState)
     }
 }
 
+internal inline f32
+Oscilator_Sine(f32& phase, f32 frequency, f32 sampleRate)
+{
+    const f32 twoPi = 2.0f*Pi32;
+
+    phase += twoPi*frequency/sampleRate;
+
+    if(phase > twoPi)
+    {
+        phase -= twoPi;
+    }
+
+    return sinf(phase);
+}
+
+internal inline f32
+Oscilator_Square(f32& phase, f32 frequency, f32 sampleRate)
+{
+    phase += frequency/sampleRate;
+
+	while(phase > 1.0f)
+		phase -= 1.0f;
+
+	while(phase < 0.0f)
+		phase += 1.0f;
+
+	if(phase <= 0.5f)
+		return -1.0f;
+	else
+		return 1.0f;
+}
+
+internal inline
+float Oscilator_Saw(float &fPhase, float fFrequency, float fSampleRate)
+{
+	fPhase += fFrequency/fSampleRate;
+
+	while(fPhase > 1.0f)
+		fPhase -= 1.0f;
+
+	while(fPhase < 0.0f)
+		fPhase += 1.0f;
+
+	return (fPhase * 2.0f) - 1.0f;
+}
+
+internal inline
+float Oscilator_Triangle(float &fPhase, float fFrequency, float fSampleRate)
+{
+	fPhase += fFrequency/fSampleRate;
+
+	while(fPhase > 1.0f)
+		fPhase -= 1.0f;
+
+	while(fPhase < 0.0f)
+		fPhase += 1.0f;
+
+	float fRet;
+	if(fPhase <= 0.5f)
+		fRet=fPhase*2;
+	else
+		fRet=(1.0f - fPhase)*2;
+
+	return (fRet * 2.0f) - 1.0f;
+}
+
+float AdvanceOscilator_Noise(float &fPhase, float fFrequency, float fSampleRate, float fLastValue)
+{
+	unsigned int nLastSeed = (unsigned int)fPhase;
+	fPhase += fFrequency/fSampleRate;
+	unsigned int nSeed = (unsigned int)fPhase;
+
+	while(fPhase > 2.0f)
+		fPhase -= 1.0f;
+
+	if(nSeed != nLastSeed)
+	{
+		float fValue = ((float)rand()) / ((float)RAND_MAX);
+		fValue = (fValue * 2.0f) - 1.0f;
+
+		//uncomment the below to make it slightly more intense
+		/*
+		if(fValue < 0)
+			fValue = -1.0f;
+		else
+			fValue = 1.0f;
+		*/
+
+		return fValue;
+	}
+	else
+	{
+		return fLastValue;
+	}
+}
 
 internal void
 FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game)
 {
     u32 numRenderSamples = audio.samplesRequested;
+    void* transientMemoryPosition = game.transientMemory.freePointer;
     // we'll accumulate the samples in floating point
     f32* toneSamples = (f32*)PushArray(game.transientMemory, sizeof(f32), numRenderSamples);
-
     // clear the samples to 0
     ZeroArray(numRenderSamples, toneSamples);
     
@@ -101,25 +197,21 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
         SoundTone& tone = gameState.tones[soundToneIndex];
 
         // TODO(james): Handle stereo
-        f32 samplesPerPeriod = audio.samplesPerSecond / tone.freq;
+        f32 samplesPerPeriod = tone.freq/(f32)audio.samplesPerSecond;
 
+        // f32 lastValue = 0.0f;
         // now accumalate the samples for this tone
         for(u32 sampleIndex = 0; sampleIndex < numRenderSamples; ++sampleIndex)
         {
             if(tone.isActive)
             {
-                f32 fValue = sinf(tone.tSine);
-                toneSamples[sampleIndex] += fValue;
-                
-                tone.tSine += 2.0f*Pi32*1.0f/samplesPerPeriod;
-                if(tone.tSine > 2.0f*Pi32)
-                {
-                    tone.tSine -= 2.0f*Pi32;
-                }
+                f32 value = Oscilator_Sine(tone.tPhase, tone.freq, (f32)audio.samplesPerSecond);
+                toneSamples[sampleIndex] += value;
+                //lastValue = value;
             }
             else
             {
-                tone.tSine = 0.0f;
+                tone.tPhase = 0.0f;
             }
         }
     
@@ -142,11 +234,43 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
         sampleIndex < numRenderSamples;
         ++sampleIndex)
     {
+        ASSERT(toneSamples[sampleIndex]*toneSamples[sampleIndex] < 1.0);
         int16 SampleValue = (int16)(toneSamples[sampleIndex] * toneVolume);
         // TODO(james): Handle stereo
         *SampleOut++ = SampleValue;
         *SampleOut++ = SampleValue;
     }
+
+    // reset our scratch memory
+    game.transientMemory.freePointer = transientMemoryPosition;
+}
+
+//calculate the frequency of the specified note.
+//fractional notes allowed!
+f32 CalcFrequency(f32 fOctave,f32 fNote)
+/*
+	Calculate the frequency of any note!
+	frequency = 440×(2^(n/12))
+	N=0 is A4
+	N=1 is A#4
+	etc...
+	notes go like so...
+	0  = A
+	1  = A#
+	2  = B
+	3  = C
+	4  = C#
+	5  = D
+	6  = D#
+	7  = E
+	8  = F
+	9  = F#
+	10 = G
+	11 = G#
+*/
+{
+    double freq = 440*pow(2.0, fNote / 12.0); 
+	return (float)(440*pow(2.0,((double)((fOctave-4)*12+fNote))/12.0));
 }
 
 extern "C"
@@ -168,14 +292,21 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // 2 (A)	110.00 Hz	A2
         // 1 (E)	82.41 Hz	E2
 
-        f32 frequencies[] = {82.41f, 110.0f, 146.83f, 196.0f, 246.94f, 329.63f};
+        f32 frequencies[] = {
+            CalcFrequency(2,7),
+            CalcFrequency(2,0),
+            CalcFrequency(3,5),
+            CalcFrequency(3,10),
+            CalcFrequency(3,2),
+            CalcFrequency(4,7)
+        };
         
         for(int toneIndex = 0; toneIndex < 6; ++toneIndex)
         {
             SoundTone& tone = gameState.tones[toneIndex];
             tone.isActive = false;
             tone.freq = frequencies[toneIndex];
-            tone.tSine = 0.0f;
+            tone.tPhase = 0.0f;
         }
 
         memset(&gameState.lastSecondAudioSamples, 0, sizeof(gameState.lastSecondAudioSamples));
@@ -252,6 +383,4 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     //RenderGradient(graphics, gameState); 
     RenderAudioWave(graphics, gameState);
-
-    ResetArena(gameContext.transientMemory);
 }
