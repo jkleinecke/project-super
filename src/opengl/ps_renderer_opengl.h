@@ -84,7 +84,11 @@ struct gl_program
 {
     GLuint id;
 
+    GLint idSampler;
+
     GLint idVertP;
+    GLint idVertUV;
+    GLint idVertColor;
 };
 
 #endif

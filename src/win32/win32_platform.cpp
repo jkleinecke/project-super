@@ -293,6 +293,9 @@ WinMain(_In_ HINSTANCE hInstance,
     mainWindow.hWindow = hMainWindow;
     mainWindow.hDeviceContext = GetDC(hMainWindow);
 
+    Win32Dimensions startDim = Win32GetWindowDimensions(mainWindow.hWindow);
+    Win32ResizeBackBuffer(mainWindow.graphics, startDim.width, startDim.height);
+
     HRESULT hr = 0;
     
     // TODO(james): Generalize this part to support more than one window? 
@@ -306,8 +309,6 @@ WinMain(_In_ HINSTANCE hInstance,
     real32 targetFrameRateSeconds = 1.0f / targetRefreshRateHz;
 
     Win32LoadXinput();
-    Win32Dimensions startDim = Win32GetWindowDimensions(mainWindow.hWindow);
-    Win32ResizeBackBuffer(mainWindow.graphics, startDim.width, startDim.height);
 
     Win32AudioContext audio = {};
     Win32InitSoundDevice(audio);
@@ -543,7 +544,7 @@ WinMain(_In_ HINSTANCE hInstance,
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
 
         Win32Dimensions dimensions = Win32GetWindowDimensions(mainWindow.hWindow);              
-        Win32Render(dimensions.width, dimensions.height);
+        Win32Render(dimensions.width, dimensions.height, mainWindow.graphics);
         SwapBuffers(mainWindow.hDeviceContext);
         //
         //Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindow.graphics);

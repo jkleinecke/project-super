@@ -32,7 +32,7 @@ RenderAudioWave(const GraphicsContext& graphics, GameTestState& gameState)
         u32* col = row;
         for(u32 x = 0; x < graphics.buffer_width; ++x)
         {
-            *col++ = 0x00AA00AA;
+            *col++ = 0x00000000;
         }
         row += graphics.buffer_width;
     }
@@ -62,7 +62,7 @@ RenderAudioWave(const GraphicsContext& graphics, GameTestState& gameState)
         int ry = midY + (int)(fRightSampleValue * (midY));
 
         pixels[(ly * graphics.buffer_width) + x] = 255;
-        pixels[(ry * graphics.buffer_width) + x] = (0xFF << 16) | (0xFF << 8) | (0xFF);
+        pixels[(ry * graphics.buffer_width) + x] = 255 << 16;
     }
 }
 
@@ -94,11 +94,8 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
     f32* toneSamples = (f32*)PushArray(game.transientMemory, sizeof(f32), numRenderSamples);
 
     // clear the samples to 0
-    for(u32 sampleIndex = 0; sampleIndex < numRenderSamples; ++sampleIndex)
-    {
-        toneSamples[sampleIndex] = 0.0f;
-    }
-
+    ZeroArray(numRenderSamples, toneSamples);
+    
     for(int soundToneIndex = 0; soundToneIndex < 6; ++soundToneIndex)
     {
         SoundTone& tone = gameState.tones[soundToneIndex];
@@ -111,21 +108,9 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
         {
             if(tone.isActive)
             {
-                const int max_harmonics = 40;
-                f32 fValue = 0.0f;
-                f32 fRemainingContrib = 1.0f;
-                for(int harmonic = 1; harmonic <= max_harmonics; ++harmonic)
-                {
-                    //f32 contrib = (f32)(max_harmonics - harmonic)/(f32)max_harmonics * fRemainingContrib;//logf((f32)(max_harmonics - harmonic));
-                    f32 contrib = .8f * fRemainingContrib;
-                    fValue += sinf(tone.tSine * harmonic) * contrib;
-                    fRemainingContrib -= contrib;
-                }
-                
+                f32 fValue = sinf(tone.tSine);
                 toneSamples[sampleIndex] += fValue;
                 
-            
-
                 tone.tSine += 2.0f*Pi32*1.0f/samplesPerPeriod;
                 if(tone.tSine > 2.0f*Pi32)
                 {

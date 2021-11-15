@@ -218,17 +218,17 @@ Win32InitOpenGL(Win32WindowContext& windowContext)
     LoadOpenGLFunction(glBindVertexArray);
     LoadOpenGLFunction(glEnableVertexAttribArray);
 
-    init_test_gl(gl_instance);
+    init_test_gl(gl_instance, windowContext.graphics);
 }   
 
 internal void
-Win32Render(u32 windowWidth, u32 windowHeight)
+Win32Render(u32 windowWidth, u32 windowHeight, GraphicsContext& graphics)
 {
     glViewport(0, 0, windowWidth, windowHeight);
     
     glClearColor(0.129f, 0.586f, 0.949f, 1.0f); // rgb(33,150,243) sky blue?
     glClear(GL_COLOR_BUFFER_BIT);
 
-    OpenGLRender(gl_instance);
+    OpenGLRender(gl_instance, graphics);
 }
 
