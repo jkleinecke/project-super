@@ -13,6 +13,8 @@
 
 //===================== PLATFORM API =================================
 
+#define LOG_CALLBACK(name) void name(const char* file, int lineno, const char* format, ...)
+typedef LOG_CALLBACK(log_callback);
 
 //===================== GAME API =====================================
 
@@ -31,6 +33,7 @@ struct MemoryArena
 
 struct GameContext
 {
+    log_callback* logger;
     MemoryArena persistantMemory;
     MemoryArena transientMemory;
 };
@@ -65,18 +68,18 @@ struct InputController
         InputButton buttons[14];
         struct 
         {
+            InputButton x;
+            InputButton a;
+            InputButton b;
+            InputButton y;
+
+            InputButton leftShoulder;
+            InputButton rightShoulder;
+
             InputButton up;
             InputButton down;
             InputButton left;
             InputButton right;
-
-            InputButton y;
-            InputButton a;
-            InputButton x;
-            InputButton b;
-
-            InputButton leftShoulder;
-            InputButton rightShoulder;
 
             InputButton leftStickButton;
             InputButton rightStickButton;
@@ -90,13 +93,21 @@ struct InputController
     real32 rightFeedbackMotor;  
 };
 
-struct AudioContext
+struct AudioContextDesc
 {
     uint32 samplesPerSecond;
-    uint32 bufferSize;
+    uint16 numChannels;
+    uint16 bitsPerSample;
+};
+
+struct AudioContext
+{
+    AudioContextDesc descriptor;
+
     uint32 samplesWritten;
     uint32 samplesRequested;  
-    void* buffer;
+
+    buffer streamBuffer;
 };
 
 struct InputContext

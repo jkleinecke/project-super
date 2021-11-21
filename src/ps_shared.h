@@ -11,42 +11,74 @@
 internal void*
 Copy(mem_size size, const void* src, void* dst)
 {
-    ASSERT(sizeof(u64)==sizeof(src));   // verify that we're on a 64-bit machine
-    mem_size chunks = size/sizeof(src);  // Copy by CPU bit width
-    mem_size slice = size%sizeof(src);   // remaining bytes < CPU bit width
+    CompileAssert(sizeof(umm)==sizeof(src));   // verify pointer size
+    mem_size chunks = size / sizeof(src);  // Copy by CPU bit width
+    mem_size slice = size % sizeof(src);   // remaining bytes < CPU bit width
 
-    u64* s = (u64*)src;
-    u64* d = (u64*)dst;
+    umm* s = (umm*)src;
+    umm* d = (umm*)dst;
 
     while(chunks--) {
         *d++ = *s++;
     }
 
+    u8* d8 = (u8*)d;
+    u8* s8 = (u8*)s;
+
     while(slice--) {
-        *((u8*)d++) = *((u8*)s++);
+        *d8++ = *s8++;
     }
 
+    ASSERT3(s8 == ((u8*)src + size));
+    ASSERT3(d8 == ((u8*)dst + size));
     return dst;
 }
 
 #define ZeroStruct(instance) ZeroSize(sizeof(instance), &(instance))
 #define ZeroArray(count, array_ptr) ZeroSize((count)*sizeof((array_ptr)[0]), (array_ptr))
+#define ZeroBuffer(buffer) ZeroSize(buffer.size, buffer.data)
 internal void
 ZeroSize(mem_size size, void* ptr)
 {
-    ASSERT(sizeof(u64)==sizeof(ptr));   // verify that we're on a 64-bit machine
+    CompileAssert(sizeof(umm)==sizeof(ptr));   // verify pointer size
     mem_size chunks = size/sizeof(ptr);
     mem_size slice = size%sizeof(ptr);
 
-    u64* p = (u64*)ptr;
+    umm* p = (umm*)ptr;
 
     while(chunks--) {
         *p++ = 0;
     }
 
+    u8* s = (u8*)p;
+
     while(slice--) {
-        *((u8*)p++) = 0;
+        *s++ = 0;
     }
+
+    ASSERT3(s == ((u8*)ptr + size));
+}
+
+internal void
+SetSize(mem_size size, const u8 value, void* ptr)
+{
+    CompileAssert(sizeof(umm)==sizeof(ptr));   // verify pointer size
+    mem_size chunks = size/sizeof(ptr);
+    mem_size slice = size%sizeof(ptr);
+
+    umm* p = (umm*)ptr;
+
+    while(chunks--) {
+        *p++ = value;
+    }
+
+    u8* s = (u8*)p;
+
+    while(slice--) {
+        *s++ = value;
+    }
+
+    ASSERT3(s == ((u8*)ptr + size));
 }
 
 inline internal b32x

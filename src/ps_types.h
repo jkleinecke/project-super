@@ -76,9 +76,11 @@ typedef uint64_t u64;
 
 typedef float   f32;
 typedef float   r32;
+typedef float   nf32;   // normalized float 0..1
 
 typedef double  f64;
 typedef double  r64;
+typedef double  nf64;   // normalized double 0..1
 
 typedef i32   b32;
 typedef b32   b32x;
@@ -124,8 +126,38 @@ typedef intptr_t imm;
 #define global static
 #define global_variable static
 
-#ifndef ASSERT
-#define ASSERT(cond) assert(cond)
+#ifdef ASSERT
+    #undef ASSERT
+#endif
+#ifdef PROJECTSUPER_SLOW
+// #ifdef COMPILER_MSVC
+//     _ACRTIMP void __cdecl _wassert(
+//         _In_z_ wchar_t const* _Message,
+//         _In_z_ wchar_t const* _File,
+//         _In_   unsigned       _Line
+//         );
+
+//     #define ASSERT(expression) (void)(                                                       \
+//             (!!(expression)) ||                                                              \
+//             (_wassert(_CRT_WIDE(#expression), _CRT_WIDE(__FILE__), (unsigned)(__LINE__)), 0) \
+//         )
+// #else
+    #define ASSERT(cond) if(!(cond)) {*(volatile int *)0 = 0;}
+    #if PROJECTSUPER_SLOW > 1
+        #define ASSERT2(cond) ASSERT(cond)
+        #if PROJECTSUPER_SLOW > 2
+            #define ASSERT3 ASSERT(cond)
+        #else
+            #define ASSERT3
+        #endif
+    #else
+        #define ASSERT2
+        #define ASSERT3
+    #endif
+#else
+    #define ASSERT
+    #define ASSERT2
+    #define ASSERT3
 #endif
 
 #define Kilobytes(n) ((n) * 1024LL)
@@ -143,6 +175,10 @@ typedef intptr_t imm;
 #ifndef MIN
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #endif 
+
+#ifndef IFSET
+#define IFSET(cond, set) if(cond) (set) 
+#endif
 
 #ifndef CompileAssert
 #define CompileAssert(Expr) static_assert(Expr, "Assertion failed: " #Expr)

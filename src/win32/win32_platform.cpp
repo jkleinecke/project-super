@@ -216,10 +216,10 @@ Win32WindowProc(
 }
 
 inline internal void
-Win32ProcessKeyboardButton(InputButton& newState, const InputButton& oldState, bool pressed)
+Win32ProcessKeyboardButton(InputButton& newState, bool pressed)
 {
     newState.pressed = pressed;
-    newState.transitions = oldState.pressed == pressed ? 0 : 1; // only transitioned if the new state doesn't match the old
+    newState.transitions = 1; 
 }
 
 enum RunLoopMode
@@ -243,13 +243,15 @@ WinMain(_In_ HINSTANCE hInstance,
     wndClass.hCursor = LoadCursorA(NULL, IDC_ARROW);
     wndClass.lpszClassName = "ProjectSuperWindow";
     RegisterClassExA(&wndClass);
-    
+
+    RECT rc = { 0, 0, 3440, 1440 };
+    AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, 0);
     
     HWND hMainWindow = CreateWindowExA(0,
                                        "ProjectSuperWindow", "Project Super",
                                        WS_OVERLAPPEDWINDOW,
                                        CW_USEDEFAULT, CW_USEDEFAULT,
-                                       1280, 720,
+                                       rc.right-rc.left, rc.bottom-rc.top,
                                        0, 0,
                                        hInstance, 0   
                                        );
@@ -285,6 +287,8 @@ WinMain(_In_ HINSTANCE hInstance,
     gameContext.transientMemory.basePointer = memory;
     gameContext.transientMemory.freePointer = memory;
     
+    // NOTE: this is temporary
+    gameContext.logger = Win32Log;
 
     // NOTE(james): Set the windows scheduler granularity to 1ms so that our sleep can be more granular
     bool32 bSleepIsMs = timeBeginPeriod(1) == TIMERR_NOERROR;
@@ -364,6 +368,10 @@ WinMain(_In_ HINSTANCE hInstance,
 
                         bool upFlag = (HIWORD(msg.lParam) & KF_UP) == KF_UP;        // transition-state flag, 1 on keyup
                         bool repeated = (HIWORD(msg.lParam) & KF_REPEAT) == KF_REPEAT;
+                        if(repeated && !upFlag)
+                        {
+                            break;
+                        }
                         //WORD repeatCount = LOWORD(msg.lParam);
 
                         bool altDownFlag = (HIWORD(msg.lParam) & KF_ALTDOWN) == KF_ALTDOWN;
@@ -372,43 +380,45 @@ WinMain(_In_ HINSTANCE hInstance,
                         {
                             case 'W':
                             {
-                                Win32ProcessKeyboardButton(keyboard.up, input.controllers[0].up, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.up, !upFlag);
                             } break;
                             case 'A':
                             {
-                                Win32ProcessKeyboardButton(keyboard.left, input.controllers[0].left, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.left, !upFlag);
                             } break;
                             case 'S':
                             {
-                                Win32ProcessKeyboardButton(keyboard.down, input.controllers[0].down, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.down, !upFlag);
                             } break;
                             case 'D':
                             {
-                                Win32ProcessKeyboardButton(keyboard.right, input.controllers[0].right, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.right, !upFlag);
                             } break;
+                            case '5':
                             case 'Q':
                             {
-                                Win32ProcessKeyboardButton(keyboard.leftShoulder, input.controllers[0].leftShoulder, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.leftShoulder, !upFlag);
                             } break;
+                            case '6':
                             case 'E':
                             {
-                                Win32ProcessKeyboardButton(keyboard.rightShoulder, input.controllers[0].rightShoulder, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.rightShoulder, !upFlag);
                             } break;
-                            case VK_NUMPAD1:
+                            case '1':
                             {
-                                Win32ProcessKeyboardButton(keyboard.x, input.controllers[0].x, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.x, !upFlag);
                             } break;
-                            case VK_NUMPAD2:
+                            case '2':
                             {
-                                Win32ProcessKeyboardButton(keyboard.a, input.controllers[0].a, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.a, !upFlag);
                             } break;
-                            case VK_NUMPAD3:
+                            case '3':
                             {
-                                Win32ProcessKeyboardButton(keyboard.b, input.controllers[0].b, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.b, !upFlag);
                             } break;
-                            case VK_NUMPAD4:
+                            case '4':
                             {
-                                Win32ProcessKeyboardButton(keyboard.y, input.controllers[0].y, !upFlag);
+                                Win32ProcessKeyboardButton(keyboard.y, !upFlag);
                             } break;
                             case VK_ESCAPE:
                             {
@@ -510,6 +520,7 @@ WinMain(_In_ HINSTANCE hInstance,
 
         if(elapsedFrameTime < targetFrameRateSeconds)
         {
+            real32 frameTime = elapsedFrameTime;
             while(elapsedFrameTime < (targetFrameRateSeconds))
             {
                 if(bSleepIsMs)
@@ -520,6 +531,7 @@ WinMain(_In_ HINSTANCE hInstance,
                 }
                 elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime);
             }
+            LOG_INFO("Frame Time: %.2f, Total Time: %.2f", frameTime * 1000.0f, elapsedFrameTime * 1000.0f);
         }
         else
         {

@@ -2,6 +2,8 @@
 #include <Audioclient.h>
 #include <mmdeviceapi.h>
 
+DEFINE_PROPERTYKEY(PKEY_Device_FriendlyName,           0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 14);    // DEVPROP_TYPE_STRING
+
 #define REF_MILLI(milli) ((REFERENCE_TIME)((milli) * 10000))
 #define REF_SECONDS(seconds) (REF_MILLI(seconds) * 1000)
 
@@ -21,16 +23,21 @@ const IID IID_IAudioRenderClient = __uuidof(IAudioRenderClient);
 internal void
 Win32InitSoundDevice(Win32AudioContext& audio)
 {
+    AudioContextDesc& desc = audio.gameAudioBuffer.descriptor;
+
     // TODO(james): Enumerate available sound devices and/or output formats
-    const uint32 samplesPerSecond = 48000;
-    const uint16 nNumChannels = 2;
-    const uint16 nNumBitsPerSample = 16;
+    desc.samplesPerSecond = 48000;
+    desc.numChannels = 2;
+    desc.bitsPerSample = 16;
+    const uint32 samplesPerSecond = desc.samplesPerSecond;
+    const uint16 nNumChannels = desc.numChannels;
+    const uint16 nNumBitsPerSample = desc.bitsPerSample;
 
     // now acquire access to the audio hardware
 
     // buffer size is expressed in terms of duration (presumably calced against the sample rate etc..)
-    REFERENCE_TIME frameTime = REF_SECONDS(2.0/60.0);
-    REFERENCE_TIME bufferTime = frameTime;
+    REFERENCE_TIME frameTime = REF_SECONDS(1.0/60.0);
+    REFERENCE_TIME bufferTime = frameTime*4;    // 2 frames worth
 
     HRESULT hr = 0;
 
@@ -43,6 +50,21 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     hr = audio.pEnumerator->GetDefaultAudioEndpoint(eRender, eConsole, &audio.pDevice);
     if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }
 
+    PROPVARIANT varName;
+    IPropertyStore* pProps = 0;
+    hr = audio.pDevice->OpenPropertyStore(STGM_READ, &pProps);
+    if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }
+    PropVariantInit(&varName);
+
+    hr = pProps->GetValue(PKEY_Device_FriendlyName, &varName); 
+    if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }
+
+    LOG_INFO("Using Audio Device: %S", varName.pwszVal);
+
+    PropVariantClear(&varName);
+    SAFE_RELEASE(pProps);
+
+    // TODO(james): Ask for ISpatialAudioClient instead for automatic 7.1.4 effects?
     hr = audio.pDevice->Activate(IID_IAudioClient, CLSCTX_ALL, 0, (void**)&audio.pClient);
     if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }
 
@@ -107,52 +129,42 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }
     
     // target the minimum latency value of the audio hardware
-    audio.targetBufferFill = (uint32)(((1.0/60.0) + SECONDS_REF(minLatency*2)) * samplesPerSecond + 0.5);
+    audio.targetBufferFill = (uint32)(((1.5/60.0) + SECONDS_REF(minLatency*2)) * samplesPerSecond + 0.5);
 
     hr = audio.pClient->GetService(IID_IAudioRenderClient, (void**)&audio.pRenderClient);
     if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }
     
         // setup the game audio buffer
-
-    audio.gameAudioBuffer.samplesPerSecond = samplesPerSecond;
-    audio.gameAudioBuffer.bufferSize = nBufferFrameCount * 4; // buffer size here is only as big as the buffer size of the main audio buffer
+    buffer& audioBuffer = audio.gameAudioBuffer.streamBuffer;
+    audioBuffer.size = nBufferFrameCount * nNumChannels * nNumBitsPerSample / 8; // buffer size here is only as big as the buffer size of the main audio buffer 
+    audioBuffer.data = (u8*)VirtualAlloc(0, audioBuffer.size, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
     audio.gameAudioBuffer.samplesRequested = audio.targetBufferFill; // request a full buffer initially
-    audio.gameAudioBuffer.buffer = VirtualAlloc(0, audio.gameAudioBuffer.bufferSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
-    // now reset the buffer
-    {
-        uint8* pBuffer = (uint8*)audio.gameAudioBuffer.buffer;
-        for(uint32 i = 0; i < audio.gameAudioBuffer.bufferSize; ++i)
-        {   
-            *pBuffer++ = 0;
-        }
-    }
-
-    // flush the initial buffer
-    // BYTE* pBuffer = 0;
-    // hr = audio.pRenderClient->GetBuffer(nBufferFrameCount, &pBuffer);
-    // if(SUCCEEDED(hr))
-    // {
-    //     memset(pBuffer, 0, nBufferFrameCount*4);
-    //     audio.pRenderClient->ReleaseBuffer(nBufferFrameCount, 0);
-    // }
+    ZeroBuffer(audioBuffer);
 }
 
 internal void
 Win32CopyAudioBuffer(Win32AudioContext& audio, float fFrameTimeStep)
 {
     HRESULT hr = 0;
+    const AudioContextDesc& desc = audio.gameAudioBuffer.descriptor;
 
     UINT32 curPadding = 0;
-    audio.pClient->GetCurrentPadding(&curPadding);
+    hr = audio.pClient->GetCurrentPadding(&curPadding);
+
+    if(FAILED(hr))
+    {
+        LOG_WARN("GetCurrentPadding Error: 0x%x", hr);
+        ASSERT(false);
+    }
 
     BYTE* pBuffer = 0;
     uint32 numSamples = audio.gameAudioBuffer.samplesWritten;
     int32 maxAvailableBuffer = audio.targetBufferFill - curPadding;
 
 #if 1
-    real32 curAudioLatencyMS = (real32)curPadding/(real32)audio.gameAudioBuffer.samplesPerSecond * 1000.0f;
-    LOG_DEBUG("Cur Latency: %.02f ms\tAvail. Buffer: %d\tPadding: %d\tWrite Frame Samples: %d\n", curAudioLatencyMS, maxAvailableBuffer, curPadding, numSamples);
+    real32 curAudioLatencyMS = (real32)curPadding/(real32)desc.samplesPerSecond * 1000.0f;
+    LOG_DEBUG("Cur Latency: %.02fms\t\tAvail. Buffer: %d\tPadding: %d\tWrite Frame Samples: %d\n", curAudioLatencyMS, maxAvailableBuffer, curPadding, numSamples);
 #endif
 
     //ASSERT(numSamples <= maxAvailableBuffer);
@@ -160,29 +172,32 @@ Win32CopyAudioBuffer(Win32AudioContext& audio, float fFrameTimeStep)
     // based on the amount of available buffer space and the current
     // frame rate
     audio.gameAudioBuffer.samplesRequested = 
-        (uint32)(fFrameTimeStep * audio.gameAudioBuffer.samplesPerSecond)
+        (uint32)(fFrameTimeStep * desc.samplesPerSecond)
         + (maxAvailableBuffer - numSamples);
 
     hr = audio.pRenderClient->GetBuffer(numSamples, &pBuffer);
     if(SUCCEEDED(hr))
     {
         // copy data to buffer
-        int16 *SampleOut = (int16*)pBuffer;
-        int16 *SampleIn = (int16*)audio.gameAudioBuffer.buffer;
-        for(uint32 sampleIndex = 0;
-            sampleIndex < numSamples;
-            ++sampleIndex)
-        {
-            *SampleOut++ = *SampleIn++;
-            *SampleOut++ = *SampleIn++;
-        }
+        // int16 *SampleOut = (int16*)pBuffer;
+        // int16 *SampleIn = (int16*)audio.gameAudioBuffer.buffer;
+
+        CopyArray(audio.gameAudioBuffer.samplesWritten * desc.numChannels, (int16*)audio.gameAudioBuffer.streamBuffer.data, pBuffer);
+        // for(uint32 sampleIndex = 0;
+        //     sampleIndex < numSamples;
+        //     ++sampleIndex)
+        // {
+        //     *SampleOut++ = *SampleIn++;
+        //     *SampleOut++ = *SampleIn++;
+        // }
 
         hr = audio.pRenderClient->ReleaseBuffer(numSamples, 0);
-        if(FAILED(hr)) { LOG_ERROR("ReleaseBuffer Error: %x", hr); }
+        if(FAILED(hr)) { LOG_ERROR("ReleaseBuffer Error: 0x%x", hr); }
     }
     else
     {
-        LOG_ERROR("GetBuffer Error: %x", hr);
+        ASSERT(false);
+        LOG_ERROR("GetBuffer Error: 0x%x", hr);
     }
 
 }

@@ -17,13 +17,13 @@ Win32Log(const char* file, int lineno, const char* format, ...)
     va_list args;
     va_start(args, format);
 
-    char logMessage[512];
-    vsprintf_s(logMessage, format, args);
+    char logMessage[4096];
+    int n = vsprintf_s(logMessage, format, args);
     ASSERT(n < 512);    // overflowed the log buffer
 
     va_end(args);
 
-    char logLine[1024];
+    char logLine[4096];
     sprintf_s(logLine, "%s(%d): %s\n", file, lineno, logMessage);
 
     // TODO(james): use console and/or log file
