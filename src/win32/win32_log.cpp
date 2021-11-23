@@ -1,7 +1,7 @@
 #pragma once
 #ifndef WIN32_LOG_HPP_INCLUDED
 #define WIN32_LOG_HPP_INCLUDED
-#include <stdio.h>
+//#include <stdio.h>
 
 // TODO(james): support multiple log levels
 
@@ -17,17 +17,18 @@ Win32Log(const char* file, int lineno, const char* format, ...)
     va_list args;
     va_start(args, format);
 
-    char logMessage[4096];
-    int n = vsprintf_s(logMessage, format, args);
-    ASSERT(n < 512);    // overflowed the log buffer
+    char logMessage[2048];
+    int n = ps_vsprintf(logMessage, format, args);
 
     va_end(args);
 
-    char logLine[4096];
-    sprintf_s(logLine, "%s(%d): %s\n", file, lineno, logMessage);
+    char logLine[512];
+    ps_sprintf(logLine, "%s(%d): ", file, lineno);
 
     // TODO(james): use console and/or log file
     OutputDebugStringA(logLine);
+    OutputDebugStringA(logMessage);
+    OutputDebugStringA("\n");
 }
 
 #endif

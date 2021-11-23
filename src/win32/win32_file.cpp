@@ -18,7 +18,7 @@ Win32GetExecutablePath(win32_state& state)
     umm pathIndex = ReverseIndexOf(strPath, '\\');
     ASSERT(pathIndex != INDEX_NOT_FOUND);
 
-    // add 1 back to preserve the forward slash
+    // add 1 back to preserve the slash
     Copy(pathIndex+1, filepath, state.EXEFolder);
     Copy(strPath.size-pathIndex+1, &filepath[pathIndex+1], state.EXEFilename);
 }
@@ -27,9 +27,9 @@ internal void
 Win32LoadCode(win32_state& state, win32_loaded_code& code)
 {
     char szSourceLibraryPath[WIN32_STATE_FILE_NAME_COUNT] = {};
-    FormatString(WIN32_STATE_FILE_NAME_COUNT, szSourceLibraryPath, "%s%s", state.EXEFolder, code.pszDLLName);
+    FormatString(szSourceLibraryPath, WIN32_STATE_FILE_NAME_COUNT, "%s%s", state.EXEFolder, code.pszDLLName);
     char szTempLibraryPath[WIN32_STATE_FILE_NAME_COUNT] = {};
-    FormatString(WIN32_STATE_FILE_NAME_COUNT, szTempLibraryPath, "%s%s", state.EXEFolder, code.pszTransientDLLName);
+    FormatString(szTempLibraryPath, WIN32_STATE_FILE_NAME_COUNT, "%s%s", state.EXEFolder, code.pszTransientDLLName);
     
     code.ftLastFileWriteTime = Win32GetFileWriteTime(szSourceLibraryPath);
     CopyFileA(szSourceLibraryPath, szTempLibraryPath, FALSE);

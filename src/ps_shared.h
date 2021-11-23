@@ -1,6 +1,8 @@
-#pragma once
-#ifndef PS_SHARED_H_
-#define PS_SHARED_H_
+
+#define STB_SPRINTF_DECORATE(name) ps_##name
+#define STB_SPRINTF_IMPLEMENTATION
+#include "stb_sprintf.h"
+
 // NOTE(james): This copy does NOT work if the src and dst pointers
 // will overlap!  If you need that, write another copy method that
 // supports that case.
@@ -54,28 +56,6 @@ ZeroSize(mem_size size, void* ptr)
 
     while(slice--) {
         *s++ = 0;
-    }
-
-    ASSERT3(s == ((u8*)ptr + size));
-}
-
-internal void
-SetSize(mem_size size, const u8 value, void* ptr)
-{
-    CompileAssert(sizeof(umm)==sizeof(ptr));   // verify pointer size
-    mem_size chunks = size/sizeof(ptr);
-    mem_size slice = size%sizeof(ptr);
-
-    umm* p = (umm*)ptr;
-
-    while(chunks--) {
-        *p++ = value;
-    }
-
-    u8* s = (u8*)p;
-
-    while(slice--) {
-        *s++ = value;
     }
 
     ASSERT3(s == ((u8*)ptr + size));
@@ -214,17 +194,7 @@ Advance(buffer& buff, umm count)
     return(result);
 }
 
-internal umm
-FormatString(umm dstSize, char* dst, const char* format, ...)
-{
-    va_list args;
-
-    va_start(args, format);
-    umm result = vsprintf(dst, format, args);
-    va_end(args);
-
-    return result;
-}
+#define FormatString ps_snprintf
 
 #if COMPILER_MSVC
 #define CompletePreviousReadsBeforeFutureReads _ReadBarrier()
@@ -321,4 +291,3 @@ SafeTruncateToU8(u64 Value)
     u8 Result = (u8)Value;
     return(Result);
 }
-#endif

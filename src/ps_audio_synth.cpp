@@ -1,4 +1,5 @@
 
+#include <algorithm>
 
 //calculate the frequency of the specified note.
 //fractional notes allowed!
@@ -248,5 +249,5 @@ float AdvanceOscilator_Triangle_BandLimited(float &fPhase, float fFrequency, flo
 internal inline
 f32 Oscilator(f32& phase, f32 frequency, f32 sampleRate, f32 lastValue)
 {
-	return Oscilator_Sine(phase, frequency, sampleRate);
+	return AdvanceOscilator_Triangle_BandLimited(phase, frequency, sampleRate, 8);
 }

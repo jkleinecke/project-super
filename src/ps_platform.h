@@ -1,15 +1,7 @@
-#pragma once
-#ifndef PROJECT_SUPER_H_
-#define PROJECT_SUPER_H_
 
 // Main header file for the game and platform interface
 
-#include <algorithm>
-#include <stdarg.h>
-
 #include "ps_types.h"
-#include "ps_shared.h"
-#include "ps_math.h"
 
 //===================== PLATFORM API =================================
 
@@ -148,13 +140,3 @@ void* PushArray(MemoryArena& memory, u32 size, u32 count)
     ASSERT(memory.size > (u64)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
     return ret;
 }
-
-inline internal
-void ResetArena(MemoryArena& memory)
-{
-    memset(memory.basePointer, 0, (u8*)memory.freePointer - (u8*)memory.basePointer);
-    memory.freePointer = memory.basePointer;
-}
-
-
-#endif

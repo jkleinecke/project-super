@@ -1,9 +1,13 @@
 
+
+#include "ps_platform.h"
+#include "ps_shared.h"
+#include "ps_intrinsics.h"
+#include "ps_math.h"
+
 #include <windows.h>
 #include <stdio.h>
 #include <math.h>   // for sqrt()
-
-#include "../ps_platform.h"
 
 #include "win32_platform.h"
 #include "win32_log.cpp"
@@ -11,6 +15,8 @@
 #include "win32_audio.cpp"
 #include "win32_xinput.cpp"
 #include "win32_file.cpp"
+
+// TODO(james): make this work as a loaded dll
 #include "win32_opengl.cpp"
 
 /*******************************************************************************
@@ -229,12 +235,12 @@ enum RunLoopMode
     RLM_PLAYBACKINPUT
 };
 
-int CALLBACK
-WinMain(_In_ HINSTANCE hInstance,
-    _In_opt_ HINSTANCE hPrevInstance,
-    _In_ LPSTR lpCmdLine,
-    _In_ int nShowCmd)
+extern "C" int __stdcall WinMainCRTStartup()
 {
+    SetDefaultFPBehavior();
+
+    HINSTANCE hInstance = GetModuleHandle(0);
+
     WNDCLASSEXA wndClass = {};
     wndClass.cbSize = sizeof(wndClass);
     wndClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
@@ -306,7 +312,7 @@ WinMain(_In_ HINSTANCE hInstance,
     Win32InitOpenGL(mainWindow);
     
     SetWindowLongPtrA(mainWindow.hWindow, GWLP_USERDATA, (LONG_PTR)&mainWindow);
-    ShowWindow(mainWindow.hWindow, nShowCmd);
+    ShowWindow(mainWindow.hWindow, SW_SHOW);
     
     // TODO(james): pull the refresh rate from the monitor
     int targetRefreshRateHz = 60;
@@ -558,8 +564,6 @@ WinMain(_In_ HINSTANCE hInstance,
         Win32Dimensions dimensions = Win32GetWindowDimensions(mainWindow.hWindow);              
         Win32Render(dimensions.width, dimensions.height, mainWindow.graphics);
         SwapBuffers(mainWindow.hDeviceContext);
-        //
-        //Win32DisplayBufferInWindow(windowDeviceContext, dimensions.width, dimensions.height, mainWindow.graphics);
 
         ++input.clock.frameCounter;
     }
