@@ -11,6 +11,8 @@
 
     Things that still need to be handled:
 
+    * Make renderer responsible for window creation and removal
+        * Necessary for proper destruction to check for handle leaks
     * Backbuffer resize on Window Resize
     * Fullscreen borderless window
     * True fullscreen?  --This really isn't necessary anymore
@@ -64,9 +66,6 @@ Win32LoadRenderer(Win32Window& window)
         // so all possible errors generated while creating DX12 objects
         // are caught by the debug layer.
         ID3D12Debug* debugInterface = 0;
-        D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface));
-
-
         hr = D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface));
         if(debugInterface) {
             debugInterface->EnableDebugLayer();
@@ -86,7 +85,7 @@ Win32LoadRenderer(Win32Window& window)
 
         if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory4))))
         {
-            IDXGIFactory5* factory5;
+            IDXGIFactory5* factory5 = 0;
 
             if (SUCCEEDED(factory4->QueryInterface(IID_PPV_ARGS(&factory5))))
             {
@@ -117,7 +116,7 @@ Win32LoadRenderer(Win32Window& window)
         hr = CreateDXGIFactory2(createFactoryFlags, IID_PPV_ARGS(&dxgiFactory));
         CHECK_ERROR(hr);
 
-        IDXGIAdapter1* dxgiAdapter1;
+        IDXGIAdapter1* dxgiAdapter1 = 0;
         
         if (g_use_warp)
         {
@@ -125,6 +124,7 @@ Win32LoadRenderer(Win32Window& window)
             CHECK_ERROR(hr);
             hr = dxgiAdapter1->QueryInterface(IID_PPV_ARGS(&dxgiAdapter4));
             CHECK_ERROR(hr);
+            COM_RELEASE(dxgiAdapter1);
         }
         else
         {
@@ -145,13 +145,14 @@ Win32LoadRenderer(Win32Window& window)
 
                 if ( supports_d3d12 )
                 {
+                    COM_RELEASE(dxgiAdapter4);
                     maxDedicatedVideoMemory = dxgiAdapterDesc1.DedicatedVideoMemory;
                     hr = dxgiAdapter1->QueryInterface(IID_PPV_ARGS(&dxgiAdapter4));
                 }
+                COM_RELEASE(dxgiAdapter1);
             }
         }
-
-        COM_RELEASE(dxgiAdapter1);
+        
         COM_RELEASE(dxgiFactory);
     }
 
@@ -202,6 +203,7 @@ Win32LoadRenderer(Win32Window& window)
             COM_RELEASE(pInfoQueue);
         #endif
     }
+    COM_RELEASE(dxgiAdapter4);
 
     // Now create the command queue
     {
@@ -259,6 +261,9 @@ Win32LoadRenderer(Win32Window& window)
         CHECK_ERROR(hr);
         hr = swapChain1->QueryInterface(IID_PPV_ARGS(&g_pSwapChain));
         CHECK_ERROR(hr);
+
+        COM_RELEASE(swapChain1);
+        COM_RELEASE(dxgiFactory4);
     }
 
     // start off with the correct index
@@ -313,6 +318,66 @@ Win32LoadRenderer(Win32Window& window)
     }
 
     g_FenceEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
+}
+
+// #ifdef DEBUG_GRAPHICS
+// #include <dxgidebug.h>
+// typedef GUID DXGI_DEBUG_ID;
+
+// DEFINE_GUID(DXGI_DEBUG_DX, 0x35cdd7fc, 0x13b2, 0x421d, 0xa5, 0xd7, 0x7e, 0x44, 0x51, 0x28, 0x7d, 0x64);
+// DEFINE_GUID(DXGI_DEBUG_DXGI, 0x25cddaa4, 0xb1c6, 0x47e1, 0xac, 0x3e, 0x98, 0x87, 0x5b, 0x5a, 0x2e, 0x2a);
+// DEFINE_GUID(DXGI_DEBUG_APP, 0x6cd6e01, 0x4219, 0x4ebd, 0x87, 0x9, 0x27, 0xed, 0x23, 0x36, 0xc, 0x62);
+
+// DEFINE_GUID(DXGI_DEBUG_D3D11, 0x4b99317b, 0xac39, 0x4aa6, 0xbb, 0xb, 0xba, 0xa0, 0x47, 0x84, 0x79, 0x8f);
+
+// typedef HRESULT (*dxgi_get_debug_interface)(REFIID riid, void   **ppDebug);
+// #endif
+
+extern "C"
+void
+Win32UnloadRenderer()
+{
+    // Now release everything
+
+    if(g_FenceEvent != INVALID_HANDLE_VALUE)
+    {
+        CloseHandle(g_FenceEvent);
+    }
+    COM_RELEASE(g_pFence);
+    
+    COM_RELEASE(g_pCommandList);
+    for(int i = 0; i < g_num_frames; ++i)
+    {
+        COM_RELEASE(g_pBackBuffers[i]);
+        COM_RELEASE(g_pCommandAllocators[i]);
+    }
+    COM_RELEASE(g_RTVDescriptorHeap);
+    COM_RELEASE(g_pSwapChain);
+    COM_RELEASE(g_pCommandQueue);
+    COM_RELEASE(g_pDevice);
+
+// #ifdef DEBUG_GRAPHICS
+//     {
+//         HMODULE debugLib = LoadLibraryA("DXGIDebug.dll");
+
+//         if(debugLib)
+//         {
+//             dxgi_get_debug_interface* DXGIGetDebugInterface = (dxgi_get_debug_interface*)GetProcAddress(debugLib, "DXGIGetDebugInterface");
+
+//             IDXGIDebug* debugInterface = 0;
+//             HRESULT hr = (*DXGIGetDebugInterface)(IID_PPV_ARGS(&debugInterface));
+
+//             if(debugInterface) {
+//                 DEFINE_GUID(DXGI_DEBUG_ALL, 0xe48ae283, 0xda80, 0x490b, 0x87, 0xe6, 0x43, 0xe9, 0xa9, 0xcf, 0xda, 0x8);
+//                 debugInterface->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+//             }
+//             COM_RELEASE(debugInterface);
+//             CHECK_ERROR(hr);
+
+//             FreeLibrary(debugLib);
+//         }
+//     }
+// #endif
 }
 
 extern "C"

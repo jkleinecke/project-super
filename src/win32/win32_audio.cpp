@@ -32,8 +32,8 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     // now acquire access to the audio hardware
 
     // buffer size is expressed in terms of duration (presumably calced against the sample rate etc..)
-    REFERENCE_TIME frameTime = REF_SECONDS(1.0/60.0);
-    REFERENCE_TIME bufferTime = frameTime*4;    // 2 frames worth
+    REFERENCE_TIME frameTime = REF_SECONDS(1.0/120.0);
+    REFERENCE_TIME bufferTime = frameTime * 2 * nNumChannels;    // 2 frames worth
 
     HRESULT hr = 0;
 
@@ -125,7 +125,7 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }
     
     // target the minimum latency value of the audio hardware
-    audio.targetBufferFill = (uint32)(((1.5/60.0) + SECONDS_REF(minLatency*2)) * samplesPerSecond + 0.5);
+    audio.targetBufferFill = (uint32)(((1.5/120.0) + SECONDS_REF(minLatency*2)) * samplesPerSecond + 0.5);
 
     hr = audio.pClient->GetService(IID_IAudioRenderClient, (void**)&audio.pRenderClient);
     if(FAILED(hr)) { LOG_ERROR("Error: %x", hr); return; }

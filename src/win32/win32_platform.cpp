@@ -241,10 +241,10 @@ enum RunLoopMode
 extern "C" int __stdcall WinMainCRTStartup()
 {
     SetDefaultFPBehavior();
+    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     HINSTANCE hInstance = GetModuleHandle(0);
 
-    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     WNDCLASSEXA wndClass = {};
     wndClass.cbSize = sizeof(wndClass);
@@ -255,19 +255,29 @@ extern "C" int __stdcall WinMainCRTStartup()
     wndClass.lpszClassName = "ProjectSuperWindow";
     RegisterClassExA(&wndClass);
 
-    RECT rc = { 0, 0, 3440, 1440 };
-    AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, 0);
+    int desiredWidth = 1280;
+    int desiredHeight = 720;
+
+    int screenWidth = ::GetSystemMetrics(SM_CXSCREEN);
+    int screenHeight = ::GetSystemMetrics(SM_CYSCREEN);
     
+    int desiredLeft = screenWidth - desiredWidth;
+    int desiredTop = screenHeight/2 - desiredHeight/2;    
+
+    RECT rc = { desiredLeft, desiredTop, desiredLeft + desiredWidth, desiredTop + desiredHeight };
+    AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, 0);
+
+
+
     HWND hMainWindow = CreateWindowExA(0,
                                        "ProjectSuperWindow", "Project Super",
                                        WS_OVERLAPPEDWINDOW,
-                                       CW_USEDEFAULT, CW_USEDEFAULT,
+                                       rc.left, rc.top,
                                        rc.right-rc.left, rc.bottom-rc.top,
                                        0, 0,
                                        hInstance, 0   
                                        );
-    
-            
+                
     Win32InitClockFrequency();
 
     win32_state win32State = {};
@@ -311,18 +321,18 @@ extern "C" int __stdcall WinMainCRTStartup()
     Win32Dimensions startDim = Win32GetWindowDimensions(mainWindow.hWindow);
     Win32ResizeBackBuffer(mainWindow.graphics, startDim.width, startDim.height);
 
+    // TODO(james): Is this the best way to get the monitor refresh rate?? Maybe leave this up to the
+    //   renderer implementation...
+    int nMonitorRefreshRate = GetDeviceCaps(mainWindow.hDeviceContext, VREFRESH);
+    real32 targetFrameRateSeconds = 1.0f / nMonitorRefreshRate;
+
     HRESULT hr = 0;
-    
-    // TODO(james): Generalize this part to support more than one window? 
     //Win32InitOpenGL(mainWindow);
     Win32LoadRenderer(mainWindow);
     
     SetWindowLongPtrA(mainWindow.hWindow, GWLP_USERDATA, (LONG_PTR)&mainWindow);
     ShowWindow(mainWindow.hWindow, SW_SHOW);
     
-    // TODO(james): pull the refresh rate from the monitor
-    int targetRefreshRateHz = 60;
-    real32 targetFrameRateSeconds = 1.0f / targetRefreshRateHz;
 
     Win32LoadXinput();
 
@@ -532,19 +542,20 @@ extern "C" int __stdcall WinMainCRTStartup()
         Win32Clock gameSimTime = Win32GetWallClock();
         real32 elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime, gameSimTime);
 
+
         if(elapsedFrameTime < targetFrameRateSeconds)
         {
             real32 frameTime = elapsedFrameTime;
-            while(elapsedFrameTime < (targetFrameRateSeconds))
-            {
-                if(bSleepIsMs)
-                {
-                    // truncate to whole milliseconds
-                    DWORD dwSleepTimeMS = (DWORD)((targetFrameRateSeconds - elapsedFrameTime) * 1000.0f);
-                    Sleep(dwSleepTimeMS);
-                }
-                elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime);
-            }
+            // while(elapsedFrameTime < (targetFrameRateSeconds))
+            // {
+            //     if(bSleepIsMs)
+            //     {
+            //         // truncate to whole milliseconds
+            //         DWORD dwSleepTimeMS = (DWORD)((targetFrameRateSeconds - elapsedFrameTime) * 1000.0f);
+            //         Sleep(dwSleepTimeMS);
+            //     }
+            //     elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime);
+            // }
             LOG_INFO("Frame Time: %.2f, Total Time: %.2f", frameTime * 1000.0f, elapsedFrameTime * 1000.0f);
         }
         else
@@ -581,6 +592,9 @@ extern "C" int __stdcall WinMainCRTStartup()
     COM_RELEASE(audio.pDevice);
     COM_RELEASE(audio.pClient);
     COM_RELEASE(audio.pRenderClient);   
+
+    DestroyWindow(mainWindow.hWindow);
+    Win32UnloadRenderer();
 
     ExitProcess(0);
 }
