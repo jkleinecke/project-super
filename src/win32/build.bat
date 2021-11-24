@@ -1,9 +1,15 @@
 @echo off
 
+
 REM ctime -begin project_super.ctm
 
 REM Setup the build directory
 IF NOT EXIST build mkdir build
+
+REM copy the redist files
+echo Copying redistributable files...
+xcopy redist\win32 build /D /E /I > NUL
+
 
 REM Use the build directory
 pushd build
@@ -29,13 +35,12 @@ set GameLinkerFlags=%LinkerFlags% -PDB:ps_game_%random%.pdb /DLL /EXPORT:GameUpd
 REM TODO: Split renderer into a seperate DLL where we can have more than one API backend, like opengl32.lib
 
 set OpenGLLibs=opengl32.lib
-set D3d12Libs=D3d12.lib
+set D3d12Libs=D3d12.lib d3dcompiler.lib DXGI.lib
 
-set GraphicsLibs=%OpenGLLibs%
+set GraphicsLibs=%D3d12Libs%
 
 set HostCompilerFlags=%CompilerDefines% %CompilerFlags% 
 set HostLinkerFlags=/NODEFAULTLIB /SUBSYSTEM:windows -STACK:0x100000,0x100000 %LinkerFlags% kernel32.lib ole32.lib uuid.lib user32.lib gdi32.lib winmm.lib %GraphicsLibs% chkstk.obj -out:project_super.exe
-
 
 cl %GameCompilerFlags% ..\src\ps_game.cpp -Fmps_game.map /link %GameLinkerFlags%
 cl %HostCompilerFlags% -I..\src ..\src\win32\win32_platform.cpp ..\src\win32\win32_msvc.c -Fmwin32_platform.map /link %HostLinkerFlags%

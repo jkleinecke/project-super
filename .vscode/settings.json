@@ -16,6 +16,13 @@
         "xlocnum": "cpp",
         "xmemory0": "cpp",
         "xstring": "cpp",
-        "glad.c": "cpp"
+        "glad.c": "cpp",
+        "compare": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "xmemory": "cpp",
+        "xtr1common": "cpp",
+        "xutility": "cpp"
     }
 }

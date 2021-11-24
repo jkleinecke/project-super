@@ -17,7 +17,8 @@
 #include "win32_file.cpp"
 
 // TODO(james): make this work as a loaded dll
-#include "win32_opengl.cpp"
+//#include "win32_opengl.cpp"
+#include "win32_d3d12.cpp"
 
 /*******************************************************************************
 
@@ -182,7 +183,7 @@ Win32WindowProc(
   LPARAM lParam)
 {
     LRESULT retValue = 0;
-    //Win32WindowContext* pContext = (Win32WindowContext*)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
+    //Win32Window* pContext = (Win32Window*)GetWindowLongPtrA(hwnd, GWLP_USERDATA);
 
     switch(uMsg)
     {
@@ -240,6 +241,8 @@ extern "C" int __stdcall WinMainCRTStartup()
     SetDefaultFPBehavior();
 
     HINSTANCE hInstance = GetModuleHandle(0);
+
+    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     WNDCLASSEXA wndClass = {};
     wndClass.cbSize = sizeof(wndClass);
@@ -299,7 +302,7 @@ extern "C" int __stdcall WinMainCRTStartup()
     // NOTE(james): Set the windows scheduler granularity to 1ms so that our sleep can be more granular
     bool32 bSleepIsMs = timeBeginPeriod(1) == TIMERR_NOERROR;
 
-    Win32WindowContext& mainWindow = win32State.mainWindow;
+    Win32Window& mainWindow = win32State.mainWindow;
     mainWindow.hWindow = hMainWindow;
     mainWindow.hDeviceContext = GetDC(hMainWindow);
 
@@ -309,7 +312,8 @@ extern "C" int __stdcall WinMainCRTStartup()
     HRESULT hr = 0;
     
     // TODO(james): Generalize this part to support more than one window? 
-    Win32InitOpenGL(mainWindow);
+    //Win32InitOpenGL(mainWindow);
+    Win32LoadRenderer(mainWindow);
     
     SetWindowLongPtrA(mainWindow.hWindow, GWLP_USERDATA, (LONG_PTR)&mainWindow);
     ShowWindow(mainWindow.hWindow, SW_SHOW);
@@ -516,6 +520,8 @@ extern "C" int __stdcall WinMainCRTStartup()
                 break;
         }
 
+        Win32BeginFrame();
+
         if(gameFunctions.GameUpdateAndRender)
         {
             gameFunctions.GameUpdateAndRender(gameContext, mainWindow.graphics, input, audio.gameAudioBuffer);
@@ -561,17 +567,18 @@ extern "C" int __stdcall WinMainCRTStartup()
 
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
 
-        Win32Dimensions dimensions = Win32GetWindowDimensions(mainWindow.hWindow);              
-        Win32Render(dimensions.width, dimensions.height, mainWindow.graphics);
-        SwapBuffers(mainWindow.hDeviceContext);
+        Win32EndFrame();
+        //Win32Dimensions dimensions = Win32GetWindowDimensions(mainWindow.hWindow);              
+        //Win32Render(dimensions.width, dimensions.height, mainWindow.graphics);
+        //SwapBuffers(mainWindow.hDeviceContext);
 
         ++input.clock.frameCounter;
     }
 
-    SAFE_RELEASE(audio.pEnumerator);
-    SAFE_RELEASE(audio.pDevice);
-    SAFE_RELEASE(audio.pClient);
-    SAFE_RELEASE(audio.pRenderClient);   
+    COM_RELEASE(audio.pEnumerator);
+    COM_RELEASE(audio.pDevice);
+    COM_RELEASE(audio.pClient);
+    COM_RELEASE(audio.pRenderClient);   
 
-    return 0;
+    ExitProcess(0);
 }

@@ -137,7 +137,7 @@ Win32SetPixelFormat(HDC hDeviceContext)
 }
 
 internal void
-Win32InitOpenGL(Win32WindowContext& windowContext)
+Win32InitOpenGL(Win32Window& windowContext)
 {
     WNDCLASSEXA loaderClass = {};
     loaderClass.cbSize = sizeof(loaderClass);

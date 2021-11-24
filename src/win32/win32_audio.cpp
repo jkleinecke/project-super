@@ -10,10 +10,6 @@ DEFINE_PROPERTYKEY(PKEY_Device_FriendlyName,           0xa45c254e, 0xdf1c, 0x4ef
 #define MILLI_REF(ref) ((ref) / 10000.0)
 #define SECONDS_REF(ref) (MILLI_REF(ref) / 1000.0)
 
-#define SAFE_RELEASE(punk)  \
-              if ((punk) != NULL)  \
-                { (punk)->Release(); (punk) = NULL; }
-
 const CLSID CLSID_MMDeviceEnumerator = __uuidof(MMDeviceEnumerator);
 const IID IID_IMMDeviceEnumerator = __uuidof(IMMDeviceEnumerator);
 const IID IID_IAudioClient = __uuidof(IAudioClient);
@@ -62,7 +58,7 @@ Win32InitSoundDevice(Win32AudioContext& audio)
     LOG_INFO("Using Audio Device: %S", varName.pwszVal);
 
     PropVariantClear(&varName);
-    SAFE_RELEASE(pProps);
+    COM_RELEASE(pProps);
 
     // TODO(james): Ask for ISpatialAudioClient instead for automatic 7.1.4 effects?
     hr = audio.pDevice->Activate(IID_IAudioClient, CLSCTX_ALL, 0, (void**)&audio.pClient);

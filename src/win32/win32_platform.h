@@ -1,13 +1,9 @@
-#pragma once
-#ifndef WIN32_PLATFORM_MAIN_H_
-#define WIN32_PLATFORM_MAIN_H_
 
 
-struct Win32WindowContext
+struct Win32Window
 {
     HWND hWindow;
     HDC hDeviceContext;
-    HGLRC hGlContext;
     GraphicsContext graphics;
 };
 
@@ -47,7 +43,7 @@ struct win32_state
     char EXEFilename[WIN32_STATE_FILE_NAME_COUNT];
     
     HINSTANCE Instance;
-    Win32WindowContext mainWindow;    
+    Win32Window mainWindow;    
 };
 
 struct win32_loaded_code
@@ -75,4 +71,9 @@ global_variable char *Win32GameFunctionTableNames[] = {
     "GameUpdateAndRender"
 };
 
-#endif
+// Microsoft COM helpers...
+
+#define COM_RELEASE(punk)  \
+              if ((punk) != NULL)  \
+                { (punk)->Release(); (punk) = NULL; }
+
