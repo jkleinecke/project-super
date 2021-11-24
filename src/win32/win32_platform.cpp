@@ -23,13 +23,15 @@
 /*******************************************************************************
 
     Things to do:
-    1) Threading + Work Queue
-    2) File API
+    * Threading + Work Queue
+    * File API
        - Streaming API
-    3) WM_ACTIVEAPP
-    4) Harden sound latency with framerate
-    5) Hardware Capabilities
-    6) Finish logging system
+    * WM_ACTIVEAPP
+    * Harden sound latency with framerate
+    * Hardware Capabilities
+    * Finish logging system
+    * Base framerate on monitor refresh rate
+    * Toggle fullscreen window
 
 ********************************************************************************/
 
