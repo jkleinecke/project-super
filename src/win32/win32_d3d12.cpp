@@ -357,6 +357,15 @@ Win32UnloadRenderer()
     COM_RELEASE(g_pDevice);
 
 // #ifdef DEBUG_GRAPHICS
+
+    // this is from directx samples for memory management techniques
+    // https://github.com/microsoft/DirectX-Graphics-Samples/blob/master/TechniqueDemos/D3D12MemoryManagement/src/Framework.cpp
+    // IDXGIDebug1* pDebug = nullptr;
+    // if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&pDebug))))
+    // {
+    //     pDebug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_SUMMARY);
+    //     pDebug->Release();
+    // }
 //     {
 //         HMODULE debugLib = LoadLibraryA("DXGIDebug.dll");
 
