@@ -166,15 +166,15 @@ typedef intptr_t imm;
 #define ARRAY_COUNT(array) (sizeof(array)/sizeof(array[0]))
 #endif
 
-#ifndef MAX
-#define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
-#ifndef MIN
-#define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif 
+// #ifndef MAX
+// #define MAX(a,b) ((a) > (b) ? (a) : (b))
+// #endif
+// #ifndef MIN
+// #define MIN(a,b) ((a) < (b) ? (a) : (b))
+// #endif 
 
-#ifndef IFSET
-#define IFSET(cond, set) if(cond) (set) 
+#ifndef IFF
+#define IFF(cond, expr) if(cond) (expr) 
 #endif
 
 #ifndef CompileAssert

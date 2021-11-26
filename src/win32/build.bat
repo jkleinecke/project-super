@@ -36,14 +36,20 @@ REM TODO: Split renderer into a seperate DLL where we can have more than one API
 
 set OpenGLLibs=opengl32.lib
 set D3d12Libs=D3d12.lib d3dcompiler.lib DXGI.lib
+set VulkanLibs=vulkan-1.lib
+REM set VulkanSdkDir=C:\\VulkanSDK\\1.2.198.0
+set VulkanIncludeDir=%VULKAN_SDK%\\Include
+set VulkanLibDir=%VULKAN_SDK%\\Lib
 
-set GraphicsLibs=%D3d12Libs%
+set GraphicsLibs=%VulkanLibs%
 
 set HostCompilerFlags=%CompilerDefines% %CompilerFlags% 
-set HostLinkerFlags=/SUBSYSTEM:windows -STACK:0x100000,0x100000 %LinkerFlags% kernel32.lib ole32.lib uuid.lib user32.lib gdi32.lib winmm.lib %GraphicsLibs% -out:project_super.exe
+REM Removed the CRT
+REM set HostLinkerFlags=/NODEFAULTLIB /SUBSYSTEM:windows -STACK:0x100000,0x100000 %LinkerFlags% kernel32.lib ole32.lib uuid.lib user32.lib gdi32.lib winmm.lib %GraphicsLibs% -out:project_super.exe
+set HostLinkerFlags=-STACK:0x100000,0x100000 %LinkerFlags% ole32.lib user32.lib gdi32.lib winmm.lib %GraphicsLibs% -out:project_super.exe
 
 cl %GameCompilerFlags% ..\src\ps_game.cpp -Fmps_game.map /link %GameLinkerFlags%
-cl %HostCompilerFlags% -I..\src ..\src\win32\win32_platform.cpp ..\src\win32\win32_msvc.c -Fmwin32_platform.map /link %HostLinkerFlags%
+cl %HostCompilerFlags% -I..\src -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp -Fmwin32_platform.map /link -LIBPATH:%VulkanLibDir% %HostLinkerFlags%
 set LastError=%ERRORLEVEL%
 
 REM pop build directory

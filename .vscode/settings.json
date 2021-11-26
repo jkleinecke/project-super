@@ -5,9 +5,6 @@
         "PROJECTSUPER_INTERNAL=1",
         "PROJECTSUPER_SLOW=1"
     ],
-    "C_Cpp.default.forcedInclude": [
-        "ps_platform.h"
-    ],
     "files.associations": {
         "algorithm": "cpp",
         "exception": "cpp",

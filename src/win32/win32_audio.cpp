@@ -158,7 +158,7 @@ Win32CopyAudioBuffer(Win32AudioContext& audio, float fFrameTimeStep)
     uint32 numSamples = audio.gameAudioBuffer.samplesWritten;
     int32 maxAvailableBuffer = audio.targetBufferFill - curPadding;
 
-#if 1
+#if 0
     real32 curAudioLatencyMS = (real32)curPadding/(real32)desc.samplesPerSecond * 1000.0f;
     LOG_DEBUG("Cur Latency: %.02fms\t\tAvail. Buffer: %d\tPadding: %d\tWrite Frame Samples: %d\n", curAudioLatencyMS, maxAvailableBuffer, curPadding, numSamples);
 #endif

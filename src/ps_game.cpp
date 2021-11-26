@@ -3,7 +3,7 @@
 #include "ps_audio_synth.cpp"
 
 // TODO(james): this needs to be cleaned up, just a quick hack to allow for debugging simple game code
-global log_callback* g_logger;
+global platform_logger* g_logger;
 #define GAME_LOG(msg, ...) g_logger(__FILE__, __LINE__, msg, __VA_ARGS__)
 
 #define TONE_AMPLITUDE 1000
@@ -40,7 +40,7 @@ internal void RenderVerticalLine(const GraphicsContext& graphics, u32 x, u32 y1,
         y2 = t;
     }
     
-    IFSET(y2 >= graphics.buffer_height, y2 = graphics.buffer_height-1);
+    IFF(y2 >= graphics.buffer_height, y2 = graphics.buffer_height-1);
 
     u32* pixels = (u32*)graphics.buffer;
 
@@ -60,7 +60,7 @@ internal void RenderHorizontalLine(const GraphicsContext& graphics, u32 x1, u32 
         x2 = t;
     }
 
-    IFSET(x2 >= graphics.buffer_width, x2 = graphics.buffer_width-1);
+    IFF(x2 >= graphics.buffer_width, x2 = graphics.buffer_width-1);
 
     u32* pixels = (u32*)graphics.buffer;
     for(u32 col = x1; col <= x2; ++col)
@@ -101,10 +101,10 @@ RenderAudioWave(const GraphicsContext& graphics, GameTestState& gameState)
             f32 fRightSampleValue = (f32)(*audioSamples) / amplitude;
             ++audioSamples;
 
-            IFSET(fLeftSampleValue > 1.0f, fLeftSampleValue = 1.0f);
-            IFSET(fLeftSampleValue < -1.0f, fLeftSampleValue = -1.0f);
-            IFSET(fRightSampleValue > 1.0f, fRightSampleValue = 1.0f);
-            IFSET(fRightSampleValue < -1.0f, fRightSampleValue = -1.0f);
+            IFF(fLeftSampleValue > 1.0f, fLeftSampleValue = 1.0f);
+            IFF(fLeftSampleValue < -1.0f, fLeftSampleValue = -1.0f);
+            IFF(fRightSampleValue > 1.0f, fRightSampleValue = 1.0f);
+            IFF(fRightSampleValue < -1.0f, fRightSampleValue = -1.0f);
 
             // now map the -1..1 sample values into the y coordinate
             int ly = midY + (int)(fLeftSampleValue * (midY));
@@ -141,13 +141,13 @@ RenderGradient(const GraphicsContext& graphics, GameTestState& gameState)
 }
 
 internal void
-FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game)
+FillSoundBuffer(AudioContext& audio, GameTestState& gameState, FrameContext& frame)
 {
     const AudioContextDesc& desc = audio.descriptor;
     u32 numRequestedSamples = audio.samplesRequested;
-    void* transientMemoryPosition = game.transientMemory.freePointer;
+    void* transientMemoryPosition = frame.transientMemory.freePointer;
     // we'll accumulate the samples in floating point
-    f32* toneSamples = (f32*)PushArray(game.transientMemory, sizeof(f32), numRequestedSamples);
+    f32* toneSamples = (f32*)PushArray(frame.transientMemory, sizeof(f32), numRequestedSamples);
     // clear the samples to 0
     ZeroArray(numRequestedSamples, toneSamples);
 
@@ -161,7 +161,7 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
             if(tone.isActive)
             {
                 toneSamples[sampleIndex] += tone.tone_samples[tone.playbackSampleIndex++];
-                IFSET(tone.playbackSampleIndex >= tone.sample_count, tone.playbackSampleIndex = 0);
+                IFF(tone.playbackSampleIndex >= tone.sample_count, tone.playbackSampleIndex = 0);
             }
         }        
     }   
@@ -190,7 +190,7 @@ FillSoundBuffer(AudioContext& audio, GameTestState& gameState, GameContext& game
     }
 
     // reset our scratch memory
-    game.transientMemory.freePointer = transientMemoryPosition;
+    frame.transientMemory.freePointer = transientMemoryPosition;
 }
 
 internal inline
@@ -208,12 +208,13 @@ void ToggleSoundTone(SoundTone& tone, InputButton& button)
 extern "C"
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
-    g_logger = gameContext.logger;
+    //g_logger = gameContext.logger;
+   
     // TODO(james): needs a better allocation scheme 
-    GameTestState& gameState = *(GameTestState*)gameContext.persistantMemory.basePointer;
-    if(gameContext.persistantMemory.basePointer == gameContext.persistantMemory.freePointer)
+    GameTestState& gameState = *(GameTestState*)frame.persistantMemory.basePointer;
+    if(frame.persistantMemory.basePointer == frame.persistantMemory.freePointer)
     {
-        PushStruct(gameContext.persistantMemory, sizeof(gameState));
+        PushStruct(frame.persistantMemory, sizeof(gameState));
         // memory isn't initialized
         gameState.x_offset = 0;
         gameState.y_offset = 0;
@@ -247,7 +248,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             // now fill out the samples
             u32 samplesPerPeriod = (u32)(((f32)desc.samplesPerSecond/freq) + 0.5f);
             tone.sample_count = samplesPerPeriod;
-            tone.tone_samples = (nf32*)PushArray(gameContext.persistantMemory, sizeof(nf32), tone.sample_count);
+            tone.tone_samples = (nf32*)PushArray(frame.persistantMemory, sizeof(nf32), tone.sample_count);
 
             f32 phase = 0.0f;
             nf32 lastValue = 0.0f;
@@ -309,7 +310,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
     }
 
-    FillSoundBuffer(audio, gameState, gameContext);
+    FillSoundBuffer(audio, gameState, frame);
 
     // now keep a ring buffer copy of the frames audio samples
     u32 sampleCountToCopy = audio.samplesWritten * 2;

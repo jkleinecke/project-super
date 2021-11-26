@@ -5,8 +5,21 @@
 
 //===================== PLATFORM API =================================
 
-#define LOG_CALLBACK(name) void name(const char* file, int lineno, const char* format, ...)
-typedef LOG_CALLBACK(log_callback);
+#if defined(PROJECTSUPER_INTERNAL)
+typedef void (platform_logger)(const char* file, int lineno, const char* format, ...);
+#else
+typedef void (platform_logger)(const char* format, ...);
+#endif
+
+struct platform_api
+{
+    platform_logger* logger;
+
+    // TODO(james): Add File APIs
+    // TODO(james): Add Memory APIs
+    // TODO(james): Add Threading APIs or just plain async APIs
+    // TODO(james): Add window creation APIs? (Editor??)
+};
 
 //===================== GAME API =====================================
 
@@ -16,6 +29,7 @@ struct GameClock
     real32 elapsedFrameTime;  // seconds since the last frame
 };
 
+
 struct MemoryArena
 {
     uint64 size;
@@ -23,9 +37,11 @@ struct MemoryArena
     void* freePointer;
 };
 
-struct GameContext
+struct FrameContext
 {
-    log_callback* logger;
+    GameClock clock;
+
+    // Should these live here?
     MemoryArena persistantMemory;
     MemoryArena transientMemory;
 };
@@ -118,7 +134,7 @@ struct GraphicsContext
     void* buffer;
 };
 
-#define GAME_UPDATE_AND_RENDER(name) void name(GameContext& gameContext, GraphicsContext& graphics, InputContext& input, AudioContext& audio)
+#define GAME_UPDATE_AND_RENDER(name) void name(FrameContext& frame, GraphicsContext& graphics, InputContext& input, AudioContext& audio)
 typedef GAME_UPDATE_AND_RENDER(game_update_and_render);
 
 inline internal

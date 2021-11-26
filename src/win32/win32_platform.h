@@ -34,6 +34,13 @@ struct Win32Dimensions
     uint32 height;
 };
 
+struct win32_graphics_backend
+{
+    MemoryArena memory;
+
+    void* backend;
+};
+
 #define WIN32_STATE_FILE_NAME_COUNT MAX_PATH
 struct win32_state
 {

@@ -4,6 +4,7 @@
 #include "ps_shared.h"
 #include "ps_intrinsics.h"
 #include "ps_math.h"
+#include "ps_memory.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -18,7 +19,8 @@
 
 // TODO(james): make this work as a loaded dll
 //#include "win32_opengl.cpp"
-#include "win32_d3d12.cpp"
+//#include "win32_d3d12.cpp"
+#include "win32_vulkan.cpp"
 
 /*******************************************************************************
 
@@ -123,7 +125,7 @@ Win32DisplayBufferInWindow(HDC deviceContext, uint32 windowWidth, uint32 windowH
 }
 
 internal bool32
-Win32BeginRecordingInput(win32_state& state, const GameContext& memory)
+Win32BeginRecordingInput(win32_state& state, const FrameContext& memory)
 {
     // maybe verify that a file isn't open?
     state.hInputRecordHandle = CreateFileA("recorded_input.psi", GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
@@ -150,7 +152,7 @@ Win32StopRecordingInput(win32_state& state)
 }
 
 internal bool32
-Win32BeginInputPlayback(win32_state& state, GameContext& memory)
+Win32BeginInputPlayback(win32_state& state, FrameContext& memory)
 {
     state.hInputRecordHandle = CreateFileA("recorded_input.psi", GENERIC_READ, 0, 0, OPEN_EXISTING, 0, 0);
 
@@ -238,13 +240,22 @@ enum RunLoopMode
     RLM_PLAYBACKINPUT
 };
 
+#if 1
+int CALLBACK
+WinMain(_In_ HINSTANCE hInstance,
+    _In_opt_ HINSTANCE hPrevInstance,
+    _In_ LPSTR lpCmdLine,
+    _In_ int nShowCmd)
+{
+#else 
+
 extern "C" int __stdcall WinMainCRTStartup()
 {
     SetDefaultFPBehavior();
-    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     HINSTANCE hInstance = GetModuleHandle(0);
-
+#endif
+    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     WNDCLASSEXA wndClass = {};
     wndClass.cbSize = sizeof(wndClass);
@@ -284,15 +295,15 @@ extern "C" int __stdcall WinMainCRTStartup()
     Win32GetExecutablePath(win32State);
   
     
-    GameContext gameContext = {};
-    gameContext.persistantMemory.size = Megabytes(64);
-    gameContext.transientMemory.size = Gigabytes(1);
+    FrameContext frameContext = {};
+    frameContext.persistantMemory.size = Megabytes(64);
+    frameContext.transientMemory.size = Gigabytes(1);
     LPVOID baseAddress = 0;
 #ifdef PROJECTSUPER_INTERNAL
     baseAddress = (LPVOID)Terabytes(2);
 #endif
     // TODO(james): include some extra memory for some fences to check for memory overwrites
-    uint64 memorySize = gameContext.persistantMemory.size + gameContext.transientMemory.size;
+    uint64 memorySize = frameContext.persistantMemory.size + frameContext.transientMemory.size;
     uint8* memory = (uint8*)VirtualAlloc(baseAddress, memorySize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
 
     if(!memory)
@@ -302,14 +313,14 @@ extern "C" int __stdcall WinMainCRTStartup()
         return 0x80000000;
     }
 
-    gameContext.persistantMemory.basePointer = memory;
-    gameContext.persistantMemory.freePointer = memory;
-    memory += gameContext.persistantMemory.size;
-    gameContext.transientMemory.basePointer = memory;
-    gameContext.transientMemory.freePointer = memory;
+    frameContext.persistantMemory.basePointer = memory;
+    frameContext.persistantMemory.freePointer = memory;
+    memory += frameContext.persistantMemory.size;
+    frameContext.transientMemory.basePointer = memory;
+    frameContext.transientMemory.freePointer = memory;
     
     // NOTE: this is temporary
-    gameContext.logger = Win32Log;
+    //frameContext.logger = Win32Log;
 
     // NOTE(james): Set the windows scheduler granularity to 1ms so that our sleep can be more granular
     bool32 bSleepIsMs = timeBeginPeriod(1) == TIMERR_NOERROR;
@@ -328,7 +339,10 @@ extern "C" int __stdcall WinMainCRTStartup()
 
     HRESULT hr = 0;
     //Win32InitOpenGL(mainWindow);
-    Win32LoadRenderer(mainWindow);
+
+    // TODO(james): Load all of the initialization memory in a single allocation
+
+    void* graphicsBackend = Win32LoadGraphicsBackend(mainWindow);
     
     SetWindowLongPtrA(mainWindow.hWindow, GWLP_USERDATA, (LONG_PTR)&mainWindow);
     ShowWindow(mainWindow.hWindow, SW_SHOW);
@@ -461,7 +475,7 @@ extern "C" int __stdcall WinMainCRTStartup()
                                     {
                                         case RLM_NORMAL:
                                             runMode = RLM_RECORDINPUT;
-                                            Win32BeginRecordingInput(win32State, gameContext);
+                                            Win32BeginRecordingInput(win32State, frameContext);
                                             break;
                                         case RLM_RECORDINPUT:
                                             runMode = RLM_NORMAL;
@@ -470,7 +484,7 @@ extern "C" int __stdcall WinMainCRTStartup()
                                         case RLM_PLAYBACKINPUT:
                                             runMode = RLM_RECORDINPUT;
                                             Win32StopInputPlayback(win32State);
-                                            Win32BeginRecordingInput(win32State, gameContext);
+                                            Win32BeginRecordingInput(win32State, frameContext);
                                             break;
                                     }
                                 }
@@ -483,12 +497,12 @@ extern "C" int __stdcall WinMainCRTStartup()
                                     {
                                         case RLM_NORMAL:
                                             runMode = RLM_PLAYBACKINPUT;
-                                            Win32BeginInputPlayback(win32State, gameContext);
+                                            Win32BeginInputPlayback(win32State, frameContext);
                                             break;
                                         case RLM_RECORDINPUT:
                                             runMode = RLM_PLAYBACKINPUT;
                                             Win32StopRecordingInput(win32State);
-                                            Win32BeginInputPlayback(win32State, gameContext);
+                                            Win32BeginInputPlayback(win32State, frameContext);
                                             break;
                                         case RLM_PLAYBACKINPUT:
                                             runMode = RLM_NORMAL;
@@ -527,21 +541,22 @@ extern "C" int __stdcall WinMainCRTStartup()
                 {
                     // No more input to read, so let's loop the playback
                     Win32StopInputPlayback(win32State);
-                    Win32BeginInputPlayback(win32State, gameContext);
+                    Win32BeginInputPlayback(win32State, frameContext);
                 }
                 break;
         }
 
-        Win32BeginFrame();
+        Win32GraphicsBeginFrame(graphicsBackend);
 
         if(gameFunctions.GameUpdateAndRender)
         {
-            gameFunctions.GameUpdateAndRender(gameContext, mainWindow.graphics, input, audio.gameAudioBuffer);
+            gameFunctions.GameUpdateAndRender(frameContext, mainWindow.graphics, input, audio.gameAudioBuffer);
         }
 
         Win32Clock gameSimTime = Win32GetWallClock();
         real32 elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime, gameSimTime);
 
+        frameContext.clock.elapsedFrameTime = elapsedFrameTime;
 
         if(elapsedFrameTime < targetFrameRateSeconds)
         {
@@ -556,7 +571,9 @@ extern "C" int __stdcall WinMainCRTStartup()
             //     }
             //     elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime);
             // }
+            #if 0
             LOG_INFO("Frame Time: %.2f, Total Time: %.2f", frameTime * 1000.0f, elapsedFrameTime * 1000.0f);
+            #endif
         }
         else
         {
@@ -580,7 +597,7 @@ extern "C" int __stdcall WinMainCRTStartup()
 
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
 
-        Win32EndFrame();
+        Win32GraphicsEndFrame(graphicsBackend);
         //Win32Dimensions dimensions = Win32GetWindowDimensions(mainWindow.hWindow);              
         //Win32Render(dimensions.width, dimensions.height, mainWindow.graphics);
         //SwapBuffers(mainWindow.hDeviceContext);
@@ -594,7 +611,7 @@ extern "C" int __stdcall WinMainCRTStartup()
     COM_RELEASE(audio.pRenderClient);   
 
     DestroyWindow(mainWindow.hWindow);
-    Win32UnloadRenderer();
+    Win32UnloadGraphicsBackend(graphicsBackend);
 
     ExitProcess(0);
 }
