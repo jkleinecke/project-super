@@ -34,3 +34,8 @@ void *memcpy(void *dest, void *src, size_t size)
 
     return dest;
 }
+
+// #pragma function(tanf)
+// float tanf(float p) {
+//     return 0.0f;
+// }

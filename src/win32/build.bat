@@ -40,7 +40,7 @@ set D3d12Libs=D3d12.lib d3dcompiler.lib DXGI.lib
 set GraphicsLibs=%D3d12Libs%
 
 set HostCompilerFlags=%CompilerDefines% %CompilerFlags% 
-set HostLinkerFlags=/NODEFAULTLIB /SUBSYSTEM:windows -STACK:0x100000,0x100000 %LinkerFlags% kernel32.lib ole32.lib uuid.lib user32.lib gdi32.lib winmm.lib %GraphicsLibs% chkstk.obj -out:project_super.exe
+set HostLinkerFlags=/SUBSYSTEM:windows -STACK:0x100000,0x100000 %LinkerFlags% kernel32.lib ole32.lib uuid.lib user32.lib gdi32.lib winmm.lib %GraphicsLibs% -out:project_super.exe
 
 cl %GameCompilerFlags% ..\src\ps_game.cpp -Fmps_game.map /link %GameLinkerFlags%
 cl %HostCompilerFlags% -I..\src ..\src\win32\win32_platform.cpp ..\src\win32\win32_msvc.c -Fmwin32_platform.map /link %HostLinkerFlags%

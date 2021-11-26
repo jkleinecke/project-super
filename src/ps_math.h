@@ -1,6 +1,6 @@
 
 // turn off the handmade math prefix to simplify code
-#define HMM_PREFIX
+#define HMM_PREFIX(name) name
 
 //#define HMM_SINF MySinF
 //#define HMM_COSF MyCosF

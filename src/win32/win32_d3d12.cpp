@@ -3,6 +3,8 @@
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>    // internal only? Compilation should be done offline - Requires d3dcompiler.lib and a DLL
 
+#include "win32_d3d12.h"
+
 #ifdef PROJECTSUPER_INTERNAL
 #define DEBUG_GRAPHICS 1
 #endif
@@ -11,8 +13,6 @@
 
     Things that still need to be handled:
 
-    * Make renderer responsible for window creation and removal
-        * Necessary for proper destruction to check for handle leaks
     * Backbuffer resize on Window Resize
     * Fullscreen borderless window
     * True fullscreen?  --This really isn't necessary anymore
@@ -20,22 +20,27 @@
         * What specifically am I aiming to support here?
     * Verify that we're using the up-to-date interfaces, tutorial from 2017
     * Begin to abstract a common command based API for the game
-    * Setup resource transfer queue
+        * Setup resource transfer queue
     * Separate into an independent DLL
+    * Move PSO and Shader gen/upload to background
+    * Move resource upload to background
 
 ********************************************************************************/
 
 // number of buffer frames 1 - Active, 2 Flip-Flop
 const u8 g_num_frames = 3;
 
-// actual d3d12 objects
+// Direct3D 12 
 // TODO(james): Check MSDN docs to verify that these are the correct interface versions, ID3D12Device9?
 global ID3D12Device2* g_pDevice;
+global ID3D12DebugDevice* g_pDebugDevice;
 global ID3D12CommandQueue* g_pCommandQueue;
-global IDXGISwapChain4* g_pSwapChain;
-global ID3D12Resource* g_pBackBuffers[g_num_frames];
 global ID3D12GraphicsCommandList* g_pCommandList;
 global ID3D12CommandAllocator* g_pCommandAllocators[g_num_frames];
+
+// Current Frame
+global IDXGISwapChain4* g_pSwapChain;
+global ID3D12Resource* g_pBackBuffers[g_num_frames];
 global ID3D12DescriptorHeap* g_RTVDescriptorHeap;
 global UINT g_RTVDescriptorSize;
 global UINT g_CurrentBackBufferIndex;
@@ -46,19 +51,406 @@ global u64 g_FenceValue = 0;
 global u64 g_FrameFenceValues[g_num_frames] = {};
 global HANDLE g_FenceEvent;
 
+global D3D12_VIEWPORT g_Viewport;
+global D3D12_RECT g_SurfaceSize;
+
+global ID3D12Resource* g_pVertexBuffer;
+global ID3D12Resource* g_pIndexBuffer;
+
+global ID3D12Resource* g_pUniformBuffer;
+global ID3D12DescriptorHeap* g_pUniformBufferHeap;
+global void* g_pMappedUniformBuffer;
+
+global D3D12_VERTEX_BUFFER_VIEW g_VertexBufferView;
+global D3D12_INDEX_BUFFER_VIEW g_IndexBufferView;
+
+global ID3D12RootSignature* g_pRootSignature;
+global ID3D12PipelineState* g_pPipelineState;
+
+struct VS_Uniforms
+{
+    m4 projection;
+    m4 view;
+    m4 model;
+};
+global VS_Uniforms g_Uniforms;
+
+struct Vertex
+{
+    float position[3];
+    float color[3];
+};
+
+Vertex g_VertexBufferData[3] = {{{1.0f, -1.0f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+                                {{-1.0f, -1.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+                                {{0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}}};
+
+u32 g_IndexBufferData[3] = {0, 1, 2};
+
+
 // config options
 global bool g_use_warp = false;
 global bool g_vsync = true;
 global bool g_tearing_support = false;
 global bool g_fullscreen = false;
 
-#define CHECK_ERROR(hres) if(FAILED(hres)) { LOG_ERROR("D3D12 ERROR: %X", hres); }
+#define CHECK_ERROR(hres) if(FAILED(hres)) { LOG_ERROR("D3D12 ERROR: %X", hres); ASSERT(false); }
+
+internal void
+Win32D3d12InitResources()
+{
+    HRESULT hr = ERROR_SUCCESS;
+    // TODO(james): This is a temporary resource loading function, will be removed later
+    
+    // Root Signature
+    {
+        D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
+
+        // This is the highest version the sample supports. If
+        // CheckFeatureSupport succeeds, the HighestVersion returned will not be
+        // greater than this.
+        featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+
+        if (FAILED(g_pDevice->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE,
+                                                &featureData,
+                                                sizeof(featureData))))
+        {
+            featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        } 
+
+        D3D12_DESCRIPTOR_RANGE1 ranges[1];
+        ranges[0].BaseShaderRegister = 0;
+        ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+        ranges[0].NumDescriptors = 1;
+        ranges[0].RegisterSpace = 0;
+        ranges[0].OffsetInDescriptorsFromTableStart = 0;
+        ranges[0].Flags = D3D12_DESCRIPTOR_RANGE_FLAG_NONE;
+
+        D3D12_ROOT_PARAMETER1 rootParameters[1];
+        rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        rootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
+        rootParameters[0].DescriptorTable.pDescriptorRanges = ranges;
+
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
+        rootSignatureDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        rootSignatureDesc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+        rootSignatureDesc.Desc_1_1.NumParameters = 1;
+        rootSignatureDesc.Desc_1_1.pParameters = rootParameters;
+        rootSignatureDesc.Desc_1_1.NumStaticSamplers = 0;
+        rootSignatureDesc.Desc_1_1.pStaticSamplers = nullptr;
+
+        ID3DBlob* signature = nullptr;
+        ID3DBlob* error = nullptr;
+
+        hr = D3D12SerializeVersionedRootSignature(&rootSignatureDesc, &signature, &error);
+        if(FAILED(hr))
+        {
+            LOG_ERROR("D3D12 ERROR: %s", (const char*)error->GetBufferPointer());
+        }
+        CHECK_ERROR(hr);
+
+        hr = g_pDevice->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&g_pRootSignature));
+        if(FAILED(hr))
+        {
+            LOG_ERROR("D3D12 ERROR: %s", (const char*)error->GetBufferPointer());
+        }
+        CHECK_ERROR(hr);
+
+        COM_RELEASE(error);
+        COM_RELEASE(signature);
+    }
+
+    // TODO(james): break compiling shaders out of this part into a seperate step.  Should be done offline...
+    // Create the pipeline state, which includes compiling and loading shaders.
+    {
+        ID3DBlob* vertexShader = nullptr;
+        ID3DBlob* pixelShader = nullptr;
+        ID3DBlob* errors = nullptr;
+
+        UINT compileFlags = 0;
+
+#if defined(DEBUG_GRAPHICS)
+        // enable better shader debugging
+        // TODO(james): should this be a different option that just a general DEBUG_GRAPHICS???
+        compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+#endif
+
+        hr = D3DCompile(g_szVertexShader, StringLength(g_szVertexShader), "Simple Vertex Shader", nullptr, nullptr, 
+            "main", "vs_5_0", compileFlags, 0, &vertexShader, &errors);       
+        if(FAILED(hr))
+        {
+            LOG_ERROR("D3D12 ERROR: %s", (const char*)errors->GetBufferPointer());
+        }
+        CHECK_ERROR(hr);
+        
+        hr = D3DCompile(g_szPixelShader, StringLength(g_szPixelShader), "Simple Pixel Shader", nullptr, nullptr,
+            "main", "ps_5_0", compileFlags, 0, &pixelShader, &errors);
+        if(FAILED(hr))
+        {
+            LOG_ERROR("D3D12 ERROR: %s", (const char*)errors->GetBufferPointer());
+        }
+        CHECK_ERROR(hr);
+
+        // Define the vertex input layout.
+        D3D12_INPUT_ELEMENT_DESC inputElementDescs[] = {
+            {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+             D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+            {"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12,
+             D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}};
+
+        // Create the Uniform Buffer Object
+        {
+            // Note: using upload heaps to transfer static data like vert
+            // buffers is not recommended. Every time the GPU needs it, the
+            // upload heap will be marshalled over. Please read up on Default
+            // Heap usage. An upload heap is used here for code simplicity and
+            // because there are very few verts to actually transfer.
+            D3D12_HEAP_PROPERTIES heapProps;
+            heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+            heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+            heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+            heapProps.CreationNodeMask = 1;
+            heapProps.VisibleNodeMask = 1;
+
+            D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
+            heapDesc.NumDescriptors = 1;
+            heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+            heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+            hr = g_pDevice->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&g_pUniformBufferHeap));
+            CHECK_ERROR(hr);
+
+            D3D12_RESOURCE_DESC uboResourceDesc;
+            uboResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+            uboResourceDesc.Alignment = 0;
+            uboResourceDesc.Width = (sizeof(g_Uniforms) + 255) & ~255;
+            uboResourceDesc.Height = 1;
+            uboResourceDesc.DepthOrArraySize = 1;
+            uboResourceDesc.MipLevels = 1;
+            uboResourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+            uboResourceDesc.SampleDesc.Count = 1;
+            uboResourceDesc.SampleDesc.Quality = 0;
+            uboResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+            uboResourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+            hr = g_pDevice->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &uboResourceDesc,
+                D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                IID_PPV_ARGS(&g_pUniformBuffer));
+            CHECK_ERROR(hr);
+            g_pUniformBufferHeap->SetName(L"Constant Buffer Upload Resource Heap");
+
+            D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+            cbvDesc.BufferLocation = g_pUniformBuffer->GetGPUVirtualAddress();
+            cbvDesc.SizeInBytes =
+                (sizeof(g_Uniforms) + 255) &
+                ~255; // CB size is required to be 256-byte aligned.
+            
+            D3D12_CPU_DESCRIPTOR_HANDLE cbvHandle(g_pUniformBufferHeap->GetCPUDescriptorHandleForHeapStart());
+            cbvHandle.ptr += g_pDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV) * 0;
+
+            g_pDevice->CreateConstantBufferView(&cbvDesc, cbvHandle);
+
+            // We do not intend to read from this resource on the CPU. (End is less than or equal to begin)
+            D3D12_RANGE readRange;
+            readRange.Begin = 0;
+            readRange.End = 0;
+
+            hr = g_pUniformBuffer->Map(0, &readRange, &g_pMappedUniformBuffer);
+            CHECK_ERROR(hr);
+            Copy(sizeof(g_Uniforms), &g_Uniforms, g_pMappedUniformBuffer);
+            g_pUniformBuffer->Unmap(0, &readRange);
+        }
+
+        // Describe and create the pipeline state object (PSO).
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+        psoDesc.InputLayout = {inputElementDescs, ARRAY_COUNT(inputElementDescs)};
+        psoDesc.pRootSignature = g_pRootSignature;
+
+        D3D12_SHADER_BYTECODE vsByteCode;
+        D3D12_SHADER_BYTECODE psByteCode;
+
+        vsByteCode.pShaderBytecode = vertexShader->GetBufferPointer();
+        vsByteCode.BytecodeLength = vertexShader->GetBufferSize();
+        psByteCode.pShaderBytecode = pixelShader->GetBufferPointer();
+        psByteCode.BytecodeLength = pixelShader->GetBufferSize();
+
+        psoDesc.VS = vsByteCode;
+        psoDesc.PS = psByteCode;
+
+        D3D12_RASTERIZER_DESC rasterDesc = {};
+        rasterDesc.FillMode = D3D12_FILL_MODE_SOLID;
+        rasterDesc.CullMode = D3D12_CULL_MODE_NONE;     // temporary
+        rasterDesc.FrontCounterClockwise = FALSE;
+        rasterDesc.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+        rasterDesc.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+        rasterDesc.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+        rasterDesc.DepthClipEnable = TRUE;
+        rasterDesc.MultisampleEnable = FALSE;
+        rasterDesc.AntialiasedLineEnable = FALSE;
+        rasterDesc.ForcedSampleCount = 0;
+        rasterDesc.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+        psoDesc.RasterizerState = rasterDesc;
+
+        D3D12_BLEND_DESC blendDesc = {};
+        blendDesc.AlphaToCoverageEnable = FALSE;
+        blendDesc.IndependentBlendEnable = FALSE;
+        const D3D12_RENDER_TARGET_BLEND_DESC defaultRenderTargetBlendDesc = {
+            FALSE,
+            FALSE,
+            D3D12_BLEND_ONE,
+            D3D12_BLEND_ZERO,
+            D3D12_BLEND_OP_ADD,
+            D3D12_BLEND_ONE,
+            D3D12_BLEND_ZERO,
+            D3D12_BLEND_OP_ADD,
+            D3D12_LOGIC_OP_NOOP,
+            D3D12_COLOR_WRITE_ENABLE_ALL,
+        };
+        for(UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i) {
+            blendDesc.RenderTarget[i] = defaultRenderTargetBlendDesc;
+        }
+
+        psoDesc.BlendState = blendDesc;
+        psoDesc.DepthStencilState.DepthEnable = FALSE;
+        psoDesc.DepthStencilState.StencilEnable = FALSE;
+        psoDesc.SampleMask = UINT_MAX;
+        psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        psoDesc.NumRenderTargets = 1;
+        psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+        psoDesc.SampleDesc.Count = 1;
+
+        hr = g_pDevice->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&g_pPipelineState));
+        CHECK_ERROR(hr);
+
+        COM_RELEASE(vertexShader);
+        COM_RELEASE(pixelShader);
+        COM_RELEASE(errors);
+    }
+
+    // Create the vertex buffer
+    {
+        const UINT vertexBufferSize = sizeof(g_VertexBufferData);
+
+        // Note: using upload heaps to transfer static data like vert buffers is
+        // not recommended. Every time the GPU needs it, the upload heap will be
+        // marshalled over. Please read up on Default Heap usage. An upload heap
+        // is used here for code simplicity and because there are very few verts
+        // to actually transfer.
+        D3D12_HEAP_PROPERTIES heapProps;
+        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+        heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        heapProps.CreationNodeMask = 1;
+        heapProps.VisibleNodeMask = 1;
+
+        D3D12_RESOURCE_DESC vertexBufferResourceDesc;
+        vertexBufferResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        vertexBufferResourceDesc.Alignment = 0;
+        vertexBufferResourceDesc.Width = vertexBufferSize;
+        vertexBufferResourceDesc.Height = 1;
+        vertexBufferResourceDesc.DepthOrArraySize = 1;
+        vertexBufferResourceDesc.MipLevels = 1;
+        vertexBufferResourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+        vertexBufferResourceDesc.SampleDesc.Count = 1;
+        vertexBufferResourceDesc.SampleDesc.Quality = 0;
+        vertexBufferResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        vertexBufferResourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        hr = g_pDevice->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &vertexBufferResourceDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&g_pVertexBuffer));
+        
+        // Copy the triangle data to the vertex buffer
+        void* pMappedVertexData = 0;
+
+        // Don't intend to read this data back
+        D3D12_RANGE readRange;
+        readRange.Begin = 0;
+        readRange.End = 0;
+
+        hr = g_pVertexBuffer->Map(0, &readRange, &pMappedVertexData);
+        Copy(sizeof(g_VertexBufferData), &g_VertexBufferData, pMappedVertexData);
+        g_pVertexBuffer->Unmap(0, nullptr);
+
+        // initialize the vertex buffer view
+        g_VertexBufferView.BufferLocation = g_pVertexBuffer->GetGPUVirtualAddress();
+        g_VertexBufferView.StrideInBytes = sizeof(Vertex);
+        g_VertexBufferView.SizeInBytes = vertexBufferSize;
+    }
+
+    // Now the index buffer
+    {
+        const UINT indexBufferSize = sizeof(g_IndexBufferData);
+
+        // Note: using upload heaps to transfer static data like vert buffers is
+        // not recommended. Every time the GPU needs it, the upload heap will be
+        // marshalled over. Please read up on Default Heap usage. An upload heap
+        // is used here for code simplicity and because there are very few verts
+        // to actually transfer.
+        D3D12_HEAP_PROPERTIES heapProps;
+        heapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+        heapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        heapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        heapProps.CreationNodeMask = 1;
+        heapProps.VisibleNodeMask = 1;
+
+        D3D12_RESOURCE_DESC indexBufferResourceDesc;
+        indexBufferResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        indexBufferResourceDesc.Alignment = 0;
+        indexBufferResourceDesc.Width = indexBufferSize;
+        indexBufferResourceDesc.Height = 1;
+        indexBufferResourceDesc.DepthOrArraySize = 1;
+        indexBufferResourceDesc.MipLevels = 1;
+        indexBufferResourceDesc.Format = DXGI_FORMAT_UNKNOWN;
+        indexBufferResourceDesc.SampleDesc.Count = 1;
+        indexBufferResourceDesc.SampleDesc.Quality = 0;
+        indexBufferResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        indexBufferResourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        hr = g_pDevice->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE, &indexBufferResourceDesc, 
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&g_pIndexBuffer));
+
+        void* pMappedIndexBuffer = 0;
+
+        D3D12_RANGE readRange = {};
+
+        hr = g_pIndexBuffer->Map(0, &readRange, &pMappedIndexBuffer);
+        CHECK_ERROR(hr);
+        Copy(sizeof(g_IndexBufferData), &g_IndexBufferData, pMappedIndexBuffer);
+        g_pIndexBuffer->Unmap(0, nullptr);
+
+        g_IndexBufferView.BufferLocation = g_pIndexBuffer->GetGPUVirtualAddress();
+        g_IndexBufferView.Format = DXGI_FORMAT_R32_UINT;
+        g_IndexBufferView.SizeInBytes = indexBufferSize;
+    }
+
+    {
+        // Now wait until the assets have been uploaded to the GPU
+        u64 nextValue = g_FenceValue + 1;
+        hr = g_pCommandQueue->Signal(g_pFence, nextValue);
+        CHECK_ERROR(hr);
+
+        // now we wait
+        if(g_pFence->GetCompletedValue() < nextValue)
+        {
+            g_pFence->SetEventOnCompletion(nextValue, g_FenceEvent);
+            WaitForSingleObject(g_FenceEvent, INFINITE);
+        }
+    }
+}
 
 extern "C"
 void
 Win32LoadRenderer(Win32Window& window)
 {
     HRESULT hr = ERROR_SUCCESS;
+
+    RECT rcClient;
+    GetClientRect(window.hWindow, &rcClient);
+
+    g_Uniforms.model = Mat4();
+    g_Uniforms.view = Translate(Vec3(0.0f, 0.0f, 2.5f /*zoom*/));
+    g_Uniforms.projection = Perspective(45.0f, (f32)(rcClient.right - rcClient.left)/(float)(rcClient.bottom - rcClient.top), 0.01f, 1024.0f);
 
 #ifdef DEBUG_GRAPHICS
     {
@@ -70,7 +462,14 @@ Win32LoadRenderer(Win32Window& window)
         if(debugInterface) {
             debugInterface->EnableDebugLayer();
         }
+        ID3D12Debug1* debugController = 0;
+        hr = debugInterface->QueryInterface(IID_PPV_ARGS(&debugController));
+        if(debugController)
+        {
+            debugController->SetEnableGPUBasedValidation(true);
+        }
         COM_RELEASE(debugInterface);
+        COM_RELEASE(debugController);
         CHECK_ERROR(hr);
     }
 #endif
@@ -140,7 +539,7 @@ Win32LoadRenderer(Win32Window& window)
 
                 bool supports_d3d12 = true;
                 supports_d3d12 &= (dxgiAdapterDesc1.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0;
-                supports_d3d12 &= SUCCEEDED(D3D12CreateDevice(dxgiAdapter1, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr));
+                supports_d3d12 &= SUCCEEDED(D3D12CreateDevice(dxgiAdapter1, D3D_FEATURE_LEVEL_12_0, __uuidof(ID3D12Device), nullptr));
                 supports_d3d12 &= dxgiAdapterDesc1.DedicatedVideoMemory > maxDedicatedVideoMemory;
 
                 if ( supports_d3d12 )
@@ -158,11 +557,14 @@ Win32LoadRenderer(Win32Window& window)
 
     // now create the device
     {
-        hr = D3D12CreateDevice(dxgiAdapter4, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&g_pDevice));
+        hr = D3D12CreateDevice(dxgiAdapter4, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&g_pDevice));
         CHECK_ERROR(hr);
         // Enable debug messages in debug mode.
 
         #if defined(DEBUG_GRAPHICS)
+            hr = g_pDevice->QueryInterface(IID_PPV_ARGS(&g_pDebugDevice));
+            CHECK_ERROR(hr);
+
             ID3D12InfoQueue* pInfoQueue = 0;
             if (SUCCEEDED(g_pDevice->QueryInterface(IID_PPV_ARGS(&pInfoQueue))))
             {
@@ -228,8 +630,7 @@ Win32LoadRenderer(Win32Window& window)
 
         hr = CreateDXGIFactory2(createFactoryFlags, IID_PPV_ARGS(&dxgiFactory4));
 
-        RECT rcClient;
-        GetClientRect(window.hWindow, &rcClient);
+        
 
         DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
         swapChainDesc.Width = rcClient.right - rcClient.left;   // Backbuffer - window client width
@@ -318,6 +719,8 @@ Win32LoadRenderer(Win32Window& window)
     }
 
     g_FenceEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
+
+    Win32D3d12InitResources();  // Temporary
 }
 
 // #ifdef DEBUG_GRAPHICS
@@ -354,6 +757,7 @@ Win32UnloadRenderer()
     COM_RELEASE(g_RTVDescriptorHeap);
     COM_RELEASE(g_pSwapChain);
     COM_RELEASE(g_pCommandQueue);
+    COM_RELEASE(g_pDebugDevice);
     COM_RELEASE(g_pDevice);
 
 // #ifdef DEBUG_GRAPHICS
@@ -393,7 +797,8 @@ extern "C"
 void
 Win32BeginFrame()
 {
-
+    // TODO(james): Render the damn triangle!!!
+    NotImplemented;
 }
 
 extern "C"
