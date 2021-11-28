@@ -4,7 +4,8 @@
 
 // TODO(james): this needs to be cleaned up, just a quick hack to allow for debugging simple game code
 global platform_logger* g_logger;
-#define GAME_LOG(msg, ...) g_logger(__FILE__, __LINE__, msg, __VA_ARGS__)
+//#define GAME_LOG(msg, ...) g_logger(__FILE__, __LINE__, msg, __VA_ARGS__)
+#define GAME_LOG
 
 #define TONE_AMPLITUDE 1000
 

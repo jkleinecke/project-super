@@ -342,7 +342,7 @@ extern "C" int __stdcall WinMainCRTStartup()
 
     // TODO(james): Load all of the initialization memory in a single allocation
 
-    void* graphicsBackend = Win32LoadGraphicsBackend(mainWindow);
+    void* graphicsBackend = Win32LoadGraphicsBackend(hInstance, mainWindow.hWindow);
     
     SetWindowLongPtrA(mainWindow.hWindow, GWLP_USERDATA, (LONG_PTR)&mainWindow);
     ShowWindow(mainWindow.hWindow, SW_SHOW);
@@ -571,8 +571,8 @@ extern "C" int __stdcall WinMainCRTStartup()
             //     }
             //     elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime);
             // }
-            #if 0
-            LOG_INFO("Frame Time: %.2f, Total Time: %.2f", frameTime * 1000.0f, elapsedFrameTime * 1000.0f);
+            #if 1
+            LOG_INFO("Frame Time: %.2f ms, Total Time: %.2f ms", frameTime * 1000.0f, elapsedFrameTime * 1000.0f);
             #endif
         }
         else

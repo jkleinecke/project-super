@@ -5,6 +5,11 @@
         "PROJECTSUPER_INTERNAL=1",
         "PROJECTSUPER_SLOW=1"
     ],
+    "editor.quickSuggestions": {
+        "other": false,
+        "comments": false,
+        "strings": false
+      },
     "files.associations": {
         "algorithm": "cpp",
         "exception": "cpp",
@@ -20,6 +25,27 @@
         "utility": "cpp",
         "xmemory": "cpp",
         "xtr1common": "cpp",
-        "xutility": "cpp"
-    }
+        "xutility": "cpp",
+        "vector": "cpp",
+        "initializer_list": "cpp",
+        "list": "cpp",
+        "atomic": "cpp",
+        "bit": "cpp",
+        "cctype": "cpp",
+        "concepts": "cpp",
+        "cstddef": "cpp",
+        "cstdint": "cpp",
+        "cstdio": "cpp",
+        "cstdlib": "cpp",
+        "cstring": "cpp",
+        "ctime": "cpp",
+        "cwchar": "cpp",
+        "iosfwd": "cpp",
+        "limits": "cpp",
+        "new": "cpp",
+        "string": "cpp",
+        "typeinfo": "cpp",
+        "xstddef": "cpp"
+    },
+    "editor.suggestOnTriggerCharacters": false
 }
