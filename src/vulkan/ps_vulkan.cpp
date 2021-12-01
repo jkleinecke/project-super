@@ -906,8 +906,22 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
 }
 
 internal
-void vbDestroySwapChain(VkDevice device, ps_vulkan_swapchain& swapChain)
+void vbDestroySwapChain(ps_vulkan_backend& vb)
 {
+    VkDevice device = vb.device;
+    ps_vulkan_swapchain& swapChain = vb.swap_chain;
+
+    for(const auto& fb : swapChain.frame_buffers)
+    {
+        vkDestroyFramebuffer(device, fb, nullptr);
+    }
+
+    vkFreeCommandBuffers(device, vb.command_pool, (u32)vb.command_buffers.size(), vb.command_buffers.data());
+
+    IFF(vb.graphicsPipeline, vkDestroyPipeline(vb.device, vb.graphicsPipeline, nullptr));
+    IFF(vb.pipelineLayout, vkDestroyPipelineLayout(vb.device, vb.pipelineLayout, nullptr));
+    IFF(vb.renderPass, vkDestroyRenderPass(vb.device, vb.renderPass, nullptr));
+    
     for(const auto& image : swapChain.images)
     {
         vkDestroyImageView(device, image.view, nullptr);
@@ -922,20 +936,12 @@ void vbDestroy(ps_vulkan_backend& vb)
     // NOTE(james): Clean up the rest of the backend members prior to destroying the instance
     if(vb.device)
     {
+        vbDestroySwapChain(vb);
+
         IFF(vb.command_pool, vkDestroyCommandPool(vb.device, vb.command_pool, nullptr));
-
-        for(const auto& fb : vb.swap_chain.frame_buffers)
-        {
-            vkDestroyFramebuffer(vb.device, fb, nullptr);
-        }
-
-        IFF(vb.graphicsPipeline, vkDestroyPipeline(vb.device, vb.graphicsPipeline, nullptr));
-        IFF(vb.pipelineLayout, vkDestroyPipelineLayout(vb.device, vb.pipelineLayout, nullptr));
-        IFF(vb.renderPass, vkDestroyRenderPass(vb.device, vb.renderPass, nullptr));
         IFF(vb.vertShader, vkDestroyShaderModule(vb.device, vb.vertShader, nullptr));
         IFF(vb.fragShader, vkDestroyShaderModule(vb.device, vb.fragShader, nullptr));
 
-        vbDestroySwapChain(vb.device, vb.swap_chain);
         vkDestroyDevice(vb.device, nullptr);
     }
 

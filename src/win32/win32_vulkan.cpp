@@ -74,6 +74,8 @@ void* Win32LoadGraphicsBackend(HINSTANCE hInstance, HWND hWnd)
     ASSERT(hInstance);
     ASSERT(hWnd);
 
+    g_Win32VulkanBackend.window_handle = hWnd;
+
     std::vector<const char*> platform_extensions = {
         VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
         VK_KHR_SURFACE_EXTENSION_NAME
@@ -193,6 +195,45 @@ void* Win32LoadGraphicsBackend(HINSTANCE hInstance, HWND hWnd)
     return &g_Win32VulkanBackend;
 }
 
+internal void
+Win32RecreateSwapChain(win32_vulkan_backend &graphics)
+{
+    // TODO(james): Still need to handle window resize events better.. explicit hook to handle resizing?
+
+    ps_vulkan_backend& vb = graphics.vulkan;
+
+    vkDeviceWaitIdle(vb.device);
+
+    vbDestroySwapChain(vb);
+
+     // TODO(james): Should ALL of this be done in the platform agnostic backend??
+    {
+        VkSurfaceCapabilitiesKHR surfaceCaps{};
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vb.physicalDevice, vb.swap_chain.platform_surface, &surfaceCaps);
+
+        VkSurfaceFormatKHR surfaceFormat = Win32VbChooseSwapSurfaceFormat(vb);
+        VkPresentModeKHR presentMode = Win32VbChooseSwapPresentMode(vb);
+        VkExtent2D extent = Win32VbChooseSwapExtent(graphics.window_handle, surfaceCaps);
+
+        vbCreateSwapChain(vb, surfaceCaps, surfaceFormat, presentMode, extent);
+    }
+
+    // just temporary here until we have more framework in place
+    VkResult result = vbCreateGraphicsPipeline(vb);
+
+    if(result != VK_SUCCESS)
+    {
+        ASSERT(false);
+    }
+
+    result = vbCreateFramebuffers(vb);
+
+    if(result != VK_SUCCESS)
+    {
+        ASSERT(false);
+    }
+}
+
 extern "C"
 void Win32UnloadGraphicsBackend(void* backend_data)
 {
@@ -228,7 +269,17 @@ void Win32GraphicsEndFrame(void* backend_data)
     vkWaitForFences(vb.device, 1, &vb.inFlightFences[vb.currentFrameIndex], VK_TRUE, UINT64_MAX);
 
     u32 imageIndex;
-    vkAcquireNextImageKHR(vb.device, vb.swap_chain.handle, UINT64_MAX, vb.imageAvailableSemaphores[vb.currentFrameIndex], VK_NULL_HANDLE, &imageIndex);
+    VkResult result = vkAcquireNextImageKHR(vb.device, vb.swap_chain.handle, UINT64_MAX, vb.imageAvailableSemaphores[vb.currentFrameIndex], VK_NULL_HANDLE, &imageIndex);
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR) 
+    {
+        Win32RecreateSwapChain(graphics);
+    }
+    else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        // welp, can't render anything so just quit
+        return;
+    }
 
     // Check if a previous frame is this image (i.e. the fence isn't null and needs to be waited on)
     if(vb.imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
@@ -253,7 +304,7 @@ void Win32GraphicsEndFrame(void* backend_data)
     submitInfo.pSignalSemaphores = signalSemaphores;
 
     vkResetFences(vb.device, 1, &vb.inFlightFences[vb.currentFrameIndex]);
-    VkResult result = vkQueueSubmit(vb.q_graphics.handle, 1, &submitInfo, vb.inFlightFences[vb.currentFrameIndex]);
+    result = vkQueueSubmit(vb.q_graphics.handle, 1, &submitInfo, vb.inFlightFences[vb.currentFrameIndex]);
     if(DIDFAIL(result))
     {
         LOG_ERROR("Vulkan Submit Error: %X", result);
@@ -269,7 +320,17 @@ void Win32GraphicsEndFrame(void* backend_data)
     presentInfo.pImageIndices = &imageIndex;
     presentInfo.pResults = nullptr;
 
-    vkQueuePresentKHR(vb.q_present.handle, &presentInfo);
+    result = vkQueuePresentKHR(vb.q_present.handle, &presentInfo);
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    {
+        Win32RecreateSwapChain(graphics);
+    }
+    else if(DIDFAIL(result))
+    {
+        LOG_ERROR("Vulkan Present Error: %X", result);
+        ASSERT(false);
+    }
 
     vb.currentFrameIndex = (vb.currentFrameIndex + 1) % WIN32_MAX_FRAMES_IN_FLIGHT;
 }
