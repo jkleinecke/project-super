@@ -34,8 +34,11 @@ struct ps_vulkan_backend
     ps_vulkan_queue q_graphics;
     ps_vulkan_queue q_present;
 
-    VkSemaphore imageAvailableSemaphore;
-    VkSemaphore renderFinishedSemaphore;
+    u32 currentFrameIndex;
+    std::vector<VkSemaphore> imageAvailableSemaphores;
+    std::vector<VkSemaphore> renderFinishedSemaphores;
+    std::vector<VkFence> inFlightFences;
+    std::vector<VkFence> imagesInFlight;
 
     // TODO(james): these are temp until I figure out
     //    how to deal with them.

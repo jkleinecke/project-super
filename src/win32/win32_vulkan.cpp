@@ -11,6 +11,7 @@
 #include "win32_vulkan.h"
 
 global win32_vulkan_backend g_Win32VulkanBackend = {};
+global const int WIN32_MAX_FRAMES_IN_FLIGHT = 2;
 
 internal
 VkSurfaceFormatKHR Win32VbChooseSwapSurfaceFormat(const ps_vulkan_backend& vb) {
@@ -163,21 +164,30 @@ void* Win32LoadGraphicsBackend(HINSTANCE hInstance, HWND hWnd)
         return nullptr;
     }
 
+    vb.imageAvailableSemaphores.resize(WIN32_MAX_FRAMES_IN_FLIGHT);
+    vb.renderFinishedSemaphores.resize(WIN32_MAX_FRAMES_IN_FLIGHT);
+    vb.inFlightFences.resize(WIN32_MAX_FRAMES_IN_FLIGHT);
+    vb.imagesInFlight.resize(vb.swap_chain.images.size(), VK_NULL_HANDLE);
+
     VkSemaphoreCreateInfo semaphoreInfo{};
     semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    result = vkCreateSemaphore(vb.device, &semaphoreInfo, nullptr, &vb.imageAvailableSemaphore);
-    if(result != VK_SUCCESS)
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for(int i = 0; i < WIN32_MAX_FRAMES_IN_FLIGHT; ++i)
     {
-        ASSERT(false);
-        vbDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-        return nullptr;
-    }
-    result = vkCreateSemaphore(vb.device, &semaphoreInfo, nullptr, &vb.renderFinishedSemaphore);
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vbDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-        return nullptr;
+        VkResult imageAvailableResult = vkCreateSemaphore(vb.device, &semaphoreInfo, nullptr, &vb.imageAvailableSemaphores[i]);
+        VkResult renderFinishedResult = vkCreateSemaphore(vb.device, &semaphoreInfo, nullptr, &vb.renderFinishedSemaphores[i]);
+        VkResult fenceResult = vkCreateFence(vb.device, &fenceInfo, nullptr, &vb.inFlightFences[i]);
+
+        if(imageAvailableResult != VK_SUCCESS || renderFinishedResult != VK_SUCCESS || fenceResult != VK_SUCCESS)
+        {
+            ASSERT(false);
+            vbDestroy(vb);
+            return nullptr;
+        }
     }
 
     return &g_Win32VulkanBackend;
@@ -191,8 +201,12 @@ void Win32UnloadGraphicsBackend(void* backend_data)
 
     vkDeviceWaitIdle(vb.device);
 
-    vkDestroySemaphore(vb.device, vb.imageAvailableSemaphore, nullptr);
-    vkDestroySemaphore(vb.device, vb.renderFinishedSemaphore, nullptr);
+    for(int i = 0; i < WIN32_MAX_FRAMES_IN_FLIGHT; ++i)
+    {
+        vkDestroySemaphore(vb.device, vb.imageAvailableSemaphores[i], nullptr);
+        vkDestroySemaphore(vb.device, vb.renderFinishedSemaphores[i], nullptr);
+        vkDestroyFence(vb.device, vb.inFlightFences[i], nullptr);
+    }
 
     vbDestroy(graphics.vulkan);
 
@@ -211,12 +225,22 @@ void Win32GraphicsEndFrame(void* backend_data)
     win32_vulkan_backend& graphics = *(win32_vulkan_backend*)backend_data;
     ps_vulkan_backend& vb = graphics.vulkan;
 
-    u32 imageIndex;
-    vkAcquireNextImageKHR(vb.device, vb.swap_chain.handle, UINT64_MAX, vb.imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+    vkWaitForFences(vb.device, 1, &vb.inFlightFences[vb.currentFrameIndex], VK_TRUE, UINT64_MAX);
 
-    VkSemaphore waitSemaphores[] = { vb.imageAvailableSemaphore };
+    u32 imageIndex;
+    vkAcquireNextImageKHR(vb.device, vb.swap_chain.handle, UINT64_MAX, vb.imageAvailableSemaphores[vb.currentFrameIndex], VK_NULL_HANDLE, &imageIndex);
+
+    // Check if a previous frame is this image (i.e. the fence isn't null and needs to be waited on)
+    if(vb.imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
+        vkWaitForFences(vb.device, 1, &vb.imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+    }
+
+    // mark the image as now being in use by this frame
+    vb.imagesInFlight[imageIndex] = vb.inFlightFences[vb.currentFrameIndex];
+
+    VkSemaphore waitSemaphores[] = { vb.imageAvailableSemaphores[vb.currentFrameIndex] };
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-    VkSemaphore signalSemaphores[] = { vb.renderFinishedSemaphore };
+    VkSemaphore signalSemaphores[] = { vb.renderFinishedSemaphores[vb.currentFrameIndex] };
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -228,7 +252,8 @@ void Win32GraphicsEndFrame(void* backend_data)
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
-    VkResult result = vkQueueSubmit(vb.q_graphics.handle, 1, &submitInfo, VK_NULL_HANDLE);
+    vkResetFences(vb.device, 1, &vb.inFlightFences[vb.currentFrameIndex]);
+    VkResult result = vkQueueSubmit(vb.q_graphics.handle, 1, &submitInfo, vb.inFlightFences[vb.currentFrameIndex]);
     if(DIDFAIL(result))
     {
         LOG_ERROR("Vulkan Submit Error: %X", result);
@@ -246,12 +271,5 @@ void Win32GraphicsEndFrame(void* backend_data)
 
     vkQueuePresentKHR(vb.q_present.handle, &presentInfo);
 
-    /*******************************************************************************
-    
-        BIG TODO: Finish the Rendering and Presentation chapter to run multiple
-            graphics frames concurrently and only wait if they are all in flight.
-    
-    ********************************************************************************/
-
-    vkQueueWaitIdle(vb.q_present.handle);
+    vb.currentFrameIndex = (vb.currentFrameIndex + 1) % WIN32_MAX_FRAMES_IN_FLIGHT;
 }
