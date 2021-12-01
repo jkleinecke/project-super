@@ -5,18 +5,15 @@
 #include "ps_vulkan_extensions.h"
 
 #include <vector>
+#include <array>
 
 #if defined(PROJECTSUPER_INTERNAL)
 #define GRAPHICS_DEBUG
 #endif
 
-
 // #define VERIFY_SUCCESS(result) ASSERT(DIDSUCCEED(result))
 #define DIDFAIL(result) ((result) != VK_SUCCESS)
 #define DIDSUCCEED(result) ((result) == VK_SUCCESS)
-
-
-
 
 global const std::vector<const char*> g_validationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -27,6 +24,45 @@ global const std::vector<const char*> g_validationLayers = {
     global const bool g_enableValidationLayers = false;
 #endif
 
+
+struct ps_vertex
+{
+    v2 pos;
+    v3 color;
+};
+
+global const ps_vertex g_Vertices[] = {
+    {{ 0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}},
+    {{ 0.5f,  0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{-0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}}
+};
+
+internal VkVertexInputBindingDescription vbGetVertexBindingDescription()
+{
+    VkVertexInputBindingDescription bindingDescription{};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(ps_vertex);
+    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    return bindingDescription;
+}
+
+internal std::array<VkVertexInputAttributeDescription, 2> vbGetVertexAttributeDescriptions()
+{
+    std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
+
+    attributeDescriptions[0].binding = 0;
+    attributeDescriptions[0].location = 0;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[0].offset = OffsetOf(ps_vertex, pos);
+
+    attributeDescriptions[1].binding = 0;
+    attributeDescriptions[1].location = 1;
+    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[1].offset = OffsetOf(ps_vertex, color);
+
+    return attributeDescriptions;
+}
 
 internal VKAPI_ATTR VkBool32 VKAPI_CALL vbDebugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -669,12 +705,15 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
     shaderStages[1].module = vb.fragShader;
     shaderStages[1].pName = "main";
 
+    auto bindingDescription = vbGetVertexBindingDescription();
+    auto attributeDescriptions = vbGetVertexAttributeDescriptions();
+
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.pVertexBindingDescriptions = nullptr;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.vertexAttributeDescriptionCount = (u32)attributeDescriptions.size();
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -828,6 +867,25 @@ VkResult vbCreateFramebuffers(ps_vulkan_backend& vb)
 }
 
 internal
+i32 vbFindMemoryType(ps_vulkan_backend& vb, u32 typeFilter, VkMemoryPropertyFlags properties)
+{
+    VkPhysicalDeviceMemoryProperties memProperties;
+    vkGetPhysicalDeviceMemoryProperties(vb.physicalDevice, &memProperties);
+
+    for(u32 i = 0; i < memProperties.memoryTypeCount; ++i)
+    {
+        b32x bValidMemoryType = typeFilter & (1 << i);
+        bValidMemoryType = bValidMemoryType && (memProperties.memoryTypes[i].propertyFlags & properties) == properties;
+        if(bValidMemoryType)
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+internal
 VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
 {
     VkCommandPoolCreateInfo poolInfo{};
@@ -860,6 +918,66 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
         return result; 
     }
 
+    ///////////////////////////////////
+    // Temporary Vertex Buffer Creation
+    {
+        VkBuffer vbuffer;
+        VkBufferCreateInfo bufferInfo{};
+        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size = sizeof(g_Vertices[0]) * ARRAY_COUNT(g_Vertices);
+        bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        result = vkCreateBuffer(vb.device, &bufferInfo, nullptr, &vbuffer);
+
+        if(DIDSUCCEED(result))
+        {
+            vb.vertexBuffer = vbuffer;
+        }
+        else
+        {
+            LOG_ERROR("Vulkan Error: %X", (result));
+            ASSERT(false);
+        }
+
+        VkMemoryRequirements memRequirements;
+        vkGetBufferMemoryRequirements(vb.device, vb.vertexBuffer, &memRequirements);
+
+        i32 memoryTypeIndex = vbFindMemoryType(vb, memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        if(memoryTypeIndex >= 0)
+        {   
+            VkDeviceMemory vbufferMemory;
+
+            VkMemoryAllocateInfo memoryAllocInfo{};
+            memoryAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            memoryAllocInfo.allocationSize = memRequirements.size;
+            memoryAllocInfo.memoryTypeIndex = (u32)memoryTypeIndex;
+
+            result = vkAllocateMemory(vb.device, &memoryAllocInfo, nullptr, &vbufferMemory);
+
+            if(DIDSUCCEED(result))
+            {
+                vb.vertexBufferMemory = vbufferMemory;
+            }
+            else
+            {
+                LOG_ERROR("Vulkan Error: %X", (result));
+                ASSERT(false);
+            }
+        }
+
+        // now bind the memory to the vertex buffer object
+        vkBindBufferMemory(vb.device, vb.vertexBuffer, vb.vertexBufferMemory, 0);
+
+        // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
+        void* data;
+        vkMapMemory(vb.device, vb.vertexBufferMemory, 0, bufferInfo.size, 0, &data);
+            CopyArray(ARRAY_COUNT(g_Vertices), &g_Vertices, data);
+        vkUnmapMemory(vb.device, vb.vertexBufferMemory);
+    }
+    ///////////////////////////////////
+
     // temporary triangle draw that must be done on all the command buffers
     for(u32 i = 0; i < numBuffers; ++i)
     {
@@ -889,8 +1007,11 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
 
         vkCmdBindPipeline(vb.command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, vb.graphicsPipeline);
 
+        VkBuffer vertexBuffers[] = {vb.vertexBuffer};
+        VkDeviceSize offsets[] = {0};
+        vkCmdBindVertexBuffers(vb.command_buffers[i], 0, 1, vertexBuffers, offsets);
         // and wait for it....
-        vkCmdDraw(vb.command_buffers[i], 3, 1, 0, 0);   // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
+        vkCmdDraw(vb.command_buffers[i], ARRAY_COUNT(g_Vertices), 1, 0, 0);   // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
 
         vkCmdEndRenderPass(vb.command_buffers[i]);
 
@@ -937,6 +1058,9 @@ void vbDestroy(ps_vulkan_backend& vb)
     if(vb.device)
     {
         vbDestroySwapChain(vb);
+
+        IFF(vb.vertexBuffer, vkDestroyBuffer(vb.device, vb.vertexBuffer, nullptr));
+        IFF(vb.vertexBufferMemory, vkFreeMemory(vb.device, vb.vertexBufferMemory, nullptr));
 
         IFF(vb.command_pool, vkDestroyCommandPool(vb.device, vb.command_pool, nullptr));
         IFF(vb.vertShader, vkDestroyShaderModule(vb.device, vb.vertShader, nullptr));

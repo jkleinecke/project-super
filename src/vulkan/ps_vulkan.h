@@ -1,4 +1,6 @@
 
+
+
 struct ps_vulkan_image
 {
     VkImage handle;
@@ -47,6 +49,9 @@ struct ps_vulkan_backend
     VkPipelineLayout pipelineLayout;
     VkShaderModule vertShader;
     VkShaderModule fragShader;
+
+    VkBuffer vertexBuffer;
+    VkDeviceMemory vertexBufferMemory;
 
     // finally the drawing commands
     VkCommandPool command_pool;
