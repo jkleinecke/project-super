@@ -23,6 +23,13 @@ struct ps_vulkan_queue
     VkQueue handle;
 };
 
+struct ps_vulkan_buffer
+{
+    VkBuffer handle;
+    // TODO(james): Should really be an allocator reference
+    VkDeviceMemory memory_handle;
+};
+
 struct ps_vulkan_backend
 {
     VkInstance instance;
@@ -31,6 +38,7 @@ struct ps_vulkan_backend
     ps_vulkan_swapchain swap_chain;
     
     VkPhysicalDevice physicalDevice;
+    VkPhysicalDeviceMemoryProperties device_memory_properties;
     VkDevice device;
 
     ps_vulkan_queue q_graphics;
@@ -50,8 +58,8 @@ struct ps_vulkan_backend
     VkShaderModule vertShader;
     VkShaderModule fragShader;
 
-    VkBuffer vertexBuffer;
-    VkDeviceMemory vertexBufferMemory;
+    ps_vulkan_buffer index_buffer;
+    ps_vulkan_buffer vertex_buffer;
 
     // finally the drawing commands
     VkCommandPool command_pool;
