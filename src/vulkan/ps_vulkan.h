@@ -54,12 +54,17 @@ struct ps_vulkan_backend
     //    how to deal with them.
     VkPipeline graphicsPipeline;
     VkRenderPass renderPass;
+    VkDescriptorSetLayout descriptorSetLayout;
     VkPipelineLayout pipelineLayout;
     VkShaderModule vertShader;
     VkShaderModule fragShader;
 
     ps_vulkan_buffer index_buffer;
     ps_vulkan_buffer vertex_buffer;
+    std::vector<ps_vulkan_buffer> uniform_buffers;
+
+    VkDescriptorPool descriptor_pool;
+    std::vector<VkDescriptorSet> descriptor_sets;
 
     // finally the drawing commands
     VkCommandPool command_pool;

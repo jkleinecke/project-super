@@ -597,7 +597,7 @@ extern "C" int __stdcall WinMainCRTStartup()
 
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
 
-        Win32GraphicsEndFrame(graphicsBackend);
+        Win32GraphicsEndFrame(graphicsBackend, input.clock);
         //Win32Dimensions dimensions = Win32GetWindowDimensions(mainWindow.hWindow);              
         //Win32Render(dimensions.width, dimensions.height, mainWindow.graphics);
         //SwapBuffers(mainWindow.hDeviceContext);

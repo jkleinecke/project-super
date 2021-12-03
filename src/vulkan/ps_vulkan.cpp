@@ -24,6 +24,14 @@ global const std::vector<const char*> g_validationLayers = {
     global const bool g_enableValidationLayers = false;
 #endif
 
+// UBOs have alignment requirements depending on the data being uploaded
+// so it is always good to be specific about the alignment for a UBO
+struct UniformBufferObject
+{
+    alignas(16) m4 model;
+    alignas(16) m4 view;
+    alignas(16) m4 proj;
+};
 
 struct ps_vertex
 {
@@ -628,6 +636,67 @@ vbCreateDevice(ps_vulkan_backend& vb, const std::vector<const char*>* platformDe
     return VK_SUCCESS;
 }
 
+
+internal
+VkResult vbCreateDescriptorPool(ps_vulkan_backend& vb)
+{
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    poolSize.descriptorCount = (u32)vb.swap_chain.images.size();
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = (u32)vb.swap_chain.images.size();
+    poolInfo.flags = 0; // optional
+
+    VkResult result = vkCreateDescriptorPool(vb.device, &poolInfo, nullptr, &vb.descriptor_pool);
+    ASSERT(DIDSUCCEED(result));
+
+    return result;
+}
+
+internal
+VkResult vbCreateDescriptorSets(ps_vulkan_backend& vb)
+{
+    ASSERT(vb.descriptorSetLayout);
+    std::vector<VkDescriptorSetLayout> layouts(vb.swap_chain.images.size(), vb.descriptorSetLayout);
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = vb.descriptor_pool;
+    allocInfo.descriptorSetCount = (u32)vb.swap_chain.images.size();
+    allocInfo.pSetLayouts = layouts.data();
+
+    vb.descriptor_sets.resize(layouts.size());
+
+    VkResult result = vkAllocateDescriptorSets(vb.device, &allocInfo, vb.descriptor_sets.data());
+    ASSERT(DIDSUCCEED(result));
+
+    for(size_t i = 0; i < layouts.size(); ++i)
+    {
+        VkDescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = vb.uniform_buffers[i].handle;
+        bufferInfo.offset = 0;
+        bufferInfo.range = sizeof(UniformBufferObject);
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = vb.descriptor_sets[i];
+        write.dstBinding = 0;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.descriptorCount = 1;
+        write.pBufferInfo = &bufferInfo;
+        write.pImageInfo = nullptr; // Optional
+        write.pTexelBufferView = nullptr; // Optional
+
+        vkUpdateDescriptorSets(vb.device, 1, &write, 0, nullptr);
+    }
+
+    return VK_SUCCESS;
+}
+
 internal
 VkResult vbCreateSwapChain(ps_vulkan_backend& vb, const VkSurfaceCapabilitiesKHR& surfaceCaps, const VkSurfaceFormatKHR& surfaceFormat, VkPresentModeKHR presentMode, VkExtent2D extent)
 {
@@ -708,6 +777,9 @@ VkResult vbCreateSwapChain(ps_vulkan_backend& vb, const VkSurfaceCapabilitiesKHR
         result = vkCreateImageView(vb.device, &imgCreateInfo, nullptr, &vb.swap_chain.images[index].view);
         VERIFY_SUCCESS(result);
     }
+
+    result = vbCreateDescriptorPool(vb);
+    VERIFY_SUCCESS(result);
 
 #undef VERIFY_SUCCESS
 
@@ -797,13 +869,36 @@ VkResult vbCreateRenderPass(ps_vulkan_backend& vb)
 }
 
 internal
+VkResult vbCreateDescriptorSetLayout(ps_vulkan_backend& vb)
+{
+    VkDescriptorSetLayoutBinding uboLayoutBinding{};
+    uboLayoutBinding.binding = 0;
+    uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uboLayoutBinding.descriptorCount = 1;
+    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    uboLayoutBinding.pImmutableSamplers = nullptr;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &uboLayoutBinding;
+
+    VkResult result = vkCreateDescriptorSetLayout(vb.device, &layoutInfo, nullptr, &vb.descriptorSetLayout);
+    ASSERT(DIDSUCCEED(result));
+
+    return result;
+}
+
+internal
 VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
 {
 #define VERIFY_SUCCESS(result) if(DIDFAIL(result)) { LOG_ERROR("Vulkan Error: %X", (result)); ASSERT(false); return result; }
+    VkResult result = VK_SUCCESS;   
+    result = vbCreateDescriptorSetLayout(vb);
+
     buffer vertShaderBuffer = DEBUG_readFile("../data/vert.spv");
     buffer fragShaderBuffer = DEBUG_readFile("../data/frag.spv");
 
-    VkResult result = VK_SUCCESS;   
     result = vbCreateShaderModule(vb.device, vertShaderBuffer, &vb.vertShader);
     VERIFY_SUCCESS(result);
     result = vbCreateShaderModule(vb.device, fragShaderBuffer, &vb.fragShader);
@@ -863,7 +958,7 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
     rasterizer.depthBiasConstantFactor = 0.0f;
     rasterizer.depthBiasClamp = 0.0f;
@@ -914,8 +1009,8 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount = 0; // Optional
-    pipelineLayoutInfo.pSetLayouts = nullptr; // Optional
+    pipelineLayoutInfo.setLayoutCount = 1; // Optional
+    pipelineLayoutInfo.pSetLayouts = &vb.descriptorSetLayout; // Optional
     pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
     pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
 
@@ -1086,6 +1181,31 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
     }
     ///////////////////////////////////
 
+    ///////////////////////////////////
+    // Temporarty Index Buffer Creation
+    {
+        VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+        vb.uniform_buffers.resize(vb.swap_chain.images.size());
+
+        for(size_t i = 0; i < vb.swap_chain.images.size(); ++i)
+        {
+            result = vbCreateBuffer(vb, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &vb.uniform_buffers[i]);
+            if(DIDFAIL(result))
+            {
+                LOG_ERROR("Vulkan Error: %X", (result));
+                ASSERT(false);
+            }
+        }
+    }
+    ///////////////////////////////////
+
+    result = vbCreateDescriptorSets(vb);
+    if(DIDFAIL(result))
+    {
+        LOG_ERROR("Vulkan Error: %X", (result));
+        ASSERT(false);
+    }
 
     // temporary triangle draw that must be done on all the command buffers
     for(u32 i = 0; i < numBuffers; ++i)
@@ -1119,9 +1239,9 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
         VkBuffer vertexBuffers[] = {vb.vertex_buffer.handle};
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(vb.command_buffers[i], 0, 1, vertexBuffers, offsets);
-
         vkCmdBindIndexBuffer(vb.command_buffers[i], vb.index_buffer.handle, 0, VK_INDEX_TYPE_UINT16);
 
+        vkCmdBindDescriptorSets(vb.command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, vb.pipelineLayout, 0, 1, &vb.descriptor_sets[i], 0, nullptr);
         // and wait for it....
         vkCmdDrawIndexed(vb.command_buffers[i], ARRAY_COUNT(g_Indices), 1, 0, 0, 0); // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
 
@@ -1143,6 +1263,13 @@ void vbDestroySwapChain(ps_vulkan_backend& vb)
 {
     VkDevice device = vb.device;
     ps_vulkan_swapchain& swapChain = vb.swap_chain;
+
+    for(auto& ubo : vb.uniform_buffers)
+    {
+        vbDestroyBuffer(vb.device, ubo);
+    }
+
+    IFF(vb.descriptor_pool, vkDestroyDescriptorPool(vb.device, vb.descriptor_pool, nullptr));
 
     for(const auto& fb : swapChain.frame_buffers)
     {
@@ -1177,6 +1304,8 @@ void vbDestroy(ps_vulkan_backend& vb)
         IFF(vb.command_pool, vkDestroyCommandPool(vb.device, vb.command_pool, nullptr));
         IFF(vb.vertShader, vkDestroyShaderModule(vb.device, vb.vertShader, nullptr));
         IFF(vb.fragShader, vkDestroyShaderModule(vb.device, vb.fragShader, nullptr));
+
+        IFF(vb.descriptorSetLayout, vkDestroyDescriptorSetLayout(vb.device, vb.descriptorSetLayout, nullptr));
 
         vkDestroyDevice(vb.device, nullptr);
     }
