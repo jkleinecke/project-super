@@ -49,6 +49,9 @@ REM Removed the CRT
 REM set HostLinkerFlags=/NODEFAULTLIB /SUBSYSTEM:windows -STACK:0x100000,0x100000 %LinkerFlags% kernel32.lib ole32.lib uuid.lib user32.lib gdi32.lib winmm.lib %GraphicsLibs% -out:project_super.exe
 set HostLinkerFlags=-STACK:0x100000,0x100000 %LinkerFlags% ole32.lib user32.lib gdi32.lib winmm.lib %GraphicsLibs% -out:project_super.exe
 
+
+REM clang++ %CompilerDefines% -I..\src -Oi -Od -std=c++17 -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp  
+
 cl %GameCompilerFlags% ..\src\ps_game.cpp -Fmps_game.map /link %GameLinkerFlags%
 cl %HostCompilerFlags% -I..\src -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp -Fmwin32_platform.map /link -LIBPATH:%VulkanLibDir% %HostLinkerFlags%
 set LastError=%ERRORLEVEL%

@@ -108,6 +108,8 @@ typedef intptr_t imm;
 #define F32MAX FLT_MAX
 #define F32MIN -FLT_MAX
 
+#define OffsetPtr(pointer, offset) ((void*)((u8*)(pointer) + (offset)))
+
 #define UMMToPtr(type, value) (type*)(value)
 #define PtrToUMM(pointer) ((umm)(pointer))
 

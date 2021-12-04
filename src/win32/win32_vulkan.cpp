@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <algorithm>
 
+#include "../ps_image.h"            // this may not be the right place for this include
 #include "../vulkan/ps_vulkan.cpp"
 
 #include "win32_vulkan.h"
