@@ -63,6 +63,8 @@ struct ps_vulkan_backend
     VkShaderModule vertShader;
     VkShaderModule fragShader;
 
+    ps_vulkan_image depth_image;
+
     ps_vulkan_image texture;
     VkSampler sampler;
 

@@ -1,7 +1,13 @@
 @echo off
 
+REM NOTE: Not actively maintained.. VS Code's build tasks are the normal usage
 
 REM ctime -begin project_super.ctm
+
+pushd data
+echo Building Shaders...
+call build.bat
+popd
 
 REM Setup the build directory
 IF NOT EXIST build mkdir build

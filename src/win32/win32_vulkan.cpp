@@ -149,6 +149,15 @@ void* Win32LoadGraphicsBackend(HINSTANCE hInstance, HWND hWnd)
         return nullptr;
     }
 
+    result = vbCreateDepthResources(vb);
+
+    if(result != VK_SUCCESS)
+    {
+        ASSERT(false);
+        vbDestroy(vb);  // destroy the instance since we failed to create the win32 surface
+        return nullptr;
+    }
+    
     result = vbCreateFramebuffers(vb);
 
     if(result != VK_SUCCESS)
@@ -304,8 +313,8 @@ void Win32GraphicsEndFrame(void* backend_data, GameClock& clock)
         // Rotates 90 degrees a second
         ubo.model = Rotate(accumlated_elapsedFrameTime * 90.0f, Vec3(0.0f, 0.0f, 1.0f));
         ubo.view = LookAt(Vec3(2.0f, 2.0f, 2.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f));
-        ubo.proj = Perspective(45.0f, vb.swap_chain.extent.width / (f32)vb.swap_chain.extent.height, 0.1f, 10.0f);
-        ubo.proj.Elements[1][1] *= -1;
+        ubo.proj = Perspective(45.0f, (f32)vb.swap_chain.extent.width, (f32)vb.swap_chain.extent.height, 0.1f, 10.0f);
+        //ubo.proj.Elements[1][1] *= -1;
 
         void* data;
         vkMapMemory(vb.device, vb.uniform_buffers[imageIndex].memory_handle, 0, sizeof(ubo), 0, &data);

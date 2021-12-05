@@ -2,6 +2,7 @@
     "recommendations": [
         "ms-vscode.cpptools",
         "vadimcn.vscode-lldb",
-        "slevesque.shader"
+        "slevesque.shader",
+        "rioj7.command-variable"
     ]
 }

@@ -35,20 +35,27 @@ struct UniformBufferObject
 
 struct ps_vertex
 {
-    v2 pos;
+    v3 pos;
     v3 color;
     v2 texCoord;
 };
 
 global const ps_vertex g_Vertices[] = {
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-    {{ 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-    {{ 0.5f,  0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-    {{-0.5f,  0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}}
+    {{-0.5f, -0.5f,  0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    {{ 0.5f, -0.5f,  0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f,  0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{-0.5f,  0.5f,  0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
+    {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+
 };
 
 global const u16 g_Indices[] {
-    0, 1, 2, 2, 3, 0
+    0, 1, 2, 2, 3, 0,
+    4, 5, 6, 6, 7, 4
 };
 
 internal VkVertexInputBindingDescription vbGetVertexBindingDescription()
@@ -67,7 +74,7 @@ internal std::array<VkVertexInputAttributeDescription, 3> vbGetVertexAttributeDe
 
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[0].offset = OffsetOf(ps_vertex, pos);
 
     attributeDescriptions[1].binding = 0;
@@ -135,6 +142,44 @@ void vbEndSingleTimeCommands(ps_vulkan_backend& vb, VkCommandBuffer commandBuffe
     vkQueueWaitIdle(vb.q_graphics.handle);
 
     vkFreeCommandBuffers(vb.device, vb.command_pool, 1, &commandBuffer);
+}
+
+internal
+VkFormat vbFindSupportedFormat(ps_vulkan_backend& vb, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+{
+    for(VkFormat format : candidates)
+    {
+        VkFormatProperties props;
+        vkGetPhysicalDeviceFormatProperties(vb.physicalDevice, format, &props);
+
+        if(tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
+        {
+            return format;
+        }
+        else if(tiling == VK_IMAGE_TILING_OPTIMAL  && (props.optimalTilingFeatures & features) == features)
+        {
+            return format;
+        }
+    }
+
+    return VK_FORMAT_UNDEFINED;
+}
+
+internal
+VkFormat vbFindDepthFormat(ps_vulkan_backend& vb)
+{
+    return vbFindSupportedFormat(
+        vb,
+        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+    );
+}
+
+internal 
+bool vbHasStencilComponent(VkFormat format)
+{
+    return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
 internal VKAPI_ATTR VkBool32 VKAPI_CALL vbDebugCallback(
@@ -594,13 +639,26 @@ void vbTransitionImageLayout(ps_vulkan_backend& vb, ps_vulkan_image& image, VkFo
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image.handle;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel = 0;
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
 
     // TODO(james): This feels dirty, think about a simpler more robust solution here
+    if(newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+    {
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+        if(vbHasStencilComponent(format)) 
+        {
+            barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        }
+    }
+    else
+    {
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+
     if(oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) 
     {
         barrier.srcAccessMask = 0;
@@ -616,6 +674,14 @@ void vbTransitionImageLayout(ps_vulkan_backend& vb, ps_vulkan_image& image, VkFo
 
         sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
         destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    }
+    else if(oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+    {
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+        sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     }
     else
     {
@@ -634,14 +700,14 @@ void vbTransitionImageLayout(ps_vulkan_backend& vb, ps_vulkan_image& image, VkFo
     vbEndSingleTimeCommands(vb, commandBuffer);
 }
 
-VkResult vbCreateImageView(ps_vulkan_backend& vb, VkImage image, VkFormat format, VkImageView* pView)
+VkResult vbCreateImageView(ps_vulkan_backend& vb, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView* pView)
 {
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = image;
     viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
     viewInfo.format = format;
-    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.aspectMask = aspectFlags;
     viewInfo.subresourceRange.baseMipLevel = 0;
     viewInfo.subresourceRange.levelCount = 1;
     viewInfo.subresourceRange.baseArrayLayer = 0;
@@ -942,7 +1008,7 @@ VkResult vbCreateSwapChain(ps_vulkan_backend& vb, const VkSurfaceCapabilitiesKHR
         vb.swap_chain.images[index].handle = images[index];
 
         // now setup the image view for use in the swap chain
-        result = vbCreateImageView(vb, vb.swap_chain.images[index].handle, surfaceFormat.format, &vb.swap_chain.images[index].view);
+        result = vbCreateImageView(vb, vb.swap_chain.images[index].handle, surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, &vb.swap_chain.images[index].view);
         VERIFY_SUCCESS(result);
     }
 
@@ -995,6 +1061,20 @@ VkResult vbCreateShaderModule(VkDevice device, buffer& bytes, VkShaderModule* sh
 internal
 VkResult vbCreateRenderPass(ps_vulkan_backend& vb)
 {
+    VkAttachmentDescription depthAttachment{};
+    depthAttachment.format = vbFindDepthFormat(vb);
+    depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depthAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depthAttachmentRef{};
+    depthAttachmentRef.attachment = 1;
+    depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
     VkAttachmentDescription colorAttachment{};
     colorAttachment.format = vb.swap_chain.format;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1013,19 +1093,21 @@ VkResult vbCreateRenderPass(ps_vulkan_backend& vb)
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorAttachmentRef;
+    subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
     VkSubpassDependency dependency{};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependency.srcAccessMask = 0;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
+    VkAttachmentDescription attachments[] = {colorAttachment, depthAttachment};
     VkRenderPassCreateInfo renderPassInfo{};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    renderPassInfo.attachmentCount = 1;
-    renderPassInfo.pAttachments = &colorAttachment;
+    renderPassInfo.attachmentCount = ARRAY_COUNT(attachments);
+    renderPassInfo.pAttachments = attachments;
     renderPassInfo.subpassCount = 1;
     renderPassInfo.pSubpasses = &subpass;
     renderPassInfo.dependencyCount = 1;
@@ -1172,6 +1254,18 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
     colorBlending.blendConstants[2] = 0.0f; // Optional
     colorBlending.blendConstants[3] = 0.0f; // Optional
 
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depthStencil.depthBoundsTestEnable = VK_FALSE;
+    depthStencil.minDepthBounds = 0.0f;
+    depthStencil.maxDepthBounds = 1.0f;
+    depthStencil.stencilTestEnable = VK_FALSE;
+    depthStencil.front = {};
+    depthStencil.back = {};
+
     // Possible to change some values at draw time, here's an example of how to set that up
     // VkDynamicState dynamicStates[] = {
     //     VK_DYNAMIC_STATE_VIEWPORT,
@@ -1205,7 +1299,7 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
     pipelineInfo.pViewportState = &viewportState;
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState = &multisampling;
-    pipelineInfo.pDepthStencilState = nullptr; // Optional
+    pipelineInfo.pDepthStencilState = &depthStencil; // Optional
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = nullptr; // Optional
     pipelineInfo.layout = vb.pipelineLayout;
@@ -1231,13 +1325,14 @@ VkResult vbCreateFramebuffers(ps_vulkan_backend& vb)
     for(size_t i = 0; i < numImages; i++)
     {
         VkImageView attachments[] = {
-            vb.swap_chain.images[i].view
+            vb.swap_chain.images[i].view,
+            vb.depth_image.view
         };
 
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         framebufferInfo.renderPass = vb.renderPass;
-        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.attachmentCount = ARRAY_COUNT(attachments);
         framebufferInfo.pAttachments = attachments;
         framebufferInfo.width = vb.swap_chain.extent.width;
         framebufferInfo.height = vb.swap_chain.extent.height;
@@ -1272,7 +1367,7 @@ VkResult vbTempCreateVertexBuffers(ps_vulkan_backend& vb)
     // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
     void* data;
     vkMapMemory(vb.device, stagingBuffer.memory_handle, 0, bufferSize, 0, &data);
-        CopyArray(ARRAY_COUNT(g_Vertices), &g_Vertices, data);
+        CopyArray(ARRAY_COUNT(g_Vertices), g_Vertices, data);
     vkUnmapMemory(vb.device, stagingBuffer.memory_handle);
 
     // Now create the actual device buffer in *FAST* GPU only memory
@@ -1309,7 +1404,7 @@ VkResult vbTempCreateIndexBuffers(ps_vulkan_backend& vb)
     // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
     void* data;
     vkMapMemory(vb.device, stagingBuffer.memory_handle, 0, bufferSize, 0, &data);
-        CopyArray(ARRAY_COUNT(g_Indices), &g_Indices, data);
+        CopyArray(ARRAY_COUNT(g_Indices), g_Indices, data);
     vkUnmapMemory(vb.device, stagingBuffer.memory_handle);
 
     // Now create the actual device buffer in *FAST* GPU only memory
@@ -1371,7 +1466,7 @@ VkResult vbTempCreateTextureImages(ps_vulkan_backend& vb)
     // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
     void *data;
     vkMapMemory(vb.device, stagingBuffer.memory_handle, 0, imageSize, 0, &data);
-    Copy(imageSize, pixels, data);
+        Copy(imageSize, pixels, data);
     vkUnmapMemory(vb.device, stagingBuffer.memory_handle);
 
     stbi_image_free(pixels);
@@ -1390,7 +1485,7 @@ VkResult vbTempCreateTextureImages(ps_vulkan_backend& vb)
 internal
 VkResult vbTempCreateTextureImageViews(ps_vulkan_backend& vb)
 {
-    VkResult result = vbCreateImageView(vb, vb.texture.handle, VK_FORMAT_R8G8B8A8_SRGB, &vb.texture.view);
+    VkResult result = vbCreateImageView(vb, vb.texture.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, &vb.texture.view);
 
     return result;
 }
@@ -1424,6 +1519,24 @@ VkResult vbTempCreateTextureSamplers(ps_vulkan_backend& vb)
 
     return result;
 }
+
+internal
+VkResult vbCreateDepthResources(ps_vulkan_backend& vb)
+{
+    VkFormat depthFormat = vbFindDepthFormat(vb);
+
+    VkResult result = vbCreateImage(vb, vb.swap_chain.extent.width, vb.swap_chain.extent.height, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &vb.depth_image);
+    if(DIDFAIL(result))
+    {
+        ASSERT(false);
+        return result;
+    }
+
+    result = vbCreateImageView(vb, vb.depth_image.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, &vb.depth_image.view);
+
+    return result;
+}
+
 
 internal
 VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
@@ -1518,9 +1631,11 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
         renderPassInfo.renderArea.offset = {0,0};
         renderPassInfo.renderArea.extent = vb.swap_chain.extent;
 
-        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues = &clearColor;
+        VkClearValue clearValues[2] = {};
+        clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        clearValues[1].depthStencil = {1.0f, 0};
+        renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
+        renderPassInfo.pClearValues = clearValues;
         vkCmdBeginRenderPass(vb.command_buffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
         vkCmdBindPipeline(vb.command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, vb.graphicsPipeline);
@@ -1532,6 +1647,7 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
 
         vkCmdBindDescriptorSets(vb.command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, vb.pipelineLayout, 0, 1, &vb.descriptor_sets[i], 0, nullptr);
         // and wait for it....
+        u32 count = ARRAY_COUNT(g_Indices);
         vkCmdDrawIndexed(vb.command_buffers[i], ARRAY_COUNT(g_Indices), 1, 0, 0, 0); // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
 
         vkCmdEndRenderPass(vb.command_buffers[i]);
@@ -1591,6 +1707,8 @@ void vbDestroy(ps_vulkan_backend& vb)
         vbDestroyImage(vb.device, vb.texture);
         vbDestroyBuffer(vb.device, vb.index_buffer);
         vbDestroyBuffer(vb.device, vb.vertex_buffer);
+
+        vbDestroyImage(vb.device, vb.depth_image);
 
         IFF(vb.command_pool, vkDestroyCommandPool(vb.device, vb.command_pool, nullptr));
         IFF(vb.vertShader, vkDestroyShaderModule(vb.device, vb.vertShader, nullptr));
