@@ -22,6 +22,9 @@
 //#include "win32_d3d12.cpp"
 #include "win32_vulkan.cpp"
 
+global const int FIXED_RENDER_WIDTH = 1920;
+global const int FIXED_RENDER_HEIGHT = 1080;
+
 /*******************************************************************************
 
     Things to do:
@@ -266,8 +269,8 @@ extern "C" int __stdcall WinMainCRTStartup()
     wndClass.lpszClassName = "ProjectSuperWindow";
     RegisterClassExA(&wndClass);
 
-    int desiredWidth = 1280;
-    int desiredHeight = 720;
+    int desiredWidth = FIXED_RENDER_WIDTH;
+    int desiredHeight = FIXED_RENDER_HEIGHT;
 
     int screenWidth = ::GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = ::GetSystemMetrics(SM_CYSCREEN);

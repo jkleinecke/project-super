@@ -307,12 +307,12 @@ void Win32GraphicsEndFrame(void* backend_data, GameClock& clock)
     {
         local_persist f32 accumlated_elapsedFrameTime = 0.0f;
 
-        accumlated_elapsedFrameTime += clock.elapsedFrameTime;
+        //accumlated_elapsedFrameTime += clock.elapsedFrameTime;
 
         UniformBufferObject ubo{};
         // Rotates 90 degrees a second
         ubo.model = Rotate(accumlated_elapsedFrameTime * 90.0f, Vec3(0.0f, 0.0f, 1.0f));
-        ubo.view = LookAt(Vec3(2.0f, 2.0f, 2.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f));
+        ubo.view = LookAt(Vec3(4.0f, 4.0f, 4.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f));
         ubo.proj = Perspective(45.0f, (f32)vb.swap_chain.extent.width, (f32)vb.swap_chain.extent.height, 0.1f, 10.0f);
         //ubo.proj.Elements[1][1] *= -1;
 
