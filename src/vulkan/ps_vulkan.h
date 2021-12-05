@@ -1,11 +1,21 @@
 
 
 
+struct ps_vulkan_buffer
+{
+    VkBuffer handle;
+    // TODO(james): Should really be an allocator reference
+    VkDeviceMemory memory_handle;
+};
+
 struct ps_vulkan_image
 {
     VkImage handle;
     VkImageView view;
+    // TODO(james): Should really be an allocator reference
+    VkDeviceMemory memory_handle;
 };
+
 
 struct ps_vulkan_swapchain
 {
@@ -23,13 +33,6 @@ struct ps_vulkan_queue
     VkQueue handle;
 };
 
-struct ps_vulkan_buffer
-{
-    VkBuffer handle;
-    // TODO(james): Should really be an allocator reference
-    VkDeviceMemory memory_handle;
-};
-
 struct ps_vulkan_backend
 {
     VkInstance instance;
@@ -38,6 +41,7 @@ struct ps_vulkan_backend
     ps_vulkan_swapchain swap_chain;
     
     VkPhysicalDevice physicalDevice;
+    VkPhysicalDeviceProperties device_properties;
     VkPhysicalDeviceMemoryProperties device_memory_properties;
     VkDevice device;
 
@@ -58,6 +62,9 @@ struct ps_vulkan_backend
     VkPipelineLayout pipelineLayout;
     VkShaderModule vertShader;
     VkShaderModule fragShader;
+
+    ps_vulkan_image texture;
+    VkSampler sampler;
 
     ps_vulkan_buffer index_buffer;
     ps_vulkan_buffer vertex_buffer;
