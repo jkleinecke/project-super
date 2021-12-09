@@ -40,6 +40,39 @@
                 "limitSymbolsToIncludedHeaders": true,
                 "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db"
             }
+        },
+        {
+            "name": "Mac",
+            "includePath": [
+                "${default}",
+                "${workspaceFolder}/src",
+                "/usr/local/include"
+            ],
+            "compilerPath": "clang++",
+            "compilerArgs": [
+                "-fno-exceptions",
+                "-fno-rtti",
+                "-g",
+                "-std=c++20",
+                "-Wall",
+                "-Wno-format",
+                "-Wno-switch",
+                "-Wno-write-strings",
+                "-Wno-multichar",
+                "-Wno-unused-function",
+                "-Wno-unused-variable",
+                "-Wno-missing-braces"
+            ],
+            "defines": [
+                "PROJECTSUPER_INTERNAL=1",
+                "PROJECTSUPER_SLOW=1",
+                "PROJECTSUPER_MACOS=1"
+            ],
+            "cStandard": "c17",
+            "cppStandard": "c++20",
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true
+            }
         }
     ],
     "version": 4

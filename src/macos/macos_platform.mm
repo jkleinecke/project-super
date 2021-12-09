@@ -1,20 +1,24 @@
 
 #include <Cocoa/Cocoa.h>
 
+#include "ps_platform.h"
+#include "ps_shared.h"
+#include "ps_intrinsics.h"
+#include "ps_math.h"
+#include "ps_memory.h"
+
+#include "macos_platform.h"
+
+#define LOG_ERROR
+#define LOG_WARN
+#define LOG_INFO
+#include "macos_vulkan.cpp"
+
 #include <stdio.h>
-#include "../ps_platform.h"
 
 global_variable bool32 GlobalRunning = true;
 
-struct MacosContext
-{
-	//HandmadeAppDelegate* AppDelegate;
-	NSWindow* Window;
-	NSString* AppName;
-	NSString* WorkingDirectory;
-};
-
-void MacosProcessMessages(MacosContext& context)
+void MacosProcessMessages(macos_state& state)
 {
     NSEvent* Event;
 
@@ -127,9 +131,9 @@ int main(int argc, const char* argv[])
 {
     @autoreleasepool
     {
-        MacosContext macContext = {};
+        macos_state state = {};
+		state.appName = @"Project Super";
 
-        NSString* appName = @"Project Super";
         f32 windowWidth = 1280.0f;
         f32 windowHeight = 720.0f;
 
@@ -141,13 +145,13 @@ int main(int argc, const char* argv[])
         NSString *dir = [[NSFileManager defaultManager] currentDirectoryPath];
 
         NSFileManager* FileManager = [NSFileManager defaultManager];
-        macContext.WorkingDirectory = [NSString stringWithFormat:@"%@/Contents/Resources",
+        state.workingDirectory = [NSString stringWithFormat:@"%@/Contents/Resources",
             [[NSBundle mainBundle] bundlePath]];
-        if ([FileManager changeCurrentDirectoryPath:macContext.WorkingDirectory] == NO)
-        {
-            ASSERT(0);
-        }
-        NSLog(@"working directory: %@", macContext.WorkingDirectory);
+        // if ([FileManager changeCurrentDirectoryPath:state.workingDirectory] == NO)
+        // {
+        //     ASSERT(0);
+        // }
+        NSLog(@"working directory: %@", state.workingDirectory);
 
         //macContext.AppDelegate = [[HandmadeAppDelegate alloc] init];
         //[app setDelegate:Context.AppDelegate];
@@ -178,12 +182,14 @@ int main(int argc, const char* argv[])
         [CV setAutoresizesSubviews:YES];
 
         [Window setMinSize:NSMakeSize(160, 90)];
-        [Window setTitle:appName];
+        [Window setTitle:state.appName];
         [Window makeKeyAndOrderFront:nil];
+
+		MacosLoadGraphicsBackend();
 
         while(GlobalRunning)
         {
-            MacosProcessMessages(macContext);
+            MacosProcessMessages(state);
         }
     }
 

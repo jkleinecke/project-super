@@ -25,6 +25,9 @@
 			"windows":{
 				"command": "${workspaceFolder}/data/build.bat"
 			},
+			"osx": {
+				"command": "${workspaceFolder}/data/build.sh"
+			},
 			"options": {
 				"cwd": "${workspaceFolder}/data"
 			},
@@ -33,99 +36,6 @@
 				"$gcc"
 			],
 			"group": "build"
-		},
-		{
-			"type": "shell",
-			"label": "Clean-Up PDBs",
-			"command": "del",
-			"args": [
-				"*.pdb"
-			],
-			"options": {
-				"cwd": "${workspaceFolder}\\build"
-			},
-		},
-		{	
-			"dependsOn":[
-				"Clean-Up PDBs"
-			],
-			"type": "shell",
-			"label": "Build Game Library",
-			"options": {
-				"cwd": "${workspaceFolder}\\build"
-			},
-			"windows":{
-				"command": "cl.exe",
-				"args": [
-					"-DPROJECTSUPER_INTERNAL=1", "-DPROJECTSUPER_SLOW=1", "-DPROJECTSUPER_WIN32=1",
-					"-nologo",
-					"-MTd",
-					"-Oi", "-Od", "-WL", "/std:c++17", "-fp:fast", "-fp:except-", "-GS-", "-GR-", "-EHa",
-					"-WX", "-W4", "-wd4100", "-wd4530", "-wd4201", "-wd4505", "-wd4189",
-					"-FC", "-Zi",
-					"-I..\\src",
-					"../src/ps_game.cpp",
-					"/Fmps_game.map",
-					"/link",
-					"-incremental:no", "-opt:ref",
-					"-PDB:ps_game_${command:extension.commandvariable.UUID}.pdb",
-					"/DLL",
-					"/EXPORT:GameUpdateAndRender",
-					"-out:ps_game.dll"
-				]
-			},
-			"osx": {
-				"command": "src/macos/build_mac.sh",
-			},
-			"problemMatcher": [
-				"$msCompile",
-				"$gcc"
-			],
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			}
-		},
-		{
-			"dependsOn": [
-				"Build Game Library"
-			],
-			"type": "shell",
-			"label": "Build Host",
-			"options": {
-				"cwd": "${workspaceFolder}\\build"
-			},
-			"windows":{
-				"command": "cl.exe",
-				"args": [
-					"-DPROJECTSUPER_INTERNAL=1", "-DPROJECTSUPER_SLOW=1", "-DPROJECTSUPER_WIN32=1",
-					"-nologo",
-					"-Oi", "-Od", "-WL", "/std:c++17", "-fp:fast", "-fp:except-", "-GS-", "-GR-", "-EHa",
-					"-WX", "-W4", "-wd4100", "-wd4530", "-wd4201", "-wd4505", "-wd4189",
-					"-FC", "-Zi",
-					"-I..\\src",
-					"-I${env:VULKAN_SDK}\\Include",
-					"..\\src\\win32\\win32_platform.cpp",
-					"/Fmwin32_platform.map",
-					"/link",
-					"-LIBPATH:${env:VULKAN_SDK}\\Lib",
-					"-STACK:0x100000,0x100000", "-incremental:no", "-opt:ref",
-					"ole32.lib", "user32.lib", "gdi32.lib", "winmm.lib",
-					"vulkan-1.lib",
-					"-out:project_super.exe"
-				]
-			},
-			"osx": {
-				"command": "src/macos/build_mac.sh",
-			},
-			"problemMatcher": [
-				"$msCompile",
-				"$gcc"
-			],
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			}
 		}
 	]
 }

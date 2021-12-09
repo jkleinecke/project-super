@@ -1,7 +1,7 @@
 
 #define STB_SPRINTF_DECORATE(name) ps_##name
 #define STB_SPRINTF_IMPLEMENTATION
-#include "libs\stb\stb_sprintf.h"
+#include "libs/stb/stb_sprintf.h"
 
 // NOTE(james): This copy does NOT work if the src and dst pointers
 // will overlap!  If you need that, write another copy method that
