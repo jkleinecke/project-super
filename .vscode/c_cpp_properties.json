@@ -13,7 +13,7 @@
                 "-Oi",
                 "-Od",
                 "-WL",
-                "-std:c++17",
+                "-std:c++20",
                 "-fp:fast",
                 "-fp:except-",
                 "-GS-",
@@ -35,7 +35,7 @@
                 "PROJECTSUPER_WIN32=1"
             ],
             "cStandard": "c17",
-            "cppStandard": "c++17",
+            "cppStandard": "c++20",
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db"

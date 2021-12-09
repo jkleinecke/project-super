@@ -29,6 +29,8 @@ global const std::vector<const char*> g_validationLayers = {
     global const bool g_enableValidationLayers = false;
 #endif
 
+#include "ps_vulkan_graphics_api.cpp"
+
 // UBOs have alignment requirements depending on the data being uploaded
 // so it is always good to be specific about the alignment for a UBO
 struct UniformBufferObject
@@ -38,19 +40,15 @@ struct UniformBufferObject
     alignas(16) m4 proj;
 };
 
-
 struct ps_vertex
 {
     v3 pos;
     v3 color;
     v2 texCoord;
-
     
     bool operator==(const ps_vertex& other) const {
         return pos == other.pos && color == other.color && texCoord == other.texCoord;
     }
-
-
 };
 
 internal
@@ -166,11 +164,14 @@ void vbDestroyImage(VkDevice device, ps_vulkan_image& image)
 internal
 VkCommandBuffer vbBeginSingleTimeCommands(ps_vulkan_backend& vb)
 {
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = vb.command_pool;
-    allocInfo.commandBufferCount = 1;
+    VkCommandBufferAllocateInfo allocInfo
+    {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .commandPool = vb.command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = 1
+    };
 
     VkCommandBuffer commandBuffer;
     vkAllocateCommandBuffers(vb.device, &allocInfo, &commandBuffer);
@@ -1663,12 +1664,14 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
     u32 numBuffers = (u32)vb.swap_chain.images.size();
     vb.command_buffers.resize(numBuffers);
 
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.commandPool = vb.command_pool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandBufferCount = numBuffers;
-
+    VkCommandBufferAllocateInfo allocInfo
+    {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .commandPool = vb.command_pool,
+        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = numBuffers
+    };
     result = vkAllocateCommandBuffers(vb.device, &allocInfo, vb.command_buffers.data());
 
     if(DIDFAIL(result)) { 

@@ -74,7 +74,7 @@ struct win32_game_function_table
 {
     game_update_and_render* GameUpdateAndRender;
 };
-global_variable char *Win32GameFunctionTableNames[] = {
+global_variable const char *Win32GameFunctionTableNames[] = {
     "GameUpdateAndRender"
 };
 

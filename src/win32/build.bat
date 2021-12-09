@@ -31,7 +31,7 @@ set CompilerDefines=-DPROJECTSUPER_INTERNAL=1 -DPROJECTSUPER_SLOW=1 -DPROJECTSUP
 REM set CompilerDefines=-DPROJECTSUPER_INTERNAL=0 -DPROJECTSUPER_SLOW=0 -DPROJECTSUPER_WIN32=1
 
 REM turn warning 4350 back on once the renderer backend is split from the host
-set CompilerFlags=%CompilerDefines% %DebugFlags% -WL -nologo /std:c++17 -fp:fast -fp:except- -GS- -GR- -EHa- -WX -W4 -wd4100 -wd4530 -wd4201 -wd4505 -wd4189 -FC -Zi 
+set CompilerFlags=%CompilerDefines% %DebugFlags% -WL -nologo /std:c++20 -fp:fast -fp:except- -GS- -GR- -EHa- -WX -W4 -wd4100 -wd4530 -wd4201 -wd4505 -wd4189 -FC -Zi 
 
 REM add /FUNCTIONPADMIN for vs2022 hotpatching??
 set LinkerFlags=-incremental:no -opt:ref

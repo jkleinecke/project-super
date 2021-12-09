@@ -8,3 +8,4 @@
 #include "ps_memory.h"
 #include "ps_stream.h"
 #include "ps_image.h"
+#include "ps_graphics.h"

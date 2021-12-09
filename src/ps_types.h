@@ -119,6 +119,14 @@ typedef intptr_t imm;
 #define OffsetOf(type, member) (uintptr)&(((type*)0)->member)
 #define Pi32 3.14159265359f
 
+// Call Conventions
+#ifdef COMPILER_MSVC
+    #define PSAPI_CALL __stdcall
+#else
+    #define PSAPI_CALL
+#endif
+
+
 // Clarify usage of static keyword with these defines
 #define internal static
 #define local_persist static

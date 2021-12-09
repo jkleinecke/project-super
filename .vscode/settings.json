@@ -47,5 +47,6 @@
         "typeinfo": "cpp",
         "xstddef": "cpp"
     },
-    "editor.suggestOnTriggerCharacters": false
+    "editor.suggestOnTriggerCharacters": false,
+    "C_Cpp.workspaceParsingPriority": "low"
 }

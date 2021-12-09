@@ -5,6 +5,7 @@
 #include "ps_intrinsics.h"
 #include "ps_math.h"
 #include "ps_memory.h"
+#include "ps_graphics.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -365,8 +366,8 @@ extern "C" int __stdcall WinMainCRTStartup()
 
     win32_game_function_table gameFunctions = {};
     win32_loaded_code gameCode = {};
-    gameCode.pszDLLName = "ps_game.dll";
-    gameCode.pszTransientDLLName = "ps_game_temp.dll";
+    gameCode.pszDLLName = (char*)"ps_game.dll";
+    gameCode.pszTransientDLLName = (char*)"ps_game_temp.dll";
     gameCode.nFunctionCount = ARRAY_COUNT(Win32GameFunctionTableNames);
     gameCode.ppFunctions = (void**)&gameFunctions;
     gameCode.ppszFunctionNames = (char**)&Win32GameFunctionTableNames;
