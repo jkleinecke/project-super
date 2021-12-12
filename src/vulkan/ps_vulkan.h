@@ -1,81 +1,113 @@
 
 
+constexpr unsigned int FRAME_OVERLAP = 2;
 
-struct ps_vulkan_buffer
+struct vg_render_commands
 {
-    VkBuffer handle;
-    // TODO(james): Should really be an allocator reference
-    VkDeviceMemory memory_handle;
+    VkCommandBuffer buffer;
 };
 
-struct ps_vulkan_image
+struct vg_buffer
+{
+    VkBuffer handle;
+    VkDeviceMemory memory;
+};
+
+struct vg_image
 {
     VkImage handle;
     VkImageView view;
-    // TODO(james): Should really be an allocator reference
-    VkDeviceMemory memory_handle;
+    VkDeviceMemory memory;
 };
 
-
-struct ps_vulkan_swapchain
+struct vg_sampler
 {
-    VkSurfaceKHR platform_surface;
-    VkSwapchainKHR handle;
-    VkFormat format;
-    VkExtent2D extent;
-    std::vector<ps_vulkan_image> images;
-    std::vector<VkFramebuffer> frame_buffers;
+    VkSampler handle;
 };
 
-struct ps_vulkan_queue
+struct vg_shaderset
+{
+    VkShaderModule vertex;
+    VkShaderModule frag;
+};
+
+struct vg_pipeline
+{
+    VkPipeline handle;
+    VkPipelineLayout layout;
+    vg_shaderset shaders;
+};
+
+struct vg_renderpass
+{
+    VkRenderPass handle;
+};
+
+struct vg_queue
 {
     u32 queue_family_index;
     VkQueue handle;
 };
 
-struct ps_vulkan_backend
+struct vg_framedata
+{
+    VkCommandPool commandPool;
+    VkCommandBuffer commandBuffer;
+    //VkFramebuffer frameBuffer;
+    VkSemaphore renderSemaphore;
+    VkSemaphore presentSemaphore;
+    VkFence renderFence;
+
+    // TODO(james): make some room for buffers that are updated each frame
+    VkDescriptorSet globalDescriptor;
+
+    vg_buffer camera_buffer;
+};
+
+struct vg_device
+{
+    VkDevice handle;
+
+    VkPhysicalDevice physicalDevice;
+    VkPhysicalDeviceProperties device_properties;
+    VkPhysicalDeviceMemoryProperties device_memory_properties;
+
+    vg_queue q_graphics;
+    vg_queue q_present;
+
+    u32 currentFrameIndex;
+    vg_framedata frames[FRAME_OVERLAP];
+    vg_framedata* pPrevFrame;
+    vg_framedata* pCurFrame;
+
+    u32 numSwapChainImages;
+    VkSurfaceKHR platform_surface;
+    VkSwapchainKHR swapChain;
+    VkFormat swapChainFormat;
+    std::vector<vg_image> swapChainImages;
+    std::vector<VkFramebuffer> framebuffers;
+
+    // TODO(james): these are temp until I figure out
+    //    how to deal with them.
+    VkDescriptorSetLayout descriptorLayout;
+    VkDescriptorPool descriptorPool;
+    
+    VkExtent2D extent;
+    vg_renderpass renderPass;
+    vg_pipeline pipeline;
+
+    vg_image depth_image;
+    vg_image texture;
+    vg_sampler sampler;
+
+    vg_buffer index_buffer;
+    vg_buffer vertex_buffer;
+};
+
+struct vg_backend
 {
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
 
-    ps_vulkan_swapchain swap_chain;
-    
-    VkPhysicalDevice physicalDevice;
-    VkPhysicalDeviceProperties device_properties;
-    VkPhysicalDeviceMemoryProperties device_memory_properties;
-    VkDevice device;
-
-    ps_vulkan_queue q_graphics;
-    ps_vulkan_queue q_present;
-
-    u32 currentFrameIndex;
-    std::vector<VkSemaphore> imageAvailableSemaphores;
-    std::vector<VkSemaphore> renderFinishedSemaphores;
-    std::vector<VkFence> inFlightFences;
-    std::vector<VkFence> imagesInFlight;
-
-    // TODO(james): these are temp until I figure out
-    //    how to deal with them.
-    VkPipeline graphicsPipeline;
-    VkRenderPass renderPass;
-    VkDescriptorSetLayout descriptorSetLayout;
-    VkPipelineLayout pipelineLayout;
-    VkShaderModule vertShader;
-    VkShaderModule fragShader;
-
-    ps_vulkan_image depth_image;
-
-    ps_vulkan_image texture;
-    VkSampler sampler;
-
-    ps_vulkan_buffer index_buffer;
-    ps_vulkan_buffer vertex_buffer;
-    std::vector<ps_vulkan_buffer> uniform_buffers;
-
-    VkDescriptorPool descriptor_pool;
-    std::vector<VkDescriptorSet> descriptor_sets;
-
-    // finally the drawing commands
-    VkCommandPool command_pool;
-    std::vector<VkCommandBuffer> command_buffers;
+    vg_device device;
 };

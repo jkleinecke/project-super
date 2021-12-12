@@ -3,6 +3,7 @@
 
 #include "ps_vulkan.h"
 #include "ps_vulkan_extensions.h"
+#include "ps_vulkan_graphics_api.cpp"
 
 #include <vector>
 #include <array>
@@ -28,8 +29,6 @@ global const std::vector<const char*> g_validationLayers = {
 #else
     global const bool g_enableValidationLayers = false;
 #endif
-
-#include "ps_vulkan_graphics_api.cpp"
 
 // UBOs have alignment requirements depending on the data being uploaded
 // so it is always good to be specific about the alignment for a UBO
@@ -114,7 +113,7 @@ global std::vector<u32> g_ModelIndices;
 //     4, 5, 6, 6, 7, 4
 // };
 
-internal VkVertexInputBindingDescription vbGetVertexBindingDescription()
+internal VkVertexInputBindingDescription vgGetVertexBindingDescription()
 {
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
@@ -124,7 +123,7 @@ internal VkVertexInputBindingDescription vbGetVertexBindingDescription()
     return bindingDescription;
 }
 
-internal std::array<VkVertexInputAttributeDescription, 3> vbGetVertexAttributeDescriptions()
+internal std::array<VkVertexInputAttributeDescription, 3> vgGetVertexAttributeDescriptions()
 {
     std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
 
@@ -147,34 +146,85 @@ internal std::array<VkVertexInputAttributeDescription, 3> vbGetVertexAttributeDe
 }
 
 internal
-void vbDestroyBuffer(VkDevice device, ps_vulkan_buffer& buffer)
+VkSurfaceFormatKHR vgChooseSwapSurfaceFormat(const vg_device& device, VkFormat preferredFormat, VkColorSpaceKHR preferredColorSpace)
 {
-    IFF(buffer.handle, vkDestroyBuffer(device, buffer.handle, nullptr));
-    IFF(buffer.memory_handle, vkFreeMemory(device, buffer.memory_handle, nullptr));
+    u32 formatCount;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device.physicalDevice, device.platform_surface, &formatCount, nullptr);
+
+    std::vector<VkSurfaceFormatKHR> surfaceFormats(formatCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device.physicalDevice, device.platform_surface, &formatCount, surfaceFormats.data());
+
+    for (const auto& availableFormat : surfaceFormats) {
+        if (availableFormat.format == preferredFormat && availableFormat.colorSpace == preferredColorSpace) {
+            return availableFormat;
+        }
+    }
+
+    return surfaceFormats[0];
 }
 
 internal
-void vbDestroyImage(VkDevice device, ps_vulkan_image& image)
+VkPresentModeKHR vgChooseSwapPresentMode(const vg_device& device, VkPresentModeKHR preferredPresentMode) {
+    u32 presentModeCount;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device.physicalDevice, device.platform_surface, &presentModeCount, nullptr);
+
+    std::vector<VkPresentModeKHR> presentModes(presentModeCount);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device.physicalDevice, device.platform_surface, &presentModeCount, presentModes.data());
+
+    for (const auto& availablePresentMode : presentModes) {
+        if (availablePresentMode == preferredPresentMode) {  
+            return availablePresentMode;
+        }
+    }
+
+    return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+internal
+VkExtent2D vgChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, u32 actualWidth, u32 actualHeight) {
+    if (capabilities.currentExtent.width != UINT32_MAX) 
+    {
+        return capabilities.currentExtent;
+    }
+    else
+    {
+        VkExtent2D actualExtent;
+        actualExtent.width = std::clamp(actualWidth, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+        actualExtent.height = std::clamp(actualHeight, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+
+        return actualExtent;
+    }
+}
+
+internal
+void vgDestroyBuffer(VkDevice device, vg_buffer& buffer)
+{
+    IFF(buffer.handle, vkDestroyBuffer(device, buffer.handle, nullptr));
+    IFF(buffer.memory, vkFreeMemory(device, buffer.memory, nullptr));
+}
+
+internal
+void vgDestroyImage(VkDevice device, vg_image& image)
 {
     IFF(image.view, vkDestroyImageView(device, image.view, nullptr));
     IFF(image.handle, vkDestroyImage(device, image.handle, nullptr));
-    IFF(image.memory_handle, vkFreeMemory(device, image.memory_handle, nullptr));
+    IFF(image.memory, vkFreeMemory(device, image.memory, nullptr));
 }
 
 internal
-VkCommandBuffer vbBeginSingleTimeCommands(ps_vulkan_backend& vb)
+VkCommandBuffer vgBeginSingleTimeCommands(vg_device& device)
 {
     VkCommandBufferAllocateInfo allocInfo
     {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .pNext = nullptr,
-        .commandPool = vb.command_pool,
+        .commandPool = device.pCurFrame->commandPool,
         .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = 1
     };
 
     VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(vb.device, &allocInfo, &commandBuffer);
+    vkAllocateCommandBuffers(device.handle, &allocInfo, &commandBuffer);
 
     VkCommandBufferBeginInfo beginInfo{};
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -186,7 +236,7 @@ VkCommandBuffer vbBeginSingleTimeCommands(ps_vulkan_backend& vb)
 }
 
 internal
-void vbEndSingleTimeCommands(ps_vulkan_backend& vb, VkCommandBuffer commandBuffer)
+void vgEndSingleTimeCommands(vg_device& device, VkCommandBuffer commandBuffer)
 {
     vkEndCommandBuffer(commandBuffer);
 
@@ -196,20 +246,20 @@ void vbEndSingleTimeCommands(ps_vulkan_backend& vb, VkCommandBuffer commandBuffe
     submitInfo.pCommandBuffers = &commandBuffer;
 
     // TODO(james): give it a fence so we can tell when it is done?
-    vkQueueSubmit(vb.q_graphics.handle, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueSubmit(device.q_graphics.handle, 1, &submitInfo, VK_NULL_HANDLE);
     // Have to call QueueWaitIdle unless we're going to go the event route
-    vkQueueWaitIdle(vb.q_graphics.handle);
+    vkQueueWaitIdle(device.q_graphics.handle);
 
-    vkFreeCommandBuffers(vb.device, vb.command_pool, 1, &commandBuffer);
+    vkFreeCommandBuffers(device.handle, device.pCurFrame->commandPool, 1, &commandBuffer);
 }
 
 internal
-VkFormat vbFindSupportedFormat(ps_vulkan_backend& vb, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
+VkFormat vgFindSupportedFormat(vg_device& device, const std::vector<VkFormat>& candidates, VkImageTiling tiling, VkFormatFeatureFlags features)
 {
     for(VkFormat format : candidates)
     {
         VkFormatProperties props;
-        vkGetPhysicalDeviceFormatProperties(vb.physicalDevice, format, &props);
+        vkGetPhysicalDeviceFormatProperties(device.physicalDevice, format, &props);
 
         if(tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
         {
@@ -225,10 +275,10 @@ VkFormat vbFindSupportedFormat(ps_vulkan_backend& vb, const std::vector<VkFormat
 }
 
 internal
-VkFormat vbFindDepthFormat(ps_vulkan_backend& vb)
+VkFormat vgFindDepthFormat(vg_device& device)
 {
-    return vbFindSupportedFormat(
-        vb,
+    return vgFindSupportedFormat(
+        device,
         {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
         VK_IMAGE_TILING_OPTIMAL,
         VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
@@ -236,12 +286,12 @@ VkFormat vbFindDepthFormat(ps_vulkan_backend& vb)
 }
 
 internal 
-bool vbHasStencilComponent(VkFormat format)
+bool vgHasStencilComponent(VkFormat format)
 {
     return format == VK_FORMAT_D32_SFLOAT_S8_UINT || format == VK_FORMAT_D24_UNORM_S8_UINT;
 }
 
-internal VKAPI_ATTR VkBool32 VKAPI_CALL vbDebugCallback(
+internal VKAPI_ATTR VkBool32 VKAPI_CALL vgDebugCallback(
     VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
     VkDebugUtilsMessageTypeFlagsEXT messageType,
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
@@ -268,7 +318,7 @@ internal VKAPI_ATTR VkBool32 VKAPI_CALL vbDebugCallback(
 
 
 internal
-bool vbCheckValidationLayerSupport() {
+bool vgCheckValidationLayerSupport() {
     uint32_t layerCount;
     vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
 
@@ -294,17 +344,17 @@ bool vbCheckValidationLayerSupport() {
 }
 
 internal
-void vbPopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo)
+void vgPopulateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo)
 {
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    createInfo.pfnUserCallback = vbDebugCallback;
+    createInfo.pfnUserCallback = vgDebugCallback;
     createInfo.pUserData = nullptr; // Optional
 }
 
 internal
-void vbGetAvailableExtensions(VkPhysicalDevice device, std::vector<VkExtensionProperties>& extensions)
+void vgGetAvailableExtensions(VkPhysicalDevice device, std::vector<VkExtensionProperties>& extensions)
 {
     // first get the number of extensions
     u32 extensionCount = 0;
@@ -315,7 +365,7 @@ void vbGetAvailableExtensions(VkPhysicalDevice device, std::vector<VkExtensionPr
 }
 
 internal
-void vbLogAvailableExtensions(VkPhysicalDevice device)
+void vgLogAvailableExtensions(VkPhysicalDevice device)
 {
 // NOTE(james): This is what is available on my 3090 
 // Available Vulkan Extensions:
@@ -337,7 +387,7 @@ void vbLogAvailableExtensions(VkPhysicalDevice device)
 
     // now get the full list
     std::vector<VkExtensionProperties> extensions;
-    vbGetAvailableExtensions(device, extensions);
+    vgGetAvailableExtensions(device, extensions);
 
     if(device)
     {
@@ -357,7 +407,7 @@ void vbLogAvailableExtensions(VkPhysicalDevice device)
 }
 
 internal
-VkResult vbInitialize(ps_vulkan_backend& vb, const std::vector<const char*>* platformExtensions)
+VkResult vgInitialize(vg_backend& vb, const std::vector<const char*>* platformExtensions)
 {
 #define VERIFY_SUCCESS(result) if(DIDFAIL(result)) { LOG_ERROR("Vulkan Error: %X", (result)); ASSERT(false); return result; }
 
@@ -394,7 +444,7 @@ VkResult vbInitialize(ps_vulkan_backend& vb, const std::vector<const char*>* pla
             createInfo.enabledLayerCount = (u32)g_validationLayers.size();
             createInfo.ppEnabledLayerNames = g_validationLayers.data();
 
-            vbPopulateDebugMessengerCreateInfo(debugCreateInfo);
+            vgPopulateDebugMessengerCreateInfo(debugCreateInfo);
             createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT*) &debugCreateInfo;
         }
         else
@@ -431,7 +481,7 @@ VkResult vbInitialize(ps_vulkan_backend& vb, const std::vector<const char*>* pla
 }
 
 internal bool
-vbFindPresentQueueFamily(VkPhysicalDevice device, VkSurfaceKHR platformSurface, u32* familyIndex)
+vgFindPresentQueueFamily(VkPhysicalDevice device, VkSurfaceKHR platformSurface, u32* familyIndex)
 {
     bool bFound = false;
     u32 count = 0;
@@ -459,7 +509,7 @@ vbFindPresentQueueFamily(VkPhysicalDevice device, VkSurfaceKHR platformSurface, 
 }
 
 internal bool
-vbFindQueueFamily(VkPhysicalDevice device, VkFlags withFlags, u32* familyIndex)
+vgFindQueueFamily(VkPhysicalDevice device, VkFlags withFlags, u32* familyIndex)
 {
     bool bFound = false;
     u32 count = 0;
@@ -484,7 +534,7 @@ vbFindQueueFamily(VkPhysicalDevice device, VkFlags withFlags, u32* familyIndex)
 }
 
 internal bool
-vbIsDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR platformSurface, const std::vector<const char*>& requiredExtensions)
+vgIsDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR platformSurface, const std::vector<const char*>& requiredExtensions)
 {
     VkPhysicalDeviceFeatures supportedFeatures;
     vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
@@ -496,20 +546,20 @@ vbIsDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR platformSurface, const 
     }
 
     u32 graphicsQueueIndex = 0;
-    if(!vbFindQueueFamily(device, VK_QUEUE_GRAPHICS_BIT, &graphicsQueueIndex))
+    if(!vgFindQueueFamily(device, VK_QUEUE_GRAPHICS_BIT, &graphicsQueueIndex))
     {
         // no graphics queues... which is a minimum requirement
         return false;   // not suitable
     }
 
-    if(!vbFindPresentQueueFamily(device, platformSurface, nullptr))
+    if(!vgFindPresentQueueFamily(device, platformSurface, nullptr))
     {
         // since a platform surface was defined, there has to be at least one present queue family
         return false;
     }
 
     std::vector<VkExtensionProperties> extensions;
-    vbGetAvailableExtensions(device, extensions);
+    vgGetAvailableExtensions(device, extensions);
 
     std::vector<const char*> foundExtensions;
     for(const auto& extension : extensions) {
@@ -526,7 +576,7 @@ vbIsDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR platformSurface, const 
 }
 
 internal u32
-vbGetPhysicalDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR platformSurface)
+vgGetPhysicalDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR platformSurface)
 {
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
@@ -540,7 +590,7 @@ vbGetPhysicalDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR platformSur
     
     // Look at Queue Family capabilities
     u32 graphicsQueueIndex = 0;
-    if(!vbFindQueueFamily(device, VK_QUEUE_GRAPHICS_BIT, &graphicsQueueIndex))
+    if(!vgFindQueueFamily(device, VK_QUEUE_GRAPHICS_BIT, &graphicsQueueIndex))
     {
         // no graphics queues... which is a minimum requirement
         return 0;   // not suitable
@@ -554,7 +604,7 @@ vbGetPhysicalDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR platformSur
         // prefer devices with queues that support BOTH graphics and presenting
         nScore += 100;
     }
-    else if(!vbFindPresentQueueFamily(device, platformSurface, nullptr))
+    else if(!vgFindPresentQueueFamily(device, platformSurface, nullptr))
     {
         // since a platform surface was defined, there has to be at least one present queue family
         return 0;
@@ -572,9 +622,9 @@ vbGetPhysicalDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR platformSur
 
 
 internal
-i32 vbFindMemoryType(ps_vulkan_backend& vb, u32 typeFilter, VkMemoryPropertyFlags properties)
+i32 vgFindMemoryType(vg_device& device, u32 typeFilter, VkMemoryPropertyFlags properties)
 {
-    VkPhysicalDeviceMemoryProperties& memProperties = vb.device_memory_properties;
+    VkPhysicalDeviceMemoryProperties& memProperties = device.device_memory_properties;
 
     for(u32 i = 0; i < memProperties.memoryTypeCount; ++i)
     {
@@ -590,7 +640,7 @@ i32 vbFindMemoryType(ps_vulkan_backend& vb, u32 typeFilter, VkMemoryPropertyFlag
 }
 
 internal
-VkResult vbCreateBuffer(ps_vulkan_backend& vb, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, ps_vulkan_buffer* pBuffer)
+VkResult vgCreateBuffer(vg_device& device, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, vg_buffer* pBuffer)
 {
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -598,7 +648,7 @@ VkResult vbCreateBuffer(ps_vulkan_backend& vb, VkDeviceSize size, VkBufferUsageF
     bufferInfo.usage = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    VkResult result = vkCreateBuffer(vb.device, &bufferInfo, nullptr, &pBuffer->handle);
+    VkResult result = vkCreateBuffer(device.handle, &bufferInfo, nullptr, &pBuffer->handle);
     if(DIDFAIL(result))
     {
         ASSERT(false);
@@ -606,9 +656,9 @@ VkResult vbCreateBuffer(ps_vulkan_backend& vb, VkDeviceSize size, VkBufferUsageF
     }
 
     VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(vb.device, pBuffer->handle, &memRequirements);
+    vkGetBufferMemoryRequirements(device.handle, pBuffer->handle, &memRequirements);
 
-    i32 memoryIndex = vbFindMemoryType(vb, memRequirements.memoryTypeBits, properties);
+    i32 memoryIndex = vgFindMemoryType(device, memRequirements.memoryTypeBits, properties);
     if(memoryIndex < 0)
     {
         // failed
@@ -622,32 +672,32 @@ VkResult vbCreateBuffer(ps_vulkan_backend& vb, VkDeviceSize size, VkBufferUsageF
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = memoryIndex;
 
-    result = vkAllocateMemory(vb.device, &allocInfo, nullptr, &pBuffer->memory_handle);
+    result = vkAllocateMemory(device.handle, &allocInfo, nullptr, &pBuffer->memory);
     if(DIDFAIL(result))
     {
         ASSERT(false);
         return result;
     }
 
-    vkBindBufferMemory(vb.device, pBuffer->handle, pBuffer->memory_handle, 0);
+    vkBindBufferMemory(device.handle, pBuffer->handle, pBuffer->memory, 0);
 
     return VK_SUCCESS;
 }
 
 internal
-void vbCopyBuffer(ps_vulkan_backend& vb, VkBuffer src, VkBuffer dest, VkDeviceSize size)
+void vgCopyBuffer(vg_device& device, VkBuffer src, VkBuffer dest, VkDeviceSize size)
 {
-    VkCommandBuffer commandBuffer = vbBeginSingleTimeCommands(vb);
+    VkCommandBuffer commandBuffer = vgBeginSingleTimeCommands(device);
 
     VkBufferCopy copyRegion{};
     copyRegion.size = size;
     vkCmdCopyBuffer(commandBuffer, src, dest, 1, &copyRegion);
 
-    vbEndSingleTimeCommands(vb, commandBuffer);
+    vgEndSingleTimeCommands(device, commandBuffer);
 }
 
 internal
-VkResult vbCreateImage(ps_vulkan_backend& vb, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, ps_vulkan_image* pImage)
+VkResult vgCreateImage(vg_device& device, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, vg_image* pImage)
 {
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -664,29 +714,29 @@ VkResult vbCreateImage(ps_vulkan_backend& vb, u32 width, u32 height, VkFormat fo
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    VkResult result = vkCreateImage(vb.device, &imageInfo, nullptr, &pImage->handle);
+    VkResult result = vkCreateImage(device.handle, &imageInfo, nullptr, &pImage->handle);
     ASSERT(DIDSUCCEED(result));
 
     VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(vb.device, pImage->handle, &memRequirements);
+    vkGetImageMemoryRequirements(device.handle, pImage->handle, &memRequirements);
 
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = vbFindMemoryType(vb, memRequirements.memoryTypeBits, properties);
+    allocInfo.memoryTypeIndex = vgFindMemoryType(device, memRequirements.memoryTypeBits, properties);
     ASSERT(allocInfo.memoryTypeIndex > 0);
 
-    vkAllocateMemory(vb.device, &allocInfo, nullptr, &pImage->memory_handle);
+    vkAllocateMemory(device.handle, &allocInfo, nullptr, &pImage->memory);
 
-    vkBindImageMemory(vb.device, pImage->handle, pImage->memory_handle, 0);
+    vkBindImageMemory(device.handle, pImage->handle, pImage->memory, 0);
 
     return VK_SUCCESS;
 }
 
 internal
-void vbTransitionImageLayout(ps_vulkan_backend& vb, ps_vulkan_image& image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
+void vgTransitionImageLayout(vg_device& device, vg_image& image, VkFormat format, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
-    VkCommandBuffer commandBuffer = vbBeginSingleTimeCommands(vb);
+    VkCommandBuffer commandBuffer = vgBeginSingleTimeCommands(device);
 
     VkPipelineStageFlags sourceStage = VK_PIPELINE_STAGE_NONE_KHR;
     VkPipelineStageFlags destinationStage = VK_PIPELINE_STAGE_NONE_KHR;
@@ -708,7 +758,7 @@ void vbTransitionImageLayout(ps_vulkan_backend& vb, ps_vulkan_image& image, VkFo
     {
         barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
-        if(vbHasStencilComponent(format)) 
+        if(vgHasStencilComponent(format)) 
         {
             barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
         }
@@ -756,10 +806,10 @@ void vbTransitionImageLayout(ps_vulkan_backend& vb, ps_vulkan_image& image, VkFo
             1, &barrier
         );
 
-    vbEndSingleTimeCommands(vb, commandBuffer);
+    vgEndSingleTimeCommands(device, commandBuffer);
 }
 
-VkResult vbCreateImageView(ps_vulkan_backend& vb, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView* pView)
+VkResult vgCreateImageView(vg_device& device, VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, VkImageView* pView)
 {
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -773,16 +823,16 @@ VkResult vbCreateImageView(ps_vulkan_backend& vb, VkImage image, VkFormat format
     viewInfo.subresourceRange.layerCount = 1;
     // TODO(james): add swizzling support
 
-    VkResult result = vkCreateImageView(vb.device, &viewInfo, nullptr, pView);
+    VkResult result = vkCreateImageView(device.handle, &viewInfo, nullptr, pView);
     ASSERT(DIDSUCCEED(result));
 
     return result;
 }
 
 internal
-void vbCopyBufferToImage(ps_vulkan_backend& vb, ps_vulkan_buffer& buffer, ps_vulkan_image& image, u32 width, u32 height)
+void vgCopyBufferToImage(vg_device& device, vg_buffer& buffer, vg_image& image, u32 width, u32 height)
 {
-    VkCommandBuffer commandBuffer = vbBeginSingleTimeCommands(vb);
+    VkCommandBuffer commandBuffer = vgBeginSingleTimeCommands(device);
 
     VkBufferImageCopy region{};
     region.bufferOffset = 0;
@@ -799,13 +849,14 @@ void vbCopyBufferToImage(ps_vulkan_backend& vb, ps_vulkan_buffer& buffer, ps_vul
 
     vkCmdCopyBufferToImage(commandBuffer, buffer.handle, image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    vbEndSingleTimeCommands(vb, commandBuffer);
+    vgEndSingleTimeCommands(device, commandBuffer);
 }
 
 internal VkResult
-vbCreateDevice(ps_vulkan_backend& vb, const std::vector<const char*>* platformDeviceExtensions)
+vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<const char*>* platformDeviceExtensions)
 {
     VkResult result = VK_ERROR_UNKNOWN;
+    vg_device& device = vb.device;
 
     // NOTE(james): We are assuming that all extensions are required for now
     std::vector<const char*> deviceExtensions = {
@@ -819,49 +870,51 @@ vbCreateDevice(ps_vulkan_backend& vb, const std::vector<const char*>* platformDe
 #define VERIFY_SUCCESS(result) if(DIDFAIL(result)) { LOG_ERROR("Vulkan Error: %X", (result)); ASSERT(false); return result; }
     // Pick Physical Device
     {
-        VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+        VkPhysicalDevice chosenPhysicalDevice = VK_NULL_HANDLE;
 
         u32 deviceCount = 0;
         vkEnumeratePhysicalDevices(vb.instance, &deviceCount, nullptr);
 
-        std::vector<VkPhysicalDevice> devices(deviceCount);
-        vkEnumeratePhysicalDevices(vb.instance, &deviceCount, devices.data());
+        std::vector<VkPhysicalDevice> physicalDevices(deviceCount);
+        vkEnumeratePhysicalDevices(vb.instance, &deviceCount, physicalDevices.data());
 
         u32 physicalDeviceSuitability = 0;
-        for (const auto& device : devices)
+        for (const auto& physicalDevice : physicalDevices)
         {
-            if(vbIsDeviceSuitable(device, vb.swap_chain.platform_surface, deviceExtensions))
+            if(vgIsDeviceSuitable(physicalDevice, platformSurface, deviceExtensions))
             {
-                vbLogAvailableExtensions(device);
+                vgLogAvailableExtensions(physicalDevice);
                 // select the device with the highest suitability score
-                u32 suitability = vbGetPhysicalDeviceSuitability(device, vb.swap_chain.platform_surface);
+                u32 suitability = vgGetPhysicalDeviceSuitability(physicalDevice, platformSurface);
 
                 if(suitability >= physicalDeviceSuitability)
                 {
-                    physicalDevice = device;
+                    chosenPhysicalDevice = physicalDevice;
                     physicalDeviceSuitability = suitability;
                 }
             }
         }
 
-        if(physicalDevice == VK_NULL_HANDLE)
+        if(chosenPhysicalDevice == VK_NULL_HANDLE)
         {
             return VK_ERROR_INITIALIZATION_FAILED;
         }
 
-        vb.physicalDevice = physicalDevice;
+        device.physicalDevice = chosenPhysicalDevice;
+        device.platform_surface = platformSurface;
 
-        vkGetPhysicalDeviceProperties(vb.physicalDevice, &vb.device_properties);
-        vkGetPhysicalDeviceMemoryProperties(vb.physicalDevice, &vb.device_memory_properties);
+        vkGetPhysicalDeviceProperties(device.physicalDevice, &device.device_properties);
+        vkGetPhysicalDeviceMemoryProperties(device.physicalDevice, &device.device_memory_properties);
     }
 
+    // TODO(james): This seems over complicated, I bet there's room to simplify, specifically the queue family stuff
     // Create the Logical Device
     {
-        VkDevice device = VK_NULL_HANDLE;
+        device.handle = VK_NULL_HANDLE;
 
         u32 graphicsQueueIndex = 0;
         u32 presentQueueIndex = 0;
-        vbFindQueueFamily(vb.physicalDevice, VK_QUEUE_GRAPHICS_BIT, &graphicsQueueIndex);
+        vgFindQueueFamily(device.physicalDevice, VK_QUEUE_GRAPHICS_BIT, &graphicsQueueIndex);
 
         std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
         // setup graphics queue
@@ -875,7 +928,7 @@ vbCreateDevice(ps_vulkan_backend& vb, const std::vector<const char*>* platformDe
         queueCreateInfos.push_back(queueCreateInfo);
 
         VkBool32 presentSupport = false;
-        vkGetPhysicalDeviceSurfaceSupportKHR(vb.physicalDevice, graphicsQueueIndex, vb.swap_chain.platform_surface, &presentSupport);
+        vkGetPhysicalDeviceSurfaceSupportKHR(device.physicalDevice, graphicsQueueIndex, device.platform_surface, &presentSupport);
 
         if(presentSupport)
         {
@@ -884,7 +937,7 @@ vbCreateDevice(ps_vulkan_backend& vb, const std::vector<const char*>* platformDe
         else
         {
             // Needs a separate queue for presenting the platform surface
-            vbFindPresentQueueFamily(vb.physicalDevice, vb.swap_chain.platform_surface, &presentQueueIndex);
+            vgFindPresentQueueFamily(device.physicalDevice, device.platform_surface, &presentQueueIndex);
 
             VkDeviceQueueCreateInfo presentQueueInfo{};
             presentQueueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -915,16 +968,14 @@ vbCreateDevice(ps_vulkan_backend& vb, const std::vector<const char*>* platformDe
             createInfo.enabledLayerCount = 0;
         }
 
-        result = vkCreateDevice(vb.physicalDevice, &createInfo, nullptr, &device);
+        result = vkCreateDevice(device.physicalDevice, &createInfo, nullptr, &device.handle);
         VERIFY_SUCCESS(result);
 
-        vb.device = device;
+        device.q_graphics.queue_family_index = graphicsQueueIndex;
+        device.q_present.queue_family_index = presentQueueIndex;
 
-        vb.q_graphics.queue_family_index = graphicsQueueIndex;
-        vb.q_present.queue_family_index = presentQueueIndex;
-
-        vkGetDeviceQueue(device, graphicsQueueIndex, 0, &vb.q_graphics.handle);
-        vkGetDeviceQueue(device, presentQueueIndex, 0, &vb.q_present.handle);
+        vkGetDeviceQueue(device.handle, graphicsQueueIndex, 0, &device.q_graphics.handle);
+        vkGetDeviceQueue(device.handle, presentQueueIndex, 0, &device.q_present.handle);
     }
 
 #undef VERIFY_SUCCESS
@@ -934,81 +985,86 @@ vbCreateDevice(ps_vulkan_backend& vb, const std::vector<const char*>* platformDe
 
 
 internal
-VkResult vbCreateDescriptorPool(ps_vulkan_backend& vb)
+VkResult vgCreateDescriptorPool(vg_device& device)
 {
     VkDescriptorPoolSize poolSizes[2] = {};
     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    poolSizes[0].descriptorCount = (u32)vb.swap_chain.images.size();
+    poolSizes[0].descriptorCount = 10;
     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    poolSizes[1].descriptorCount = (u32)vb.swap_chain.images.size();
+    poolSizes[1].descriptorCount = 10;
 
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     poolInfo.poolSizeCount = ARRAY_COUNT(poolSizes);
     poolInfo.pPoolSizes = poolSizes;
-    poolInfo.maxSets = (u32)vb.swap_chain.images.size();
+    poolInfo.maxSets = 10;
     poolInfo.flags = 0; // optional
 
-    VkResult result = vkCreateDescriptorPool(vb.device, &poolInfo, nullptr, &vb.descriptor_pool);
+    VkResult result = vkCreateDescriptorPool(device.handle, &poolInfo, nullptr, &device.descriptorPool);
     ASSERT(DIDSUCCEED(result));
 
     return result;
 }
 
 internal
-VkResult vbCreateDescriptorSets(ps_vulkan_backend& vb)
+VkResult vgCreateDescriptorSets(vg_device& device)
 {
-    ASSERT(vb.descriptorSetLayout);
-    std::vector<VkDescriptorSetLayout> layouts(vb.swap_chain.images.size(), vb.descriptorSetLayout);
-    VkDescriptorSetAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocInfo.descriptorPool = vb.descriptor_pool;
-    allocInfo.descriptorSetCount = (u32)vb.swap_chain.images.size();
-    allocInfo.pSetLayouts = layouts.data();
 
-    vb.descriptor_sets.resize(layouts.size());
-
-    VkResult result = vkAllocateDescriptorSets(vb.device, &allocInfo, vb.descriptor_sets.data());
-    ASSERT(DIDSUCCEED(result));
-
-    for(size_t i = 0; i < layouts.size(); ++i)
+    for(size_t i = 0; i < FRAME_OVERLAP; ++i)
     {
+        // Allocate 1 descriptor per frame
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool = device.descriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &device.descriptorLayout;
+
+        VkResult result = vkAllocateDescriptorSets(device.handle, &allocInfo, &device.frames[i].globalDescriptor);
+        
+
         VkDescriptorBufferInfo bufferInfo{};
-        bufferInfo.buffer = vb.uniform_buffers[i].handle;
+        bufferInfo.buffer = device.frames[i].camera_buffer.handle;
         bufferInfo.offset = 0;
         bufferInfo.range = sizeof(UniformBufferObject);
 
         VkDescriptorImageInfo  imageInfo{};
         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        imageInfo.imageView = vb.texture.view;
-        imageInfo.sampler = vb.sampler;
+        imageInfo.imageView = device.texture.view;
+        imageInfo.sampler = device.sampler.handle;
 
         VkWriteDescriptorSet writes[2] = {};
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = vb.descriptor_sets[i];
+        writes[0].dstSet = device.frames[i].globalDescriptor;
         writes[0].dstBinding = 0;
         writes[0].dstArrayElement = 0;
         writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         writes[0].descriptorCount = 1;
         writes[0].pBufferInfo = &bufferInfo;
         writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = vb.descriptor_sets[i];
+        writes[1].dstSet = device.frames[i].globalDescriptor;
         writes[1].dstBinding = 1;
         writes[1].dstArrayElement = 0;
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[1].descriptorCount = 1;
         writes[1].pImageInfo = &imageInfo;
 
-        vkUpdateDescriptorSets(vb.device, ARRAY_COUNT(writes), writes, 0, nullptr);
+        vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
     }
 
     return VK_SUCCESS;
 }
 
 internal
-VkResult vbCreateSwapChain(ps_vulkan_backend& vb, const VkSurfaceCapabilitiesKHR& surfaceCaps, const VkSurfaceFormatKHR& surfaceFormat, VkPresentModeKHR presentMode, VkExtent2D extent)
+VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorSpaceKHR preferredColorSpace, VkPresentModeKHR preferredPresentMode, u32 width, u32 height)
 {
 #define VERIFY_SUCCESS(result) if(DIDFAIL(result)) { LOG_ERROR("Vulkan Error: %X", (result)); ASSERT(false); return result; }
+
+    VkSurfaceCapabilitiesKHR surfaceCaps{};
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physicalDevice, device.platform_surface, &surfaceCaps);
+
+    VkSurfaceFormatKHR surfaceFormat = vgChooseSwapSurfaceFormat(device, preferredFormat, preferredColorSpace);
+    VkPresentModeKHR presentMode = vgChooseSwapPresentMode(device, preferredPresentMode);
+    VkExtent2D extent = vgChooseSwapExtent(surfaceCaps, width, height);
 
     u32 imageCount = surfaceCaps.minImageCount + 1;
 
@@ -1017,9 +1073,11 @@ VkResult vbCreateSwapChain(ps_vulkan_backend& vb, const VkSurfaceCapabilitiesKHR
         imageCount = surfaceCaps.maxImageCount;
     }
 
+    device.numSwapChainImages = imageCount;
+
     VkSwapchainCreateInfoKHR createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    createInfo.surface = vb.swap_chain.platform_surface;
+    createInfo.surface = device.platform_surface;
     createInfo.minImageCount = imageCount;
     createInfo.imageFormat = surfaceFormat.format;
     createInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -1027,7 +1085,7 @@ VkResult vbCreateSwapChain(ps_vulkan_backend& vb, const VkSurfaceCapabilitiesKHR
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     
-    if(vb.q_graphics.handle == vb.q_present.handle)
+    if(device.q_graphics.handle == device.q_present.handle)
     {
         createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         createInfo.queueFamilyIndexCount = 0;
@@ -1035,7 +1093,7 @@ VkResult vbCreateSwapChain(ps_vulkan_backend& vb, const VkSurfaceCapabilitiesKHR
     }
     else
     {
-        u32 families[2] = { vb.q_graphics.queue_family_index, vb.q_present.queue_family_index };
+        u32 families[2] = { device.q_graphics.queue_family_index, device.q_present.queue_family_index };
         // slower version
         createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
         createInfo.queueFamilyIndexCount = 2;
@@ -1050,28 +1108,28 @@ VkResult vbCreateSwapChain(ps_vulkan_backend& vb, const VkSurfaceCapabilitiesKHR
 
     VkSwapchainKHR swapChain = VK_NULL_HANDLE;
 
-    VkResult result = vkCreateSwapchainKHR(vb.device, &createInfo, nullptr, &swapChain);
+    VkResult result = vkCreateSwapchainKHR(device.handle, &createInfo, nullptr, &swapChain);
     VERIFY_SUCCESS(result);
 
-    vb.swap_chain.handle = swapChain;
-    vb.swap_chain.format = surfaceFormat.format;
-    vb.swap_chain.extent = extent;
+    device.swapChain = swapChain;
+    device.swapChainFormat = surfaceFormat.format;
+    device.extent = extent; // is this needed?
     
-    vkGetSwapchainImagesKHR(vb.device, swapChain, &imageCount, nullptr);
+    vkGetSwapchainImagesKHR(device.handle, swapChain, &imageCount, nullptr);
     std::vector<VkImage> images(imageCount);
-    vkGetSwapchainImagesKHR(vb.device, swapChain, &imageCount, images.data());
+    vkGetSwapchainImagesKHR(device.handle, swapChain, &imageCount, images.data());
 
-    vb.swap_chain.images.resize(imageCount);
+    device.swapChainImages.resize(imageCount);
     for(u32 index = 0; index < imageCount; ++index)
     {
-        vb.swap_chain.images[index].handle = images[index];
+        device.swapChainImages[index].handle = images[index];
 
         // now setup the image view for use in the swap chain
-        result = vbCreateImageView(vb, vb.swap_chain.images[index].handle, surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, &vb.swap_chain.images[index].view);
+        result = vgCreateImageView(device, device.swapChainImages[index].handle, surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, &device.swapChainImages[index].view);
         VERIFY_SUCCESS(result);
     }
 
-    result = vbCreateDescriptorPool(vb);
+    result = vgCreateDescriptorPool(device);
     VERIFY_SUCCESS(result);
 
 #undef VERIFY_SUCCESS
@@ -1105,7 +1163,7 @@ buffer DEBUG_readFile(const char* szFilepath)
 }
 
 internal
-VkResult vbCreateShaderModule(VkDevice device, buffer& bytes, VkShaderModule* shader)
+VkResult vgCreateShaderModule(VkDevice device, buffer& bytes, VkShaderModule* shader)
 {
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -1118,10 +1176,10 @@ VkResult vbCreateShaderModule(VkDevice device, buffer& bytes, VkShaderModule* sh
 }
 
 internal
-VkResult vbCreateRenderPass(ps_vulkan_backend& vb)
+VkResult vgCreateRenderPass(vg_device& device)
 {
     VkAttachmentDescription depthAttachment{};
-    depthAttachment.format = vbFindDepthFormat(vb);
+    depthAttachment.format = vgFindDepthFormat(device);
     depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -1135,7 +1193,7 @@ VkResult vbCreateRenderPass(ps_vulkan_backend& vb)
     depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = vb.swap_chain.format;
+    colorAttachment.format = device.swapChainFormat;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1172,13 +1230,13 @@ VkResult vbCreateRenderPass(ps_vulkan_backend& vb)
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies = &dependency;
 
-    VkResult result = vkCreateRenderPass(vb.device, &renderPassInfo, nullptr, &vb.renderPass);
+    VkResult result = vkCreateRenderPass(device.handle, &renderPassInfo, nullptr, &device.renderPass.handle);
 
     return result;
 }
 
 internal
-VkResult vbCreateDescriptorSetLayout(ps_vulkan_backend& vb)
+VkResult vgCreateDescriptorSetLayout(vg_device& device)
 {
     VkDescriptorSetLayoutBinding uboLayoutBinding{};
     uboLayoutBinding.binding = 0;
@@ -1200,25 +1258,25 @@ VkResult vbCreateDescriptorSetLayout(ps_vulkan_backend& vb)
     layoutInfo.bindingCount = ARRAY_COUNT(layoutBindings);
     layoutInfo.pBindings = layoutBindings;
 
-    VkResult result = vkCreateDescriptorSetLayout(vb.device, &layoutInfo, nullptr, &vb.descriptorSetLayout);
+    VkResult result = vkCreateDescriptorSetLayout(device.handle, &layoutInfo, nullptr, &device.descriptorLayout);
     ASSERT(DIDSUCCEED(result));
 
     return result;
 }
 
 internal
-VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
+VkResult vgCreateGraphicsPipeline(vg_device& device)
 {
 #define VERIFY_SUCCESS(result) if(DIDFAIL(result)) { LOG_ERROR("Vulkan Error: %X", (result)); ASSERT(false); return result; }
     VkResult result = VK_SUCCESS;   
-    result = vbCreateDescriptorSetLayout(vb);
+    result = vgCreateDescriptorSetLayout(device);
 
     buffer vertShaderBuffer = DEBUG_readFile("../data/vert.spv");
     buffer fragShaderBuffer = DEBUG_readFile("../data/frag.spv");
 
-    result = vbCreateShaderModule(vb.device, vertShaderBuffer, &vb.vertShader);
+    result = vgCreateShaderModule(device.handle, vertShaderBuffer, &device.pipeline.shaders.vertex);
     VERIFY_SUCCESS(result);
-    result = vbCreateShaderModule(vb.device, fragShaderBuffer, &vb.fragShader);
+    result = vgCreateShaderModule(device.handle, fragShaderBuffer, &device.pipeline.shaders.frag);
     VERIFY_SUCCESS(result);
     
     delete[] vertShaderBuffer.data;
@@ -1227,15 +1285,15 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
     VkPipelineShaderStageCreateInfo shaderStages[2] = {};
     shaderStages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     shaderStages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    shaderStages[0].module = vb.vertShader;
+    shaderStages[0].module = device.pipeline.shaders.vertex;
     shaderStages[0].pName = "main";
     shaderStages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     shaderStages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    shaderStages[1].module = vb.fragShader;
+    shaderStages[1].module = device.pipeline.shaders.frag;
     shaderStages[1].pName = "main";
 
-    auto bindingDescription = vbGetVertexBindingDescription();
-    auto attributeDescriptions = vbGetVertexAttributeDescriptions();
+    auto bindingDescription = vgGetVertexBindingDescription();
+    auto attributeDescriptions = vgGetVertexAttributeDescriptions();
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -1252,14 +1310,14 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
     VkViewport viewport{};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = (f32)vb.swap_chain.extent.width;
-    viewport.height = (f32)vb.swap_chain.extent.height;
+    viewport.width = (f32)device.extent.width;
+    viewport.height = (f32)device.extent.height;
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor{};
     scissor.offset = {0,0};
-    scissor.extent = vb.swap_chain.extent;
+    scissor.extent = device.extent;
 
     VkPipelineViewportStateCreateInfo viewportState{};
     viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -1339,14 +1397,14 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1; // Optional
-    pipelineLayoutInfo.pSetLayouts = &vb.descriptorSetLayout; // Optional
+    pipelineLayoutInfo.pSetLayouts = &device.descriptorLayout; // Optional
     pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
     pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
 
-    result = vkCreatePipelineLayout(vb.device, &pipelineLayoutInfo, nullptr, &vb.pipelineLayout);
+    result = vkCreatePipelineLayout(device.handle, &pipelineLayoutInfo, nullptr, &device.pipeline.layout);
     VERIFY_SUCCESS(result);
 
-    result = vbCreateRenderPass(vb);
+    result = vgCreateRenderPass(device);
     VERIFY_SUCCESS(result);
 
     VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -1361,55 +1419,87 @@ VkResult vbCreateGraphicsPipeline(ps_vulkan_backend& vb)
     pipelineInfo.pDepthStencilState = &depthStencil; // Optional
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = nullptr; // Optional
-    pipelineInfo.layout = vb.pipelineLayout;
-    pipelineInfo.renderPass = vb.renderPass;
+    pipelineInfo.layout = device.pipeline.layout;
+    pipelineInfo.renderPass = device.renderPass.handle;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
 
-    result = vkCreateGraphicsPipelines(vb.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vb.graphicsPipeline);
+    result = vkCreateGraphicsPipelines(device.handle, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &device.pipeline.handle);
     VERIFY_SUCCESS(result);
-
 
 #undef VERIFY_SUCCESS
     return VK_SUCCESS;
 }
 
 internal
-VkResult vbCreateFramebuffers(ps_vulkan_backend& vb)
+VkResult vgCreateFramebuffers(vg_device& device)
 {
-    size_t numImages = vb.swap_chain.images.size();
-    vb.swap_chain.frame_buffers.resize(numImages);
+    u32 numImages = FRAME_OVERLAP;
 
-    for(size_t i = 0; i < numImages; i++)
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    for(u32 i = 0; i < numImages; i++)
+    {
+        vg_framedata& frame = device.frames[i];
+
+        VkResult imageAvailableResult = vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &frame.renderSemaphore);
+        VkResult renderFinishedResult = vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &frame.presentSemaphore);
+        VkResult fenceResult = vkCreateFence(device.handle, &fenceInfo, nullptr, &frame.renderFence);
+
+        if(DIDFAIL(imageAvailableResult)) { 
+            LOG_ERROR("Vulkan Error: %X", (imageAvailableResult));
+            ASSERT(false);
+            return imageAvailableResult; 
+        }
+        else if(DIDFAIL(renderFinishedResult))
+        {
+            LOG_ERROR("Vulkan Error: %X", (renderFinishedResult));
+            ASSERT(false);
+            return renderFinishedResult; 
+        } 
+        else if(DIDFAIL(fenceResult))
+        {
+            LOG_ERROR("Vulkan Error: %X", (fenceResult));
+            ASSERT(false);
+            return fenceResult; 
+        }
+    }
+
+    device.pCurFrame = &device.frames[0];
+    device.pPrevFrame = &device.frames[FRAME_OVERLAP - 1];
+
+    device.framebuffers.resize(device.numSwapChainImages);
+    for(u32 i = 0; i < device.numSwapChainImages; ++i)
     {
         VkImageView attachments[] = {
-            vb.swap_chain.images[i].view,
-            vb.depth_image.view
+            device.swapChainImages[i].view,
+            device.depth_image.view
         };
 
         VkFramebufferCreateInfo framebufferInfo{};
         framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        framebufferInfo.renderPass = vb.renderPass;
+        framebufferInfo.renderPass = device.renderPass.handle;
         framebufferInfo.attachmentCount = ARRAY_COUNT(attachments);
         framebufferInfo.pAttachments = attachments;
-        framebufferInfo.width = vb.swap_chain.extent.width;
-        framebufferInfo.height = vb.swap_chain.extent.height;
+        framebufferInfo.width = device.extent.width;
+        framebufferInfo.height = device.extent.height;
         framebufferInfo.layers = 1;
 
-        VkResult result = vkCreateFramebuffer(vb.device, &framebufferInfo, nullptr, &vb.swap_chain.frame_buffers[i]);
-        if(DIDFAIL(result)) { 
-            LOG_ERROR("Vulkan Error: %X", (result));
-            ASSERT(false);
-            return result; 
-        }
+        VkResult result = vkCreateFramebuffer(device.handle, &framebufferInfo, nullptr, &device.framebuffers[i]);
+        ASSERT(DIDSUCCEED(result));
     }
 
     return VK_SUCCESS;
 }
 
 internal
-void vbTempLoadModel(ps_vulkan_backend& vb)
+void vgTempLoadModel(vg_device& device)
 {
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -1455,14 +1545,14 @@ void vbTempLoadModel(ps_vulkan_backend& vb)
 }
 
 internal
-VkResult vbTempCreateVertexBuffers(ps_vulkan_backend& vb)
+VkResult vgTempCreateVertexBuffers(vg_device& device)
 {
     //VkDeviceSize bufferSize = sizeof(g_Vertices[0]) * ARRAY_COUNT(g_Vertices);
     VkDeviceSize bufferSize = sizeof(g_ModelVertices[0]) * g_ModelVertices.size();
 
     // Create a staging buffer for upload to the GPU
-    ps_vulkan_buffer stagingBuffer{};
-    VkResult result = vbCreateBuffer(vb, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
+    vg_buffer stagingBuffer{};
+    VkResult result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
     if(DIDFAIL(result))
     {
         LOG_ERROR("Vulkan Error: %X", (result));
@@ -1472,12 +1562,12 @@ VkResult vbTempCreateVertexBuffers(ps_vulkan_backend& vb)
 
     // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
     void* data;
-    vkMapMemory(vb.device, stagingBuffer.memory_handle, 0, bufferSize, 0, &data);
+    vkMapMemory(device.handle, stagingBuffer.memory, 0, bufferSize, 0, &data);
         CopyArray(g_ModelVertices.size(), g_ModelVertices.data(), data);
-    vkUnmapMemory(vb.device, stagingBuffer.memory_handle);
+    vkUnmapMemory(device.handle, stagingBuffer.memory);
 
     // Now create the actual device buffer in *FAST* GPU only memory
-    result = vbCreateBuffer(vb, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &vb.vertex_buffer);
+    result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.vertex_buffer);
     if(DIDFAIL(result))
     {
         LOG_ERROR("Vulkan Error: %X", (result));
@@ -1486,21 +1576,21 @@ VkResult vbTempCreateVertexBuffers(ps_vulkan_backend& vb)
     }
 
     // Now we can copy the uploaded staging buffer data over to the faster buffer location
-    vbCopyBuffer(vb, stagingBuffer.handle, vb.vertex_buffer.handle, bufferSize);
+    vgCopyBuffer(device, stagingBuffer.handle, device.vertex_buffer.handle, bufferSize);
 
-    vbDestroyBuffer(vb.device, stagingBuffer); // clean up the staging buffer
+    vgDestroyBuffer(device.handle, stagingBuffer); // clean up the staging buffer
 
     return VK_SUCCESS;
 }
 
 internal
-VkResult vbTempCreateIndexBuffers(ps_vulkan_backend& vb)
+VkResult vgTempCreateIndexBuffers(vg_device& device)
 {
     //VkDeviceSize bufferSize = sizeof(g_Indices[0]) * ARRAY_COUNT(g_Indices);
     VkDeviceSize bufferSize = sizeof(g_ModelIndices[0]) * g_ModelIndices.size();
 
-    ps_vulkan_buffer stagingBuffer{};
-    VkResult result = vbCreateBuffer(vb, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
+    vg_buffer stagingBuffer{};
+    VkResult result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
     if(DIDFAIL(result))
     {
         LOG_ERROR("Vulkan Error: %X", (result));
@@ -1510,12 +1600,12 @@ VkResult vbTempCreateIndexBuffers(ps_vulkan_backend& vb)
 
     // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
     void* data;
-    vkMapMemory(vb.device, stagingBuffer.memory_handle, 0, bufferSize, 0, &data);
+    vkMapMemory(device.handle, stagingBuffer.memory, 0, bufferSize, 0, &data);
         CopyArray(g_ModelIndices.size(), g_ModelIndices.data(), data);
-    vkUnmapMemory(vb.device, stagingBuffer.memory_handle);
+    vkUnmapMemory(device.handle, stagingBuffer.memory);
 
     // Now create the actual device buffer in *FAST* GPU only memory
-    result = vbCreateBuffer(vb, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &vb.index_buffer);
+    result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.index_buffer);
     if(DIDFAIL(result))
     {
         LOG_ERROR("Vulkan Error: %X", (result));
@@ -1524,23 +1614,21 @@ VkResult vbTempCreateIndexBuffers(ps_vulkan_backend& vb)
     }
 
     // Now we can copy the uploaded staging buffer data over to the faster buffer location
-    vbCopyBuffer(vb, stagingBuffer.handle, vb.index_buffer.handle, bufferSize);
+    vgCopyBuffer(device, stagingBuffer.handle, device.index_buffer.handle, bufferSize);
 
-    vbDestroyBuffer(vb.device, stagingBuffer); // clean up the staging buffer
+    vgDestroyBuffer(device.handle, stagingBuffer); // clean up the staging buffer
 
     return VK_SUCCESS;
 }
 
 internal
-VkResult vbTempCreateUniformBuffers(ps_vulkan_backend& vb)
+VkResult vgTempCreateUniformBuffers(vg_device& device)
 {
     VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
-    vb.uniform_buffers.resize(vb.swap_chain.images.size());
-
-    for (size_t i = 0; i < vb.swap_chain.images.size(); ++i)
+    for (size_t i = 0; i < FRAME_OVERLAP; ++i)
     {
-        VkResult result = vbCreateBuffer(vb, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &vb.uniform_buffers[i]);
+        VkResult result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &device.frames[i].camera_buffer);
         if (DIDFAIL(result))
         {
             LOG_ERROR("Vulkan Error: %X", (result));
@@ -1553,7 +1641,7 @@ VkResult vbTempCreateUniformBuffers(ps_vulkan_backend& vb)
 }
 
 internal
-VkResult vbTempCreateTextureImages(ps_vulkan_backend& vb)
+VkResult vgTempCreateTextureImages(vg_device& device)
 {
     int texWidth, texHeight, texChannels;
     stbi_uc *pixels = stbi_load(TEXTURE_PATH, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -1561,8 +1649,8 @@ VkResult vbTempCreateTextureImages(ps_vulkan_backend& vb)
 
     ASSERT(pixels);
 
-    ps_vulkan_buffer stagingBuffer{};
-    VkResult result = vbCreateBuffer(vb, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
+    vg_buffer stagingBuffer{};
+    VkResult result = vgCreateBuffer(device, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
     if (DIDFAIL(result))
     {
         LOG_ERROR("Vulkan Error: %X", (result));
@@ -1572,33 +1660,33 @@ VkResult vbTempCreateTextureImages(ps_vulkan_backend& vb)
 
     // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
     void *data;
-    vkMapMemory(vb.device, stagingBuffer.memory_handle, 0, imageSize, 0, &data);
+    vkMapMemory(device.handle, stagingBuffer.memory, 0, imageSize, 0, &data);
         Copy(imageSize, pixels, data);
-    vkUnmapMemory(vb.device, stagingBuffer.memory_handle);
+    vkUnmapMemory(device.handle, stagingBuffer.memory);
 
     stbi_image_free(pixels);
 
-    vbCreateImage(vb, texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &vb.texture);
+    vgCreateImage(device, texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.texture);
 
-    vbTransitionImageLayout(vb, vb.texture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    vbCopyBufferToImage(vb, stagingBuffer, vb.texture, (u32)texWidth, (u32)texHeight);
-    vbTransitionImageLayout(vb, vb.texture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vgTransitionImageLayout(device, device.texture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    vgCopyBufferToImage(device, stagingBuffer, device.texture, (u32)texWidth, (u32)texHeight);
+    vgTransitionImageLayout(device, device.texture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-    vbDestroyBuffer(vb.device, stagingBuffer);
+    vgDestroyBuffer(device.handle, stagingBuffer);
 
     return VK_SUCCESS;
 }
 
 internal
-VkResult vbTempCreateTextureImageViews(ps_vulkan_backend& vb)
+VkResult vgTempCreateTextureImageViews(vg_device& device)
 {
-    VkResult result = vbCreateImageView(vb, vb.texture.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, &vb.texture.view);
+    VkResult result = vgCreateImageView(device, device.texture.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, &device.texture.view);
 
     return result;
 }
 
 internal
-VkResult vbTempCreateTextureSamplers(ps_vulkan_backend& vb)
+VkResult vgTempCreateTextureSamplers(vg_device& device)
 {
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -1608,7 +1696,7 @@ VkResult vbTempCreateTextureSamplers(ps_vulkan_backend& vb)
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.anisotropyEnable = VK_TRUE;
-    samplerInfo.maxAnisotropy = vb.device_properties.limits.maxSamplerAnisotropy;
+    samplerInfo.maxAnisotropy = device.device_properties.limits.maxSamplerAnisotropy;
     
     samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     samplerInfo.unnormalizedCoordinates = VK_FALSE;     // False = [0..1,0..1], [True = 0..Width, 0..Height]
@@ -1621,103 +1709,104 @@ VkResult vbTempCreateTextureSamplers(ps_vulkan_backend& vb)
     samplerInfo.minLod = 0.0f;
     samplerInfo.maxLod = 0.0f;
     
-    VkResult result = vkCreateSampler(vb.device, &samplerInfo, nullptr, &vb.sampler);
+    VkResult result = vkCreateSampler(device.handle, &samplerInfo, nullptr, &device.sampler.handle);
     ASSERT(DIDSUCCEED(result));
 
     return result;
 }
 
 internal
-VkResult vbCreateDepthResources(ps_vulkan_backend& vb)
+VkResult vgCreateDepthResources(vg_device& device)
 {
-    VkFormat depthFormat = vbFindDepthFormat(vb);
+    VkFormat depthFormat = vgFindDepthFormat(device);
 
-    VkResult result = vbCreateImage(vb, vb.swap_chain.extent.width, vb.swap_chain.extent.height, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &vb.depth_image);
+    VkResult result = vgCreateImage(device, device.extent.width, device.extent.height, depthFormat, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.depth_image);
     if(DIDFAIL(result))
     {
         ASSERT(false);
         return result;
     }
 
-    result = vbCreateImageView(vb, vb.depth_image.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, &vb.depth_image.view);
+    result = vgCreateImageView(device, device.depth_image.handle, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT, &device.depth_image.view);
 
     return result;
 }
 
-
 internal
-VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
+VkResult vgCreateCommandPool(vg_device& device)
 {
-    VkCommandPoolCreateInfo poolInfo{};
-    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    poolInfo.queueFamilyIndex = vb.q_graphics.queue_family_index;
-    poolInfo.flags = 0;
+    VkResult result = VK_SUCCESS;
 
-    VkResult result = vkCreateCommandPool(vb.device, &poolInfo, nullptr, &vb.command_pool);
-
-    if(DIDFAIL(result)) { 
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-        return result; 
-    }
-
-    u32 numBuffers = (u32)vb.swap_chain.images.size();
-    vb.command_buffers.resize(numBuffers);
-
-    VkCommandBufferAllocateInfo allocInfo
+    for(u32 i = 0; i < FRAME_OVERLAP; ++i)
     {
-        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-        .pNext = nullptr,
-        .commandPool = vb.command_pool,
-        .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-        .commandBufferCount = numBuffers
-    };
-    result = vkAllocateCommandBuffers(vb.device, &allocInfo, vb.command_buffers.data());
+        VkCommandPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.queueFamilyIndex = device.q_graphics.queue_family_index;
+        poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-    if(DIDFAIL(result)) { 
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-        return result; 
+        result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &device.frames[i].commandPool);
+
+        if(DIDFAIL(result)) { 
+            LOG_ERROR("Vulkan Error: %X", (result));
+            ASSERT(false);
+            return result; 
+        }
+
+        VkCommandBufferAllocateInfo allocInfo
+        {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .commandPool = device.frames[i].commandPool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1
+        };
+        result = vkAllocateCommandBuffers(device.handle, &allocInfo, &device.frames[i].commandBuffer);
+
+        if(DIDFAIL(result)) { 
+            LOG_ERROR("Vulkan Error: %X", (result));
+            ASSERT(false);
+            return result; 
+        }
     }
 
     ///////////////////////////////////
     // Temporary Model Loading
-    vbTempLoadModel(vb);
+    vgTempLoadModel(device);
     ///////////////////////////////////
 
 
     ///////////////////////////////////
     // Temporary Vertex Buffer Creation
-    result = vbTempCreateVertexBuffers(vb);
+    result = vgTempCreateVertexBuffers(device);
     ///////////////////////////////////
 
     ///////////////////////////////////
     // Temporarty Index Buffer Creation
-    result = vbTempCreateIndexBuffers(vb);
+    result = vgTempCreateIndexBuffers(device);
     ///////////////////////////////////
 
     ///////////////////////////////////
     // Temporarty Uniform Buffer Creation
-    result = vbTempCreateUniformBuffers(vb);
+    result = vgTempCreateUniformBuffers(device);
     ///////////////////////////////////
 
     ///////////////////////////////////
     // Temporary Image Creation
-    result = vbTempCreateTextureImages(vb);
+    result = vgTempCreateTextureImages(device);
     ///////////////////////////////////
 
     ///////////////////////////////////
     // Temporary Image View Creation
-    result = vbTempCreateTextureImageViews(vb);
+    result = vgTempCreateTextureImageViews(device);
     ///////////////////////////////////
 
     ///////////////////////////////////
     // Temporary Sampler Creation
-    result = vbTempCreateTextureSamplers(vb);
+    result = vgTempCreateTextureSamplers(device);
     ///////////////////////////////////
 
 
-    result = vbCreateDescriptorSets(vb);
+    result = vgCreateDescriptorSets(device);
     if(DIDFAIL(result))
     {
         LOG_ERROR("Vulkan Error: %X", (result));
@@ -1725,120 +1814,121 @@ VkResult vbCreateCommandPool(ps_vulkan_backend& vb)
     }
 
     // temporary triangle draw that must be done on all the command buffers
-    for(u32 i = 0; i < numBuffers; ++i)
-    {
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = 0;
-        beginInfo.pInheritanceInfo = nullptr;
-
-        result = vkBeginCommandBuffer(vb.command_buffers[i], &beginInfo);
-        if(DIDFAIL(result)) { 
-            LOG_ERROR("Vulkan Error: %X", (result));
-            ASSERT(false);
-            return result; 
-        }
-
-        VkRenderPassBeginInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = vb.renderPass;
-        renderPassInfo.framebuffer = vb.swap_chain.frame_buffers[i];
-        renderPassInfo.renderArea.offset = {0,0};
-        renderPassInfo.renderArea.extent = vb.swap_chain.extent;
-
-        VkClearValue clearValues[2] = {};
-        clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-        clearValues[1].depthStencil = {1.0f, 0};
-        renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
-        renderPassInfo.pClearValues = clearValues;
-        vkCmdBeginRenderPass(vb.command_buffers[i], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-        vkCmdBindPipeline(vb.command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, vb.graphicsPipeline);
-
-        VkBuffer vertexBuffers[] = {vb.vertex_buffer.handle};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(vb.command_buffers[i], 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(vb.command_buffers[i], vb.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
-
-        vkCmdBindDescriptorSets(vb.command_buffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, vb.pipelineLayout, 0, 1, &vb.descriptor_sets[i], 0, nullptr);
-        // and wait for it....
-        u32 count = (u32)g_ModelIndices.size();
-        vkCmdDrawIndexed(vb.command_buffers[i], count, 1, 0, 0, 0); // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
-
-        vkCmdEndRenderPass(vb.command_buffers[i]);
-
-        result = vkEndCommandBuffer(vb.command_buffers[i]);
-        if(DIDFAIL(result)) { 
-            LOG_ERROR("Vulkan Error: %X", (result));
-            ASSERT(false);
-            return result; 
-        }
-    }
+ 
 
     return VK_SUCCESS;
 }
 
 internal
-void vbDestroySwapChain(ps_vulkan_backend& vb)
+void vgTempBuildRenderCommands(vg_device& device, u32 swapChainImageIndex)
 {
-    VkDevice device = vb.device;
-    ps_vulkan_swapchain& swapChain = vb.swap_chain;
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = 0;
+    beginInfo.pInheritanceInfo = nullptr;
 
-    for(auto& ubo : vb.uniform_buffers)
-    {
-        vbDestroyBuffer(vb.device, ubo);
+    VkCommandBuffer commandBuffer = device.pCurFrame->commandBuffer;
+    VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    if(DIDFAIL(result)) { 
+        LOG_ERROR("Vulkan Error: %X", (result));
+        ASSERT(false);
     }
 
-    IFF(vb.descriptor_pool, vkDestroyDescriptorPool(vb.device, vb.descriptor_pool, nullptr));
+    VkRenderPassBeginInfo renderPassInfo{};
+    renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    renderPassInfo.renderPass = device.renderPass.handle;
+    renderPassInfo.framebuffer = device.framebuffers[swapChainImageIndex];
+    renderPassInfo.renderArea.offset = {0,0};
+    renderPassInfo.renderArea.extent = device.extent;
 
-    for(const auto& fb : swapChain.frame_buffers)
-    {
-        vkDestroyFramebuffer(device, fb, nullptr);
+    VkClearValue clearValues[2] = {};
+    clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    clearValues[1].depthStencil = {1.0f, 0};
+    renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
+    renderPassInfo.pClearValues = clearValues;
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.handle);
+
+    VkBuffer vertexBuffers[] = {device.vertex_buffer.handle};
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+    vkCmdBindIndexBuffer(commandBuffer, device.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
+
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.layout, 0, 1, &device.pCurFrame->globalDescriptor, 0, nullptr);
+    // and wait for it....
+    u32 count = (u32)g_ModelIndices.size();
+    vkCmdDrawIndexed(commandBuffer, count, 1, 0, 0, 0); // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
+
+    vkCmdEndRenderPass(commandBuffer);
+
+    result = vkEndCommandBuffer(commandBuffer);
+    if(DIDFAIL(result)) { 
+        LOG_ERROR("Vulkan Error: %X", (result));
+        ASSERT(false);
     }
-
-    vkFreeCommandBuffers(device, vb.command_pool, (u32)vb.command_buffers.size(), vb.command_buffers.data());
-
-    IFF(vb.graphicsPipeline, vkDestroyPipeline(vb.device, vb.graphicsPipeline, nullptr));
-    IFF(vb.pipelineLayout, vkDestroyPipelineLayout(vb.device, vb.pipelineLayout, nullptr));
-    IFF(vb.renderPass, vkDestroyRenderPass(vb.device, vb.renderPass, nullptr));
-    
-    for(const auto& image : swapChain.images)
-    {
-        vkDestroyImageView(device, image.view, nullptr);
-    }
-
-    vkDestroySwapchainKHR(device, swapChain.handle, nullptr);
 }
 
 internal
-void vbDestroy(ps_vulkan_backend& vb)
+void vgDestroySwapChain(vg_device& device)
+{
+    IFF(device.descriptorPool, vkDestroyDescriptorPool(device.handle, device.descriptorPool, nullptr));
+
+    for(u32 i = 0; i < FRAME_OVERLAP; ++i)
+    {
+        vg_framedata& frame = device.frames[i];
+        
+        vkFreeCommandBuffers(device.handle, frame.commandPool, 1, &frame.commandBuffer);
+        vkDestroyCommandPool(device.handle, frame.commandPool, nullptr);
+        vkDestroySemaphore(device.handle, frame.renderSemaphore, nullptr);
+        vkDestroySemaphore(device.handle, frame.presentSemaphore, nullptr);
+        vkDestroyFence(device.handle, frame.renderFence, nullptr);
+        vgDestroyBuffer(device.handle, frame.camera_buffer);
+    }
+
+    IFF(device.pipeline.handle, vkDestroyPipeline(device.handle, device.pipeline.handle, nullptr));
+    IFF(device.pipeline.layout, vkDestroyPipelineLayout(device.handle, device.pipeline.layout, nullptr));
+    IFF(device.renderPass.handle, vkDestroyRenderPass(device.handle, device.renderPass.handle, nullptr));
+    
+    for(const auto& image : device.swapChainImages)
+    {
+        vkDestroyImageView(device.handle, image.view, nullptr);
+    }
+
+    for(const auto& fb : device.framebuffers)
+    {
+        vkDestroyFramebuffer(device.handle, fb, nullptr);
+    }
+
+    vkDestroySwapchainKHR(device.handle, device.swapChain, nullptr);
+}
+
+internal
+void vgDestroy(vg_backend& vb)
 {
     // NOTE(james): Clean up the rest of the backend members prior to destroying the instance
-    if(vb.device)
+    if(vb.device.handle)
     {
-        vbDestroySwapChain(vb);
+        vg_device& device = vb.device;
+        vgDestroySwapChain(device);
 
-        IFF(vb.sampler, vkDestroySampler(vb.device, vb.sampler, nullptr));
-        vbDestroyImage(vb.device, vb.texture);
-        vbDestroyBuffer(vb.device, vb.index_buffer);
-        vbDestroyBuffer(vb.device, vb.vertex_buffer);
+        IFF(device.sampler.handle, vkDestroySampler(device.handle, device.sampler.handle, nullptr));
+        vgDestroyImage(device.handle, device.texture);
+        vgDestroyBuffer(device.handle, device.index_buffer);
+        vgDestroyBuffer(device.handle, device.vertex_buffer);
 
         // TODO(james): Account for this in the window resize
-        vbDestroyImage(vb.device, vb.depth_image);
+        vgDestroyImage(device.handle, device.depth_image);
 
-        IFF(vb.command_pool, vkDestroyCommandPool(vb.device, vb.command_pool, nullptr));
-        IFF(vb.vertShader, vkDestroyShaderModule(vb.device, vb.vertShader, nullptr));
-        IFF(vb.fragShader, vkDestroyShaderModule(vb.device, vb.fragShader, nullptr));
+        vkDestroyShaderModule(device.handle, device.pipeline.shaders.vertex, nullptr);
+        vkDestroyShaderModule(device.handle, device.pipeline.shaders.frag, nullptr);
 
-        IFF(vb.descriptorSetLayout, vkDestroyDescriptorSetLayout(vb.device, vb.descriptorSetLayout, nullptr));
+        vkDestroyDescriptorSetLayout(device.handle, device.descriptorLayout, nullptr);
 
-        vkDestroyDevice(vb.device, nullptr);
+        vkDestroyDevice(device.handle, nullptr);
     }
 
-    if(vb.swap_chain.platform_surface)
-    {
-        vkDestroySurfaceKHR(vb.instance, vb.swap_chain.platform_surface, nullptr);
-    }
+    vkDestroySurfaceKHR(vb.instance, vb.device.platform_surface, nullptr);
 
     if(vb.debugMessenger)
     {

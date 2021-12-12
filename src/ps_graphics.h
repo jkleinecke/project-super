@@ -42,6 +42,7 @@ typedef void* ps_gfx_render_commands_h;
 
 typedef void* ps_gfx_buffer_h;
 typedef void* ps_gfx_image_h;
+typedef void* ps_gfx_sampler_h;
 typedef void* ps_gfx_shader_data_h;
 typedef void* ps_gfx_pipeline_h;
 typedef void* ps_gfx_renderpass_h;
@@ -98,40 +99,42 @@ struct ps_graphics_api
 
     // Render Commands
     // NOTE: for now this will be enough, we'll probably need to extend this to allow for multi-threading command recording later
-    typedef ps_gfx_render_commands_h (*get_render_command_buffer)(ps_gfx_device_h device);   
-    typedef void (*begin_render_recording)(ps_gfx_render_commands_h cmds);
-    typedef void (*end_render_recording)(ps_gfx_render_commands_h cmds);
+    typedef ps_gfx_render_commands_h (*GetRenderCommandBuffers)(ps_gfx_device_h device);   
+    typedef void (*BeginRenderRecording)(ps_gfx_render_commands_h cmds);
+    typedef void (*EndRenderRecording)(ps_gfx_render_commands_h cmds);
 
-    typedef void (*bind_renderpass)(ps_gfx_render_commands_h cmds, ps_gfx_renderpass_h renderpass);
-    typedef void (*bind_pipeline)(ps_gfx_render_commands_h cmds, ps_gfx_pipeline_h pipeline);
-    typedef void (*bind_shader_data)(ps_gfx_render_commands_h cmds, ps_gfx_shader_data_h shaderdata);
-    typedef void (*bind_index_buffer)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h indexBuffer);
-    typedef void (*bind_vertex_buffers)(ps_gfx_render_commands_h cmds, u32 num_buffers, ps_gfx_buffer_h* pVertexBuffers);
+    typedef void (*BindRenderPass)(ps_gfx_render_commands_h cmds, ps_gfx_renderpass_h renderpass);
+    typedef void (*BindPipeline)(ps_gfx_render_commands_h cmds, ps_gfx_pipeline_h pipeline);
+    typedef void (*BindShaderData)(ps_gfx_render_commands_h cmds, ps_gfx_shader_data_h shaderdata);
+    typedef void (*BindIndexBuffer)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h indexBuffer);
+    typedef void (*BindVertexBuffers)(ps_gfx_render_commands_h cmds, u32 num_buffers, ps_gfx_buffer_h* pVertexBuffers);
 
-    typedef void (*draw_indexed)(ps_gfx_render_commands_h cmds, u32 index_count, u32 vertex_offset);    // extend as needed, instances?
+    typedef void (*DrawIndexed)(ps_gfx_render_commands_h cmds, u32 index_count, u32 vertex_offset);    // extend as needed, instances?
 
     // TODO(james): sync primitives, callbacks? memory barriers? image transitions?
-    typedef void (*copy_buffer_to_buffer)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h src, umm srcOffset, ps_gfx_buffer_h dest, umm destOffset, mem_size datasize);    
-    typedef void (*copy_buffer_to_image)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h src, umm srcOffset, ps_gfx_image_h dest, const PsGfxImageOffset& offset, const PsGfxImageExtent& extent);
+    typedef void (*CopyBufferToBuffer)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h src, umm srcOffset, ps_gfx_buffer_h dest, umm destOffset, mem_size datasize);    
+    typedef void (*CopyBufferToImage)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h src, umm srcOffset, ps_gfx_image_h dest, const PsGfxImageOffset& offset, const PsGfxImageExtent& extent);
 
     // Resource Management 
 
     // TODO(james): should resource management be done from a GPU memory allocator?
-    typedef ps_gfx_renderpass_h (*create_render_pass)(ps_gfx_device_h device);  // extend with options
-    typedef ps_gfx_pipeline_h (*create_pipeline)(ps_gfx_device_h device);       // extend with options
-    typedef ps_gfx_shader_data_h (*create_shader_data)(ps_gfx_device_h device); // extend with options
-    typedef ps_gfx_buffer_h (*create_buffer)(ps_gfx_device_h device, mem_size size, PsGfxBufferType type, PsGfxUsage usage);
-    typedef ps_gfx_image_h (*create_image)(ps_gfx_device_h device, PsGfxImageType type, PsGfxUsage usage, PsGfxImageFormat format, PsGfxImageExtent extent);
+    typedef ps_gfx_renderpass_h (*CreateRenderPass)(ps_gfx_device_h device);  // extend with options
+    typedef ps_gfx_pipeline_h (*CreatePipeline)(ps_gfx_device_h device);       // extend with options
+    typedef ps_gfx_shader_data_h (*CreateShaderData)(ps_gfx_device_h device); // extend with options
+    typedef ps_gfx_sampler_h (*CreateSampler)(ps_gfx_device_h device);  // extend with options
+    typedef ps_gfx_buffer_h (*CreateBuffer)(ps_gfx_device_h device, mem_size size, PsGfxBufferType type, PsGfxUsage usage);
+    typedef ps_gfx_image_h (*CreateImage)(ps_gfx_device_h device, PsGfxImageType type, PsGfxUsage usage, PsGfxImageFormat format, PsGfxImageExtent extent);
 
     // TODO(james): combine these two since under the hood all that is needed is a memory address
     // just alias a buffer and image to the same location?
-    typedef void (*upload_buffer_data)(ps_gfx_device_h device, ps_gfx_buffer_h buffer, umm offset, mem_size datasize, void* data);
-    typedef void (*upload_image_data)(ps_gfx_device_h device, ps_gfx_image_h image, umm offset, mem_size datasize, void* data);
+    typedef void (*UploadBufferData)(ps_gfx_device_h device, ps_gfx_buffer_h buffer, umm offset, mem_size datasize, void* data);
+    typedef void (*UploadImageData)(ps_gfx_device_h device, ps_gfx_image_h image, umm offset, mem_size datasize, void* data);
 
-    typedef void (*destroy_renderpass)(ps_gfx_device_h device, ps_gfx_renderpass_h renderpass);
-    typedef void (*destroy_pipeline)(ps_gfx_device_h device, ps_gfx_pipeline_h pipeline);
-    typedef void (*destroy_shaderdata)(ps_gfx_device_h device, ps_gfx_shader_data_h shaderdata);
-    typedef void (*destroy_buffer)(ps_gfx_device_h device, ps_gfx_buffer_h buffer);
-    typedef void (*destroy_image)(ps_gfx_device_h device, ps_gfx_image_h image);
+    typedef void (*DestroyRenderPass)(ps_gfx_device_h device, ps_gfx_renderpass_h renderpass);
+    typedef void (*DestroyPipeline)(ps_gfx_device_h device, ps_gfx_pipeline_h pipeline);
+    typedef void (*DestroyShaderData)(ps_gfx_device_h device, ps_gfx_shader_data_h shaderdata);
+    typedef void (*DestroySampler)(ps_gfx_device_h device, ps_gfx_sampler_h sampler);
+    typedef void (*DestroyBuffer)(ps_gfx_device_h device, ps_gfx_buffer_h buffer);
+    typedef void (*DestroyImage)(ps_gfx_device_h device, ps_gfx_image_h image);
 
 };

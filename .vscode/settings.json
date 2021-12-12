@@ -45,7 +45,9 @@
         "new": "cpp",
         "string": "cpp",
         "typeinfo": "cpp",
-        "xstddef": "cpp"
+        "xstddef": "cpp",
+        "chrono": "cpp",
+        "xlocale": "cpp"
     },
     "editor.suggestOnTriggerCharacters": false,
     "C_Cpp.workspaceParsingPriority": "low"
