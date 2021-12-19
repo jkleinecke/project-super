@@ -10,131 +10,117 @@ init:
     upload buffer data (index)
     upload buffer data (uniform) push-constant?
     upload image data
-    declare pipeline & shader data
+    declare material 
     declare renderpass
 
-record render commands:
+    update scene global data
 
-    begin recording
-    begin render pass
-    bind pipeline
-    
-    bind vertex buffer(s)
-    bind index buffer
-    bind shader data
-    
-    draw - hopefully more than once
+begin frame:
 
-    end render pass
-    end recording
+    rough object cull? cpu-side?
+
+    TODO(james): implement gpu driven rendering
+
+    <simple pattern>
+    update frame global data
+    for render pass
+        update render pass global data
+        bind render pass
+        for each material
+            update material global data
+            bind material
+            for each mesh
+                update mesh material data
+                draw 
 
 end frame:
 
-    submit render commands
     present -- platform layer??
 
  */
 
-// TODO(james): figure out the best way to handle the opaque graphics pointers
-typedef void* ps_gfx_device_h;
+//#include "libs/tiny_imageformat/include/tiny_imageformat/tinyimageformat.h"
 
-typedef void* ps_gfx_render_commands_h;
+#if 0
+struct psg_device { void* native; };
+struct psg_framecontext { void* native; };
 
-typedef void* ps_gfx_buffer_h;
-typedef void* ps_gfx_image_h;
-typedef void* ps_gfx_sampler_h;
-typedef void* ps_gfx_shader_data_h;
-typedef void* ps_gfx_pipeline_h;
-typedef void* ps_gfx_renderpass_h;
 
-enum PsGfxBufferType
-{
-    // More will be added as they are needed
-    PS_GFX_BUFFER_TYPE_VERTEX,
-    PS_GFX_BUFFER_TYPE_INDEX,
-    PS_GFX_BUFFER_TYPE_UNIFORM    
-};
 
-// TODO(james): do these make sense?
-enum PsGfxUsage
-{
-    PS_GFX_BUFFER_USAGE_STAGING,
-    PS_GFX_BUFFER_USAGE_GPU_ONLY,
-    PS_GFX_BUFFER_USAGE_CPU_GPU,
-    PS_GFX_BUFFER_USAGE_CPU_READBACK
-};
 
-enum PsGfxImageType
-{
-    PS_GFX_IMAGE_TYPE_1D,
-    PS_GFX_IMAGE_TYPE_2D,
-    PS_GFX_IMAGE_TYPE_3D,
-};
-
-enum PsGfxImageFormat
-{
-    // More will be added as they are needed
-    PS_GFX_FORMAT_R8G8B8A8_SRGB
-};
-
-struct PsGfxImageOffset
-{
-    u32 x;  // All Types
-    u32 y; // 2D & 3D
-    u32 z;  // 3D only
-};
-
-struct PsGfxImageExtent
-{
-    u32 width;  // All Types
-    u32 height; // 2D & 3D
-    u32 depth;  // 3D only
-};
+#define DECLARE_GRAPHICS_FUNCTION(ret, name, ...)   \
+    typedef PS_API ret(PS_APICALL* name##Fn)(__VA_ARGS__); \
+    name##Fn    name
 
 struct ps_graphics_api
 {
     // Platform layer is responsible for managing the swap chain entirely
-    ps_gfx_device_h device;
-    // TODO(james): Expose the device queues, command pools, etc..
+    psg_device device;
+    psg_framecontext frame;
 
-    // Render Commands
-    // NOTE: for now this will be enough, we'll probably need to extend this to allow for multi-threading command recording later
-    typedef ps_gfx_render_commands_h (*GetRenderCommandBuffers)(ps_gfx_device_h device);   
-    typedef void (*BeginRenderRecording)(ps_gfx_render_commands_h cmds);
-    typedef void (*EndRenderRecording)(ps_gfx_render_commands_h cmds);
+    // Rendering Objects
 
-    typedef void (*BindRenderPass)(ps_gfx_render_commands_h cmds, ps_gfx_renderpass_h renderpass);
-    typedef void (*BindPipeline)(ps_gfx_render_commands_h cmds, ps_gfx_pipeline_h pipeline);
-    typedef void (*BindShaderData)(ps_gfx_render_commands_h cmds, ps_gfx_shader_data_h shaderdata);
-    typedef void (*BindIndexBuffer)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h indexBuffer);
-    typedef void (*BindVertexBuffers)(ps_gfx_render_commands_h cmds, u32 num_buffers, ps_gfx_buffer_h* pVertexBuffers);
+    DECLARE_GRAPHICS_FUNCTION(void, createFence, psg_device& device, psg_fence* fence);
+    DECLARE_GRAPHICS_FUNCTION(void, destroyFence, psg_device& device, psg_fence* fence);
+    DECLARE_GRAPHICS_FUNCTION(void, createSemaphore, psg_device& device, psg_semaphore* semaphore);
+    DECLARE_GRAPHICS_FUNCTION(void, destroySemaphore, psg_device& device, psg_semaphore* semaphore);
+    DECLARE_GRAPHICS_FUNCTION(void, findQueue, psg_device& device, PsgQueueDesc& desc, psg_queue* queue);
 
-    typedef void (*DrawIndexed)(ps_gfx_render_commands_h cmds, u32 index_count, u32 vertex_offset);    // extend as needed, instances?
+    DECLARE_GRAPHICS_FUNCTION(void, createCmdPool, psg_device& device, PsgCmdPoolDesc& desc, psg_cmdpool* cmdpool);
+    DECLARE_GRAPHICS_FUNCTION(void, destroyCmdPool, psg_device& device, psg_cmdpool* cmdpool);
+    DECLARE_GRAPHICS_FUNCTION(void, createCmd, psg_device& device, PsgCmdDesc& desc, psg_cmd* cmd);
+    DECLARE_GRAPHICS_FUNCTION(void, destroyCmd, psg_device& device, psg_cmd* cmd);
 
-    // TODO(james): sync primitives, callbacks? memory barriers? image transitions?
-    typedef void (*CopyBufferToBuffer)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h src, umm srcOffset, ps_gfx_buffer_h dest, umm destOffset, mem_size datasize);    
-    typedef void (*CopyBufferToImage)(ps_gfx_render_commands_h cmds, ps_gfx_buffer_h src, umm srcOffset, ps_gfx_image_h dest, const PsGfxImageOffset& offset, const PsGfxImageExtent& extent);
+    DECLARE_GRAPHICS_FUNCTION(void, createRenderTarget, psg_device& device, PsgRenderTargetDesc& desc, psg_rendertarget* rendertarget);
+    DECLARE_GRAPHICS_FUNCTION(void, destroyRenderTarget, psg_device& device, psg_rendertarget* rendertarget);
+    DECLARE_GRAPHICS_FUNCTION(void, createSampler, psg_device& device, PsgSamplerDesc& desc, psg_sampler* sampler);
+    DECLARE_GRAPHICS_FUNCTION(void, destroySampler, psg_device& device, psg_sampler* sampler);
 
-    // Resource Management 
+    DECLARE_GRAPHICS_FUNCTION(void, createPipeline, psg_device& device, PsgPipelineDesc& desc, psg_pipeline* pipeline);
+    DECLARE_GRAPHICS_FUNCTION(void, removePipeline, psg_device& device, psg_pipeline* pipeline);
+    
+    DECLARE_GRAPHICS_FUNCTION(void, createDescriptorSet, psg_device& device, PsgDescriptorSetDesc& desc, psg_descriptorset* descriptorset);
+    DECLARE_GRAPHICS_FUNCTION(void, destroyDescriptorSet, psg_device& device, psg_descriptorset* descriptorset);
+    DECLARE_GRAPHICS_FUNCTION(void, updateDescriptorSet, u32 index, psg_descriptorset* descriptorset, u32 count, PsgDescriptorSetParam* params);
 
-    // TODO(james): should resource management be done from a GPU memory allocator?
-    typedef ps_gfx_renderpass_h (*CreateRenderPass)(ps_gfx_device_h device);  // extend with options
-    typedef ps_gfx_pipeline_h (*CreatePipeline)(ps_gfx_device_h device);       // extend with options
-    typedef ps_gfx_shader_data_h (*CreateShaderData)(ps_gfx_device_h device); // extend with options
-    typedef ps_gfx_sampler_h (*CreateSampler)(ps_gfx_device_h device);  // extend with options
-    typedef ps_gfx_buffer_h (*CreateBuffer)(ps_gfx_device_h device, mem_size size, PsGfxBufferType type, PsGfxUsage usage);
-    typedef ps_gfx_image_h (*CreateImage)(ps_gfx_device_h device, PsGfxImageType type, PsGfxUsage usage, PsGfxImageFormat format, PsGfxImageExtent extent);
+    // Rendering Commands
 
-    // TODO(james): combine these two since under the hood all that is needed is a memory address
-    // just alias a buffer and image to the same location?
-    typedef void (*UploadBufferData)(ps_gfx_device_h device, ps_gfx_buffer_h buffer, umm offset, mem_size datasize, void* data);
-    typedef void (*UploadImageData)(ps_gfx_device_h device, ps_gfx_image_h image, umm offset, mem_size datasize, void* data);
+    DECLARE_GRAPHICS_FUNCTION(void, resetCmdPool, psg_device& device, psg_cmdpool* cmdpool);
+    DECLARE_GRAPHICS_FUNCTION(void, beginCmd, psg_cmd* cmd);
+    DECLARE_GRAPHICS_FUNCTION(void, endCmd, psg_cmd* cmd);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdBindRenderTargets, psg_cmd* cmd, u32 rendertarget_count, psg_rendertarget* rendertargets, psg_rendertarget* depthstencil, PsgLoadActionsDesc& loadActions);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdSetViewport);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdSetScissor);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdSetStencilRefValue);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdBindPipeline);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdBindDescriptorSet);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdBindPushConstants);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdBindIndexBuffer);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdBindVertexBuffers);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdDraw);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdDrawInstanced);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdDrawIndexed);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdDrawIndexedInstanced);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdDispatch);
+    DECLARE_GRAPHICS_FUNCTION(void, cmdResourceBarrier);
+    
+    DECLARE_GRAPHICS_FUNCTION(void, acquireNextImage);
+    DECLARE_GRAPHICS_FUNCTION(void, queueSubmit);
+    DECLARE_GRAPHICS_FUNCTION(void, queuePresent);
+    DECLARE_GRAPHICS_FUNCTION(void, waitForQueueIdle);
+    DECLARE_GRAPHICS_FUNCTION(void, waitForFences);
+    
 
-    typedef void (*DestroyRenderPass)(ps_gfx_device_h device, ps_gfx_renderpass_h renderpass);
-    typedef void (*DestroyPipeline)(ps_gfx_device_h device, ps_gfx_pipeline_h pipeline);
-    typedef void (*DestroyShaderData)(ps_gfx_device_h device, ps_gfx_shader_data_h shaderdata);
-    typedef void (*DestroySampler)(ps_gfx_device_h device, ps_gfx_sampler_h sampler);
-    typedef void (*DestroyBuffer)(ps_gfx_device_h device, ps_gfx_buffer_h buffer);
-    typedef void (*DestroyImage)(ps_gfx_device_h device, ps_gfx_image_h image);
+
+
+    // Resource Managament Functions
+
+    DECLARE_GRAPHICS_FUNCTION(void, waitForToken, psg_device& device, const psg_synctoken* token);
+    DECLARE_GRAPHICS_FUNCTION(void, addResources, psg_device& device, PsgAddResourcesDesc* desc, psg_synctoken* token);
+    DECLARE_GRAPHICS_FUNCTION(void, removeResources, psg_device& device, u32 numResources, psg_resource* pResources); 
+    DELCARE_GRAPHICS_FUNCTION(void, updateResource, psg_device& device, PsgUpdateResourceDesc* desc, psg_synctoken* token);
+    // TODO(james): add map/unmap resource?
 
 };
+
+#endif

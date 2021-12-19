@@ -120,12 +120,28 @@ typedef intptr_t imm;
 #define Pi32 3.14159265359f
 
 // Call Conventions
-#ifdef COMPILER_MSVC
-    #define PSAPI_CALL __stdcall
-#else
+#if defined(COMPILER_MSVC)
+    #define PS_API 
+    #define PS_APICALL __cdecl
+    #define ALIGNAS(x) __declspec( align( x ) ) 
+#elif defined(__clang__)
+    #define PSAPI
+    #define ALIGNAS(x) __attribute__ ((aligned( x )))
     #define PSAPI_CALL
 #endif
 
+#ifdef __cplusplus
+#ifndef MAKE_ENUM_FLAG
+#define MAKE_ENUM_FLAG(TYPE, ENUM_TYPE)                                                                        \
+	static inline ENUM_TYPE operator|(ENUM_TYPE a, ENUM_TYPE b) { return (ENUM_TYPE)((TYPE)(a) | (TYPE)(b)); } \
+	static inline ENUM_TYPE operator&(ENUM_TYPE a, ENUM_TYPE b) { return (ENUM_TYPE)((TYPE)(a) & (TYPE)(b)); } \
+	static inline ENUM_TYPE operator|=(ENUM_TYPE& a, ENUM_TYPE b) { return a = (a | b); }                      \
+	static inline ENUM_TYPE operator&=(ENUM_TYPE& a, ENUM_TYPE b) { return a = (a & b); }
+
+#endif
+#else
+#define MAKE_ENUM_FLAG(TYPE, ENUM_TYPE)
+#endif
 
 // Clarify usage of static keyword with these defines
 #define internal static

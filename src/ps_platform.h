@@ -21,6 +21,7 @@ struct platform_api
     // TODO(james): Add window creation APIs? (Editor??)
 };
 
+
 //===================== GAME API =====================================
 
 struct GameClock

@@ -1,5 +1,5 @@
 
-
+#if 0
 internal 
 ps_gfx_render_commands_h VgGetRenderCommandBuffers(ps_gfx_device_h device)
 {
@@ -9,7 +9,7 @@ ps_gfx_render_commands_h VgGetRenderCommandBuffers(ps_gfx_device_h device)
 internal 
 void VgBeginRenderRecording(ps_gfx_render_commands_h cmds)
 {
-
+    
 }
 
 internal 
@@ -78,28 +78,22 @@ ps_gfx_pipeline_h VgCreatePipeline(ps_gfx_device_h device)
     return 0;
 }
 
-internal 
-ps_gfx_shader_data_h VgCreateShaderData(ps_gfx_device_h device)
-{
-    return 0;
-}
-
 internal
 ps_gfx_sampler_h VgCreateSampler(ps_gfx_device_h device)
 {
-
+    return 0;
 }
 
 internal 
 ps_gfx_buffer_h VgCreateBuffer(ps_gfx_device_h device, mem_size size, PsGfxBufferType type, PsGfxUsage usage)
 {
-
+    return 0;
 }
 
 internal 
 ps_gfx_image_h VgCreateImage(ps_gfx_device_h device, PsGfxImageType type, PsGfxUsage usage, PsGfxImageFormat format, PsGfxImageExtent extent)
 {
-
+    return 0;
 }
 
 internal 
@@ -126,12 +120,6 @@ void VgDestroyPipeline(ps_gfx_device_h device, ps_gfx_pipeline_h pipeline)
 
 }
 
-internal 
-void VgDestroyShaderData(ps_gfx_device_h device, ps_gfx_shader_data_h shaderdata)
-{
-
-}
-
 internal
 void VgDestroySampler(ps_gfx_device_h device, ps_gfx_sampler_h sampler)
 {
@@ -153,5 +141,32 @@ void VgDestroyImage(ps_gfx_device_h device, ps_gfx_image_h image)
 internal
 void VgLoadApi(vg_backend& vb, ps_graphics_api& api)
 {
-    // TODO
+    api.device = (void*)&vb.device;
+
+    // Render Commands
+    api.GetRenderCommandBuffers = VgGetRenderCommandBuffers;
+    api.BeginRenderRecording = VgBeginRenderRecording;
+    api.EndRenderRecording = VgEndRenderRecording; 
+    api.BindRenderPass = VgBindRenderPass;
+    api.BindPipeline = VgBindPipeline;
+    api.BindIndexBuffer = VgBindIndexBuffer;
+    api.BindVertexBuffers = VgBindVertexBuffers;
+    api.DrawIndexed = VgDrawIndexed;
+    api.CopyBufferToBuffer = VgCopyBufferToBuffer;
+    api.CopyBufferToImage = VgCopyBufferToImage;
+
+    // Resource Management
+    api.CreateRenderPass = VgCreateRenderPass;
+    api.CreatePipeline = VgCreatePipeline;
+    api.CreateSampler = VgCreateSampler;
+    api.CreateBuffer = VgCreateBuffer;
+    api.CreateImage = VgCreateImage;
+    api.UploadBufferData = VgUploadBufferData;
+    api.UploadImageData = VgUploadImageData;
+    api.DestroyRenderPass = VgDestroyRenderPass;
+    api.DestroyPipeline = VgDestroyPipeline;
+    api.DestroySampler = VgDestroySampler;
+    api.DestroyBuffer = VgDestroyBuffer;
+    api.DestroyImage = VgDestroyImage;
 }
+#endif

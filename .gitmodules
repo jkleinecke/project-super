@@ -4,3 +4,9 @@
 [submodule "src/libs/tinyobjloader"]
 	path = src/libs/tinyobjloader
 	url = git@github.com:tinyobjloader/tinyobjloader.git
+[submodule "src/libs/tiny_imageformat"]
+	path = src/libs/tiny_imageformat
+	url = git@github.com:DeanoC/tiny_imageformat.git
+[submodule "src/libs/VulkanMemoryAllocator"]
+	path = src/libs/VulkanMemoryAllocator
+	url = git@github.com:GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git

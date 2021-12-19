@@ -21,7 +21,8 @@
 // TODO(james): make this work as a loaded dll
 //#include "win32_opengl.cpp"
 //#include "win32_d3d12.cpp"
-#include "win32_vulkan.cpp"
+//#include "win32_vulkan.cpp"
+#include "../vulkan/vk_platform.cpp"    
 
 global const int FIXED_RENDER_WIDTH = 1920;
 global const int FIXED_RENDER_HEIGHT = 1080;
@@ -346,7 +347,7 @@ extern "C" int __stdcall WinMainCRTStartup()
 
     // TODO(james): Load all of the initialization memory in a single allocation
 
-    void* graphicsBackend = Win32LoadGraphicsBackend(hInstance, mainWindow.hWindow);
+    ps_graphics_backend_api graphicsApi = platform_load_graphics_backend(hInstance, mainWindow.hWindow);
     
     SetWindowLongPtrA(mainWindow.hWindow, GWLP_USERDATA, (LONG_PTR)&mainWindow);
     ShowWindow(mainWindow.hWindow, SW_SHOW);
@@ -550,7 +551,7 @@ extern "C" int __stdcall WinMainCRTStartup()
                 break;
         }
 
-        Win32GraphicsBeginFrame(graphicsBackend);
+        graphicsApi.BeginFrame(graphicsApi.instance);
 
         if(gameFunctions.GameUpdateAndRender)
         {
@@ -601,7 +602,7 @@ extern "C" int __stdcall WinMainCRTStartup()
 
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
 
-        Win32GraphicsEndFrame(graphicsBackend, input.clock);
+        graphicsApi.EndFrame(graphicsApi.instance, input.clock);
         //Win32Dimensions dimensions = Win32GetWindowDimensions(mainWindow.hWindow);              
         //Win32Render(dimensions.width, dimensions.height, mainWindow.graphics);
         //SwapBuffers(mainWindow.hDeviceContext);
@@ -615,7 +616,7 @@ extern "C" int __stdcall WinMainCRTStartup()
     COM_RELEASE(audio.pRenderClient);   
 
     DestroyWindow(mainWindow.hWindow);
-    Win32UnloadGraphicsBackend(graphicsBackend);
+    platform_unload_graphics_backend(graphicsApi.instance);
 
     ExitProcess(0);
 }

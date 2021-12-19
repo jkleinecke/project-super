@@ -36,11 +36,33 @@ struct vg_pipeline
     VkPipeline handle;
     VkPipelineLayout layout;
     vg_shaderset shaders;
+    VkDescriptorSetLayout descriptorLayout;
 };
 
 struct vg_renderpass
 {
     VkRenderPass handle;
+    // TODO(james): add framebuffers
+};
+
+struct vg_descriptorlayout_cache_info
+{
+    u64 key;
+    VkDescriptorSetLayout value;
+};
+
+struct vg_descriptorlayout_cache
+{
+    vg_descriptorlayout_cache_info* hm_layouts;
+    VkDevice device;
+};
+
+struct vg_descriptor_allocator
+{
+    VkDevice device;
+    VkDescriptorPool current;
+    VkDescriptorPool* a_free_pools;
+    VkDescriptorPool* a_used_pools;
 };
 
 struct vg_queue
@@ -53,14 +75,13 @@ struct vg_framedata
 {
     VkCommandPool commandPool;
     VkCommandBuffer commandBuffer;
-    //VkFramebuffer frameBuffer;
     VkSemaphore renderSemaphore;
     VkSemaphore presentSemaphore;
     VkFence renderFence;
 
-    // TODO(james): make some room for buffers that are updated each frame
-    VkDescriptorSet globalDescriptor;
+    vg_descriptor_allocator dynamicDescriptorAllocator;
 
+    // TODO(james): make some room for buffers that are updated each frame
     vg_buffer camera_buffer;
 };
 
@@ -84,13 +105,15 @@ struct vg_device
     VkSurfaceKHR platform_surface;
     VkSwapchainKHR swapChain;
     VkFormat swapChainFormat;
-    std::vector<vg_image> swapChainImages;
-    std::vector<VkFramebuffer> framebuffers;
+    vg_image* paSwapChainImages;
+    VkFramebuffer* paFramebuffers;
+
+    vg_descriptor_allocator descriptorAllocator;
+    vg_descriptorlayout_cache descriptorLayoutCache;
 
     // TODO(james): these are temp until I figure out
     //    how to deal with them.
-    VkDescriptorSetLayout descriptorLayout;
-    VkDescriptorPool descriptorPool;
+
     
     VkExtent2D extent;
     vg_renderpass renderPass;

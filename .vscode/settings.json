@@ -47,7 +47,13 @@
         "typeinfo": "cpp",
         "xstddef": "cpp",
         "chrono": "cpp",
-        "xlocale": "cpp"
+        "xlocale": "cpp",
+        "ios": "cpp",
+        "xiosbase": "cpp",
+        "format": "cpp",
+        "array": "cpp",
+        "xhash": "cpp",
+        "xtree": "cpp"
     },
     "editor.suggestOnTriggerCharacters": false,
     "C_Cpp.workspaceParsingPriority": "low"
