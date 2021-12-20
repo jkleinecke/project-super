@@ -126,8 +126,14 @@ struct InputContext
     InputController controllers[5];
 };
 
+struct vg_device;
+struct ps_graphics_api;
 struct GraphicsContext
 {
+    vg_device* device;
+    ps_graphics_api* api;
+
+    // TODO(james): remove the raw buffer members
     // format??
     uint32 buffer_width;
     uint32 buffer_height;

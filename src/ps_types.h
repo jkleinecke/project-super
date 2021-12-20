@@ -122,7 +122,7 @@ typedef intptr_t imm;
 // Call Conventions
 #if defined(COMPILER_MSVC)
     #define PS_API 
-    #define PS_APICALL __cdecl
+    #define PS_APICALL __stdcall
     #define ALIGNAS(x) __declspec( align( x ) ) 
 #elif defined(__clang__)
     #define PSAPI

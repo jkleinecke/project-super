@@ -2,10 +2,12 @@
 #include <vulkan/vulkan.h>
 
 #include "vk_device.h"
+#include "../ps_graphics.h"
+
 #include "vk_extensions.h"
 #include "vk_initializers.cpp"
-#include "ps_vulkan_graphics_api.cpp"
 #include "vk_descriptor.cpp"
+#include "ps_vulkan_graphics_api.cpp"
 
 #include <vector>
 #include <array>
@@ -1713,10 +1715,10 @@ VkResult vgCreateCommandPool(vg_device& device)
 internal
 void vgTempBuildRenderCommands(vg_device& device, u32 swapChainImageIndex)
 {
-    vgResetDescriptorPools(device.pCurFrame->dynamicDescriptorAllocator);
+    
 
-    VkDescriptorSet shaderDescriptor;
-    vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, device.pipeline.descriptorLayout, &shaderDescriptor);
+    VkDescriptorSet shaderDescriptor = vgCreateDescriptor(&device, device.pipeline.descriptorLayout);
+    // vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, device.pipeline.descriptorLayout, &shaderDescriptor);
 
     VkDescriptorBufferInfo bufferInfo{};
     bufferInfo.buffer = device.pCurFrame->camera_buffer.handle;
@@ -1732,47 +1734,61 @@ void vgTempBuildRenderCommands(vg_device& device, u32 swapChainImageIndex)
         vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &bufferInfo, 0),
         vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 1)};
 
-    vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
+    vgUpdateDescriptorSets(&device, ARRAY_COUNT(writes), writes);
+    // vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
 
-    VkCommandBufferBeginInfo beginInfo = vkInit_command_buffer_begin_info(0);
+    // VkCommandBufferBeginInfo beginInfo = vkInit_command_buffer_begin_info(0);
 
     VkCommandBuffer commandBuffer = device.pCurFrame->commandBuffer;
-    VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
-    if(DIDFAIL(result)) { 
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-    }
+    vgBeginRecordingCmds(commandBuffer);
+    // VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    // if(DIDFAIL(result)) { 
+    //     LOG_ERROR("Vulkan Error: %X", (result));
+    //     ASSERT(false);
+    // }
 
-    VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
-        device.renderPass.handle, device.extent, device.paFramebuffers[swapChainImageIndex]
-    );
+    // VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
+    //     device.renderPass.handle, device.extent, device.paFramebuffers[swapChainImageIndex]
+    // );
 
     VkClearValue clearValues[2] = {};
     clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     clearValues[1].depthStencil = {1.0f, 0};
-    renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
-    renderPassInfo.pClearValues = clearValues;
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    vgBeginRenderPass(commandBuffer, device.renderPass.handle, 2, clearValues, device.extent, device.paFramebuffers[swapChainImageIndex]);
+    // renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
+    // renderPassInfo.pClearValues = clearValues;
+    // vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.handle);
+    vgBindPipeline(commandBuffer, device.pipeline.handle);
+    // vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.handle);
 
     VkBuffer vertexBuffers[] = {device.vertex_buffer.handle};
     VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-    vkCmdBindIndexBuffer(commandBuffer, device.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
+    // vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+    vgBindVertexBuffers(commandBuffer, 1, vertexBuffers, offsets);
 
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.layout, 0, 1, &shaderDescriptor, 0, nullptr);
+    vgBindIndexBuffer(commandBuffer, device.index_buffer.handle);
+    // vkCmdBindIndexBuffer(commandBuffer, device.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
+
+    vgBindDescriptorSets(commandBuffer, device.pipeline.layout, 1, &shaderDescriptor);
+    // vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.layout, 0, 1, &shaderDescriptor, 0, nullptr);
     // and wait for it....
     u32 count = (u32)g_ModelIndices.size();
-    vkCmdDrawIndexed(commandBuffer, count, 1, 0, 0, 0); // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
 
-    vkCmdEndRenderPass(commandBuffer);
+    vgDrawIndexed(commandBuffer, count, 1);
 
-    result = vkEndCommandBuffer(commandBuffer);
-    if(DIDFAIL(result)) { 
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-    }
+    //vkCmdDrawIndexed(commandBuffer, count, 1, 0, 0, 0); // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
+
+    vgEndRenderPass(commandBuffer);
+    // vkCmdEndRenderPass(commandBuffer);
+
+    vgEndRecordingCmds(commandBuffer);
+
+    // result = vkEndCommandBuffer(commandBuffer);
+    // if(DIDFAIL(result)) { 
+    //     LOG_ERROR("Vulkan Error: %X", (result));
+    //     ASSERT(false);
+    // }
 }
 
 internal
@@ -1853,6 +1869,42 @@ void VulkanGraphicsBeginFrame(vg_backend* vb)
 
     device.pPrevFrame = device.pCurFrame;
     device.pCurFrame = &device.frames[device.currentFrameIndex];
+    
+    VkResult result = vkWaitForFences(device.handle, 1, &device.pCurFrame->renderFence, VK_TRUE, UINT64_MAX);
+    result = vkAcquireNextImageKHR(device.handle, device.swapChain, UINT64_MAX, device.pCurFrame->presentSemaphore, VK_NULL_HANDLE, &device.curSwapChainIndex);
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR) 
+    {
+        ASSERT(false);
+        // Win32RecreateSwapChain(graphics);
+    }
+    else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        ASSERT(false);
+    }
+
+    // TODO(james): reset the command pool instead
+    vkResetCommandBuffer(device.pCurFrame->commandBuffer, 0);
+    vgResetDescriptorPools(device.pCurFrame->dynamicDescriptorAllocator);
+
+    // update the g_UBO with the latest matrices
+    // {
+    //     local_persist f32 accumlated_elapsedFrameTime = 0.0f;
+
+    //     //accumlated_elapsedFrameTime += clock.elapsedFrameTime;
+
+    //     UniformBufferObject ubo{};
+    //     // Rotates 90 degrees a second
+    //     ubo.model = Rotate(accumlated_elapsedFrameTime * 90.0f, Vec3(0.0f, 0.0f, 1.0f));
+    //     ubo.view = LookAt(Vec3(4.0f, 4.0f, 4.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f));
+    //     ubo.proj = Perspective(45.0f, (f32)device.extent.width, (f32)device.extent.height, 0.1f, 10.0f);
+    //     //ubo.proj.Elements[1][1] *= -1;
+
+    //     void* data;
+    //     vkMapMemory(device.handle, device.pCurFrame->camera_buffer.memory, 0, sizeof(ubo), 0, &data);
+    //         Copy(sizeof(ubo), &ubo, data);
+    //     vkUnmapMemory(device.handle, device.pCurFrame->camera_buffer.memory);
+    // }
 }
 
 internal
@@ -1861,48 +1913,14 @@ void VulkanGraphicsEndFrame(vg_backend* vb, GameClock& clock)
     vg_device& device = vb->device;
  
     // wait fence here...
-    VkResult result = vkWaitForFences(device.handle, 1, &device.pCurFrame->renderFence, VK_TRUE, UINT64_MAX);
-    u32 imageIndex = 0;
-    result = vkAcquireNextImageKHR(device.handle, device.swapChain, UINT64_MAX, device.pCurFrame->presentSemaphore, VK_NULL_HANDLE, &imageIndex);
-
-    if(result == VK_ERROR_OUT_OF_DATE_KHR) 
-    {
-        ASSERT(false);
-        return;
-        // Win32RecreateSwapChain(graphics);
-    }
-    else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-    {
-        // welp, can't render anything so just quit
-        return;
-    }
-
+    u32 imageIndex = device.curSwapChainIndex;
+    VkResult result = VK_SUCCESS;
     
     VkSemaphore waitSemaphores[] = { device.pCurFrame->presentSemaphore };
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
     VkSemaphore signalSemaphores[] = { device.pCurFrame->renderSemaphore };
 
-    // update the g_UBO with the latest matrices
-    {
-        local_persist f32 accumlated_elapsedFrameTime = 0.0f;
-
-        //accumlated_elapsedFrameTime += clock.elapsedFrameTime;
-
-        UniformBufferObject ubo{};
-        // Rotates 90 degrees a second
-        ubo.model = Rotate(accumlated_elapsedFrameTime * 90.0f, Vec3(0.0f, 0.0f, 1.0f));
-        ubo.view = LookAt(Vec3(4.0f, 4.0f, 4.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f));
-        ubo.proj = Perspective(45.0f, (f32)device.extent.width, (f32)device.extent.height, 0.1f, 10.0f);
-        //ubo.proj.Elements[1][1] *= -1;
-
-        void* data;
-        vkMapMemory(device.handle, device.pCurFrame->camera_buffer.memory, 0, sizeof(ubo), 0, &data);
-            Copy(sizeof(ubo), &ubo, data);
-        vkUnmapMemory(device.handle, device.pCurFrame->camera_buffer.memory);
-    }
-
-    vkResetCommandBuffer(device.pCurFrame->commandBuffer, 0);
-    vgTempBuildRenderCommands(device, imageIndex);
+    //vgTempBuildRenderCommands(device, device.curSwapChainIndex);
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1928,7 +1946,7 @@ void VulkanGraphicsEndFrame(vg_backend* vb, GameClock& clock)
     presentInfo.pWaitSemaphores = signalSemaphores;
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &device.swapChain;
-    presentInfo.pImageIndices = &imageIndex;
+    presentInfo.pImageIndices = &device.curSwapChainIndex;
     presentInfo.pResults = nullptr;
 
     result = vkQueuePresentKHR(device.q_present.handle, &presentInfo);

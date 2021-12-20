@@ -1,6 +1,7 @@
 
 #include "ps_game.h"
 #include "ps_audio_synth.cpp"
+#include "vulkan/vk_initializers.cpp"   // TODO(james): Remove this...
 
 // TODO(james): this needs to be cleaned up, just a quick hack to allow for debugging simple game code
 global platform_logger* g_logger;
@@ -206,6 +207,91 @@ void ToggleSoundTone(SoundTone& tone, InputButton& button)
     }
 }
 
+// UBOs have alignment requirements depending on the data being uploaded
+// so it is always good to be specific about the alignment for a UBO
+struct UniformBufferObject  // TODO(james): this is only temporary...
+{
+    alignas(16) m4 model;
+    alignas(16) m4 view;
+    alignas(16) m4 proj;
+};
+
+internal inline
+void RenderScene(GraphicsContext& graphics, GameTestState& gameState, FrameContext& frame)
+{
+    VkExtent2D extent = graphics.device->extent;    // TODO
+
+    // update the g_UBO with the latest matrices
+    {
+        local_persist f32 accumlated_elapsedFrameTime = 0.0f;
+
+        //accumlated_elapsedFrameTime += clock.elapsedFrameTime;
+
+        u32 width = extent.width;
+        u32 height = extent.height;
+
+        UniformBufferObject ubo{};
+        // Rotates 90 degrees a second
+        ubo.model = Rotate(accumlated_elapsedFrameTime * 90.0f, Vec3(0.0f, 0.0f, 1.0f));
+        ubo.view = LookAt(Vec3(4.0f, 4.0f, 4.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f));
+        ubo.proj = Perspective(45.0f, (f32)width, (f32)height, 0.1f, 10.0f);
+        //ubo.proj.Elements[1][1] *= -1;
+
+        vg_buffer& uboBuffer = graphics.device->pCurFrame->camera_buffer;   // TODO
+        graphics.api->UpdateBufferData(graphics.device, uboBuffer, sizeof(ubo), &ubo);
+    }
+
+    VkDescriptorSetLayout descriptorLayout = graphics.device->pipeline.descriptorLayout;   // TODO
+    VkDescriptorSet shaderDescriptor = graphics.api->CreateDescriptor(graphics.device, descriptorLayout);
+
+    VkDescriptorBufferInfo bufferInfo{};
+    bufferInfo.buffer = graphics.device->pCurFrame->camera_buffer.handle;   // TODO
+    bufferInfo.offset = 0;
+    bufferInfo.range = sizeof(UniformBufferObject);
+
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = graphics.device->texture.view;  // TODO
+    imageInfo.sampler = graphics.device->sampler.handle; // TODO
+
+    VkWriteDescriptorSet writes[] = {
+            vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &bufferInfo, 0),
+            vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 1)
+        };
+
+    graphics.api->UpdateDescriptorSets(graphics.device, ARRAY_COUNT(writes), writes);
+
+    VkCommandBuffer cmds = graphics.api->GetCmdBuffer(graphics.device);
+    VkFramebuffer framebuffer = graphics.api->GetFramebuffer(graphics.device);
+    
+    graphics.api->BeginRecordingCmds(cmds);
+
+        VkClearValue clearValues[2] = {};
+        clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        clearValues[1].depthStencil = {1.0f, 0};
+        VkRenderPass pass = graphics.device->renderPass.handle;    // TODO
+        graphics.api->BeginRenderPass(cmds, pass, ARRAY_COUNT(clearValues), clearValues, extent, framebuffer);
+
+            VkPipeline pipeline = graphics.device->pipeline.handle; // TODO
+            graphics.api->BindPipeline(cmds, pipeline);
+
+            VkPipelineLayout pipelineLayout = graphics.device->pipeline.layout; // TODO
+            graphics.api->BindDescriptorSets(cmds, pipelineLayout, 1, &shaderDescriptor);
+
+            VkBuffer vertexBuffer = graphics.device->vertex_buffer.handle;  // TODO
+            VkDeviceSize offsets[] = {0};
+            graphics.api->BindVertexBuffers(cmds, 1, &vertexBuffer, offsets);
+
+            VkBuffer indexBuffer = graphics.device->index_buffer.handle;    // TODO
+            graphics.api->BindIndexBuffer(cmds, indexBuffer);
+
+            u32 count = 11484;  // TODO: comes from model
+            graphics.api->DrawIndexed(cmds, count, 1);
+
+        graphics.api->EndRenderPass(cmds);
+    graphics.api->EndRecordingCmds(cmds);
+}
+
 extern "C"
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
@@ -312,6 +398,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     }
 
     FillSoundBuffer(audio, gameState, frame);
+    RenderScene(graphics, gameState, frame);
 
     // now keep a ring buffer copy of the frames audio samples
     u32 sampleCountToCopy = audio.samplesWritten * 2;

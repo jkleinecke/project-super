@@ -5,7 +5,7 @@
 #include "ps_intrinsics.h"
 #include "ps_math.h"
 #include "ps_memory.h"
-#include "ps_graphics.h"
+//#include "ps_graphics.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -348,6 +348,9 @@ extern "C" int __stdcall WinMainCRTStartup()
     // TODO(james): Load all of the initialization memory in a single allocation
 
     ps_graphics_backend_api graphicsApi = platform_load_graphics_backend(hInstance, mainWindow.hWindow);
+
+    mainWindow.graphics.device = &graphicsApi.instance->device;
+    mainWindow.graphics.api = &graphicsApi.graphics;
     
     SetWindowLongPtrA(mainWindow.hWindow, GWLP_USERDATA, (LONG_PTR)&mainWindow);
     ShowWindow(mainWindow.hWindow, SW_SHOW);

@@ -101,6 +101,7 @@ struct vg_device
     vg_framedata* pPrevFrame;
     vg_framedata* pCurFrame;
 
+    u32 curSwapChainIndex;
     u32 numSwapChainImages;
     VkSurfaceKHR platform_surface;
     VkSwapchainKHR swapChain;

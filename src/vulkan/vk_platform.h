@@ -8,6 +8,7 @@ struct vg_backend;
 struct ps_graphics_backend_api
 {
     vg_backend* instance;
+    ps_graphics_api graphics;
 
     // TODO(james): create,resize,destroy swapchain per platform window/surface
     //ResizeSwapChain(vg_backend &graphics, )

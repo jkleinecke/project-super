@@ -167,6 +167,8 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     api.instance = &g_VulkanBackend;
     api.BeginFrame = &VulkanGraphicsBeginFrame;
     api.EndFrame = &VulkanGraphicsEndFrame;
+    
+    vgLoadApi(g_VulkanBackend, api.graphics);
 
     return api;
 }

@@ -41,11 +41,6 @@ end frame:
 
 //#include "libs/tiny_imageformat/include/tiny_imageformat/tinyimageformat.h"
 
-#if 0
-struct psg_device { void* native; };
-struct psg_framecontext { void* native; };
-
-
 
 
 #define DECLARE_GRAPHICS_FUNCTION(ret, name, ...)   \
@@ -55,72 +50,31 @@ struct psg_framecontext { void* native; };
 struct ps_graphics_api
 {
     // Platform layer is responsible for managing the swap chain entirely
-    psg_device device;
-    psg_framecontext frame;
+
+    // TODO(james): Extend in the following ways:
+    //  - Creation/Usage of multiple queue types
+    //  - Background resource uploading
+    //  - Creation/Usage of multiple command buffers and/or command pools
+    //  - Compute shaders
+    //  - Rich resource management interface
 
     // Rendering Objects
-
-    DECLARE_GRAPHICS_FUNCTION(void, createFence, psg_device& device, psg_fence* fence);
-    DECLARE_GRAPHICS_FUNCTION(void, destroyFence, psg_device& device, psg_fence* fence);
-    DECLARE_GRAPHICS_FUNCTION(void, createSemaphore, psg_device& device, psg_semaphore* semaphore);
-    DECLARE_GRAPHICS_FUNCTION(void, destroySemaphore, psg_device& device, psg_semaphore* semaphore);
-    DECLARE_GRAPHICS_FUNCTION(void, findQueue, psg_device& device, PsgQueueDesc& desc, psg_queue* queue);
-
-    DECLARE_GRAPHICS_FUNCTION(void, createCmdPool, psg_device& device, PsgCmdPoolDesc& desc, psg_cmdpool* cmdpool);
-    DECLARE_GRAPHICS_FUNCTION(void, destroyCmdPool, psg_device& device, psg_cmdpool* cmdpool);
-    DECLARE_GRAPHICS_FUNCTION(void, createCmd, psg_device& device, PsgCmdDesc& desc, psg_cmd* cmd);
-    DECLARE_GRAPHICS_FUNCTION(void, destroyCmd, psg_device& device, psg_cmd* cmd);
-
-    DECLARE_GRAPHICS_FUNCTION(void, createRenderTarget, psg_device& device, PsgRenderTargetDesc& desc, psg_rendertarget* rendertarget);
-    DECLARE_GRAPHICS_FUNCTION(void, destroyRenderTarget, psg_device& device, psg_rendertarget* rendertarget);
-    DECLARE_GRAPHICS_FUNCTION(void, createSampler, psg_device& device, PsgSamplerDesc& desc, psg_sampler* sampler);
-    DECLARE_GRAPHICS_FUNCTION(void, destroySampler, psg_device& device, psg_sampler* sampler);
-
-    DECLARE_GRAPHICS_FUNCTION(void, createPipeline, psg_device& device, PsgPipelineDesc& desc, psg_pipeline* pipeline);
-    DECLARE_GRAPHICS_FUNCTION(void, removePipeline, psg_device& device, psg_pipeline* pipeline);
+    DECLARE_GRAPHICS_FUNCTION(VkCommandBuffer, GetCmdBuffer, vg_device* device);   
+    DECLARE_GRAPHICS_FUNCTION(VkFramebuffer, GetFramebuffer, vg_device* device);
+    DECLARE_GRAPHICS_FUNCTION(VkDescriptorSet, CreateDescriptor, vg_device* device, VkDescriptorSetLayout layout);
     
-    DECLARE_GRAPHICS_FUNCTION(void, createDescriptorSet, psg_device& device, PsgDescriptorSetDesc& desc, psg_descriptorset* descriptorset);
-    DECLARE_GRAPHICS_FUNCTION(void, destroyDescriptorSet, psg_device& device, psg_descriptorset* descriptorset);
-    DECLARE_GRAPHICS_FUNCTION(void, updateDescriptorSet, u32 index, psg_descriptorset* descriptorset, u32 count, PsgDescriptorSetParam* params);
+    DECLARE_GRAPHICS_FUNCTION(void, UpdateBufferData, vg_device* device, vg_buffer& buffer, mem_size size, const void* data);
+    DECLARE_GRAPHICS_FUNCTION(void, UpdateDescriptorSets, vg_device* device, u32 count, VkWriteDescriptorSet* pWrites);
 
-    // Rendering Commands
+    DECLARE_GRAPHICS_FUNCTION(void, BeginRecordingCmds, VkCommandBuffer cmds);
+    DECLARE_GRAPHICS_FUNCTION(void, EndRecordingCmds, VkCommandBuffer cmds);
 
-    DECLARE_GRAPHICS_FUNCTION(void, resetCmdPool, psg_device& device, psg_cmdpool* cmdpool);
-    DECLARE_GRAPHICS_FUNCTION(void, beginCmd, psg_cmd* cmd);
-    DECLARE_GRAPHICS_FUNCTION(void, endCmd, psg_cmd* cmd);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdBindRenderTargets, psg_cmd* cmd, u32 rendertarget_count, psg_rendertarget* rendertargets, psg_rendertarget* depthstencil, PsgLoadActionsDesc& loadActions);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdSetViewport);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdSetScissor);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdSetStencilRefValue);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdBindPipeline);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdBindDescriptorSet);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdBindPushConstants);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdBindIndexBuffer);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdBindVertexBuffers);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdDraw);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdDrawInstanced);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdDrawIndexed);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdDrawIndexedInstanced);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdDispatch);
-    DECLARE_GRAPHICS_FUNCTION(void, cmdResourceBarrier);
-    
-    DECLARE_GRAPHICS_FUNCTION(void, acquireNextImage);
-    DECLARE_GRAPHICS_FUNCTION(void, queueSubmit);
-    DECLARE_GRAPHICS_FUNCTION(void, queuePresent);
-    DECLARE_GRAPHICS_FUNCTION(void, waitForQueueIdle);
-    DECLARE_GRAPHICS_FUNCTION(void, waitForFences);
-    
+    DECLARE_GRAPHICS_FUNCTION(void, BeginRenderPass, VkCommandBuffer cmds, VkRenderPass renderpass, u32 numClearValues, VkClearValue* pClearValues, VkExtent2D extent, VkFramebuffer framebuffer); // TODO(james): pass render targets too
+    DECLARE_GRAPHICS_FUNCTION(void, EndRenderPass, VkCommandBuffer cmds);
+    DECLARE_GRAPHICS_FUNCTION(void, BindPipeline, VkCommandBuffer cmds, VkPipeline pipeline); // Allow for different bind points
+    DECLARE_GRAPHICS_FUNCTION(void, BindDescriptorSets, VkCommandBuffer cmds, VkPipelineLayout layout, u32 count, VkDescriptorSet* pDescriptorSets);
+    DECLARE_GRAPHICS_FUNCTION(void, BindVertexBuffers, VkCommandBuffer cmds, u32 count, VkBuffer* pBuffers, mem_size* pOffsets);
+    DECLARE_GRAPHICS_FUNCTION(void, BindIndexBuffer, VkCommandBuffer cmds, VkBuffer buffer);
 
-
-
-    // Resource Managament Functions
-
-    DECLARE_GRAPHICS_FUNCTION(void, waitForToken, psg_device& device, const psg_synctoken* token);
-    DECLARE_GRAPHICS_FUNCTION(void, addResources, psg_device& device, PsgAddResourcesDesc* desc, psg_synctoken* token);
-    DECLARE_GRAPHICS_FUNCTION(void, removeResources, psg_device& device, u32 numResources, psg_resource* pResources); 
-    DELCARE_GRAPHICS_FUNCTION(void, updateResource, psg_device& device, PsgUpdateResourceDesc* desc, psg_synctoken* token);
-    // TODO(james): add map/unmap resource?
-
+    DECLARE_GRAPHICS_FUNCTION(void, DrawIndexed, VkCommandBuffer cmds, u32 indexCount, u32 instanceCount);
 };
-
-#endif
