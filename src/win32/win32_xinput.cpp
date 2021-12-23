@@ -40,7 +40,7 @@ Win32LoadXinput()
     }
     else
     {
-        LOG_WARN("Failed to load XInput: xinput1_4.dll");
+        LOG_ERROR("Failed to load XInput: xinput1_4.dll");
     }
 }
 

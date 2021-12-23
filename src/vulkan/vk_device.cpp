@@ -36,11 +36,14 @@ global const std::vector<const char*> g_validationLayers = {
 
 // UBOs have alignment requirements depending on the data being uploaded
 // so it is always good to be specific about the alignment for a UBO
-struct UniformBufferObject
+struct FrameObject
+{
+    alignas(16) m4 viewProj;
+};
+
+struct InstanceObject
 {
     alignas(16) m4 model;
-    alignas(16) m4 view;
-    alignas(16) m4 proj;
 };
 
 struct ps_vertex
@@ -301,7 +304,7 @@ internal VKAPI_ATTR VkBool32 VKAPI_CALL vgDebugCallback(
     else if (messageSeverity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) 
     {
         // Message is important enough to show
-        LOG_WARN("Validation Layer: %s", pCallbackData->pMessage);
+        LOG_ERROR("Validation Layer: %s", pCallbackData->pMessage);
     }
     else
     {
@@ -958,77 +961,6 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
     return VK_SUCCESS;
 }
 
-
-// internal
-// VkResult vgCreateDescriptorPool(vg_device& device)
-// {
-//     // TODO(james): support more things in the descriptor pool, or determine what is needed at creation time
-//     VkDescriptorPoolSize poolSizes[2] = {};
-//     poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-//     poolSizes[0].descriptorCount = 10;
-//     poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-//     poolSizes[1].descriptorCount = 10;
-
-//     VkDescriptorPoolCreateInfo poolInfo{};
-//     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-//     poolInfo.poolSizeCount = ARRAY_COUNT(poolSizes);
-//     poolInfo.pPoolSizes = poolSizes;
-//     poolInfo.maxSets = 10;
-//     poolInfo.flags = 0; // optional
-
-//     VkResult result = vkCreateDescriptorPool(device.handle, &poolInfo, nullptr, &device.pipeline.descriptorPool);
-//     ASSERT(DIDSUCCEED(result));
-
-//     return result;
-// }
-
-// internal
-// VkResult vgCreateDescriptorSets(vg_device& device)
-// {
-//     // TODO(james): Figure out how to create many descriptors with specific buffers and images...
-
-//     for(size_t i = 0; i < FRAME_OVERLAP; ++i)
-//     {
-
-//         VkDescriptorSetLayoutBinding layoutBindings[] = {
-//             // ubo
-//             vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0), 
-//             // sampler
-//             vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1)
-//         };
-
-//         VkDescriptorSetLayout layout = vgGetDescriptorLayoutFromCache(device.descriptorLayoutCache, ARRAYCOUNT(layoutBindings), layoutBindings);
-
-//         // Allocate 1 descriptor per frame
-//         VkDescriptorSetAllocateInfo allocInfo{};
-//         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-//         allocInfo.descriptorPool = device.pipeline.descriptorPool;
-//         allocInfo.descriptorSetCount = 1;
-//         allocInfo.pSetLayouts = &layout;
-
-//         VkResult result = vkAllocateDescriptorSets(device.handle, &allocInfo, &device.frames[i].globalDescriptor);
-
-//         VkDescriptorBufferInfo bufferInfo{};
-//         bufferInfo.buffer = device.frames[i].camera_buffer.handle;
-//         bufferInfo.offset = 0;
-//         bufferInfo.range = sizeof(UniformBufferObject);
-
-//         VkDescriptorImageInfo  imageInfo{};
-//         imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-//         imageInfo.imageView = device.texture.view;
-//         imageInfo.sampler = device.sampler.handle;
-
-//         VkWriteDescriptorSet writes[] = {
-//             vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, device.frames[i].globalDescriptor, &bufferInfo, 0),
-//             vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, device.frames[i].globalDescriptor, &imageInfo, 1)
-//         };
-
-//         vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
-//     }
-
-//     return VK_SUCCESS;
-// }
-
 internal
 VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorSpaceKHR preferredColorSpace, VkPresentModeKHR preferredPresentMode, u32 width, u32 height)
 {
@@ -1340,10 +1272,12 @@ VkResult vgCreateGraphicsPipeline(vg_device& device)
 
     // TODO(james): use reflection on the shaderset to discover these
     VkDescriptorSetLayoutBinding layoutBindings[] = {
-        // ubo
-        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0), 
+        // camera
+        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
+        // instance 
+        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 1),
         // sampler
-        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1)
+        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2)
     };
 
     VkDescriptorSetLayout layout = vgGetDescriptorLayoutFromCache( device.descriptorLayoutCache, ARRAY_COUNT(layoutBindings), layoutBindings );
@@ -1571,17 +1505,12 @@ VkResult vgTempCreateIndexBuffers(vg_device& device)
 internal
 VkResult vgTempCreateUniformBuffers(vg_device& device)
 {
-    VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-
     for (size_t i = 0; i < FRAME_OVERLAP; ++i)
     {
-        VkResult result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &device.frames[i].camera_buffer);
-        if (DIDFAIL(result))
-        {
-            LOG_ERROR("Vulkan Error: %X", (result));
-            ASSERT(false);
-            return result;
-        }
+        VkResult result = vgCreateBuffer(device, sizeof(FrameObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &device.frames[i].frame_buffer);
+        ASSERT(result == VK_SUCCESS);
+        result = vgCreateBuffer(device, sizeof(InstanceObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &device.frames[i].instance_buffer);
+        ASSERT(result == VK_SUCCESS);
     }
 
     return VK_SUCCESS;
@@ -1683,7 +1612,7 @@ VkResult vgCreateCommandPool(vg_device& device)
     for(u32 i = 0; i < FRAME_OVERLAP; ++i)
     {
         VkCommandPoolCreateInfo poolInfo = vkInit_command_pool_create_info
-            (device.q_graphics.queue_family_index, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
+            (device.q_graphics.queue_family_index, 0);
         result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &device.frames[i].commandPool);
 
         if(DIDFAIL(result)) { 
@@ -1712,6 +1641,7 @@ VkResult vgCreateCommandPool(vg_device& device)
     return VK_SUCCESS;
 }
 
+#if 0
 internal
 void vgTempBuildRenderCommands(vg_device& device, u32 swapChainImageIndex)
 {
@@ -1721,7 +1651,7 @@ void vgTempBuildRenderCommands(vg_device& device, u32 swapChainImageIndex)
     // vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, device.pipeline.descriptorLayout, &shaderDescriptor);
 
     VkDescriptorBufferInfo bufferInfo{};
-    bufferInfo.buffer = device.pCurFrame->camera_buffer.handle;
+    bufferInfo.buffer = device.pCurFrame->frame_buffer.handle;
     bufferInfo.offset = 0;
     bufferInfo.range = sizeof(UniformBufferObject);
 
@@ -1790,6 +1720,7 @@ void vgTempBuildRenderCommands(vg_device& device, u32 swapChainImageIndex)
     //     ASSERT(false);
     // }
 }
+#endif
 
 internal
 void vgDestroySwapChain(vg_device& device)
@@ -1804,7 +1735,8 @@ void vgDestroySwapChain(vg_device& device)
         vkDestroySemaphore(device.handle, frame.renderSemaphore, nullptr);
         vkDestroySemaphore(device.handle, frame.presentSemaphore, nullptr);
         vkDestroyFence(device.handle, frame.renderFence, nullptr);
-        vgDestroyBuffer(device.handle, frame.camera_buffer);
+        vgDestroyBuffer(device.handle, frame.frame_buffer);
+        vgDestroyBuffer(device.handle, frame.instance_buffer);
     }
 
     IFF(device.pipeline.handle, vkDestroyPipeline(device.handle, device.pipeline.handle, nullptr));
@@ -1870,22 +1802,7 @@ void VulkanGraphicsBeginFrame(vg_backend* vb)
     device.pPrevFrame = device.pCurFrame;
     device.pCurFrame = &device.frames[device.currentFrameIndex];
     
-    VkResult result = vkWaitForFences(device.handle, 1, &device.pCurFrame->renderFence, VK_TRUE, UINT64_MAX);
-    result = vkAcquireNextImageKHR(device.handle, device.swapChain, UINT64_MAX, device.pCurFrame->presentSemaphore, VK_NULL_HANDLE, &device.curSwapChainIndex);
-
-    if(result == VK_ERROR_OUT_OF_DATE_KHR) 
-    {
-        ASSERT(false);
-        // Win32RecreateSwapChain(graphics);
-    }
-    else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
-    {
-        ASSERT(false);
-    }
-
-    // TODO(james): reset the command pool instead
-    vkResetCommandBuffer(device.pCurFrame->commandBuffer, 0);
-    vgResetDescriptorPools(device.pCurFrame->dynamicDescriptorAllocator);
+ 
 
     // update the g_UBO with the latest matrices
     // {
@@ -1901,25 +1818,146 @@ void VulkanGraphicsBeginFrame(vg_backend* vb)
     //     //ubo.proj.Elements[1][1] *= -1;
 
     //     void* data;
-    //     vkMapMemory(device.handle, device.pCurFrame->camera_buffer.memory, 0, sizeof(ubo), 0, &data);
+    //     vkMapMemory(device.handle, device.pCurFrame->frame_buffer.memory, 0, sizeof(ubo), 0, &data);
     //         Copy(sizeof(ubo), &ubo, data);
-    //     vkUnmapMemory(device.handle, device.pCurFrame->camera_buffer.memory);
+    //     vkUnmapMemory(device.handle, device.pCurFrame->frame_buffer.memory);
     // }
 }
 
 internal
-void VulkanGraphicsEndFrame(vg_backend* vb, GameClock& clock)
+void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
+{
+    // TODO(james): Turn this into an actual renderer, this is just to get some stuff on the screen
+
+    // prepare for recording...
+    VkDescriptorSet shaderDescriptor = VK_NULL_HANDLE;
+    vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, device.pipeline.descriptorLayout, &shaderDescriptor);
+
+    VkDescriptorBufferInfo cameraBufferInfo{};
+    cameraBufferInfo.buffer = device.pCurFrame->frame_buffer.handle;
+    cameraBufferInfo.offset = 0;
+    cameraBufferInfo.range = sizeof(FrameObject);
+
+    VkDescriptorBufferInfo instanceBufferInfo{};
+    instanceBufferInfo.buffer = device.pCurFrame->instance_buffer.handle;
+    instanceBufferInfo.offset = 0;
+    instanceBufferInfo.range = sizeof(InstanceObject);
+
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = device.texture.view;
+    imageInfo.sampler = device.sampler.handle;
+
+    VkWriteDescriptorSet writes[] = {
+        vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &cameraBufferInfo, 0),
+        vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &instanceBufferInfo, 1),
+        vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 2)};
+
+    vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
+
+    VkCommandBufferBeginInfo beginInfo = vkInit_command_buffer_begin_info(0);
+
+    VkCommandBuffer commandBuffer = device.pCurFrame->commandBuffer;
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+    
+    VkClearValue clearValues[2] = {};
+    clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+    clearValues[1].depthStencil = {1.0f, 0};
+    
+    VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
+        device.renderPass.handle, device.extent, device.paFramebuffers[device.curSwapChainIndex]
+    );
+    renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
+    renderPassInfo.pClearValues = clearValues;
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.handle);
+
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.layout, 0, 1, &shaderDescriptor, 0, nullptr);
+
+    //
+    // Iterate through the render commands
+    //
+
+    render_cmd_header* header = (render_cmd_header*)commands->cmd_arena.basePointer;
+
+    while(header->type != RENDER_CMD_DONE)
+    {
+        switch(header->type)
+        {
+            case RENDER_CMD_UPDATE_VIEWPROJECTION:
+            {
+                render_cmd_update_viewprojection* cmd = (render_cmd_update_viewprojection*)header;
+
+                FrameObject frameObject;
+                frameObject.viewProj = cmd->projection * cmd->view;
+
+                void* data;
+                vkMapMemory(device.handle, device.pCurFrame->frame_buffer.memory, 0, sizeof(frameObject), 0, &data);
+                    Copy(sizeof(frameObject), &frameObject, data);
+                vkUnmapMemory(device.handle, device.pCurFrame->frame_buffer.memory);
+            } break;
+            case RENDER_CMD_DRAW_OBJECT:
+            {
+                render_cmd_draw_object* cmd = (render_cmd_draw_object*)header;
+
+                InstanceObject instanceObject;
+                instanceObject.model = cmd->model;
+
+                void* data;
+                vkMapMemory(device.handle, device.pCurFrame->instance_buffer.memory, 0, sizeof(InstanceObject), 0, &data);
+                    Copy(sizeof(instanceObject), &instanceObject, data);
+                vkUnmapMemory(device.handle, device.pCurFrame->instance_buffer.memory);
+
+                VkDeviceSize offsets[] = {0};
+                vkCmdBindVertexBuffers(commandBuffer, 0, 1, &device.vertex_buffer.handle, offsets);
+                vkCmdBindIndexBuffer(commandBuffer, device.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
+
+                vkCmdDrawIndexed(commandBuffer, (u32)g_ModelIndices.size(), 1, 0, 0, 0);                
+            } break;
+            default:
+                // command is not supported
+                break;
+        }
+
+        // move to the next command
+        header = (render_cmd_header*)OffsetPtr(header, header->size);
+    }
+
+    vkCmdEndRenderPass(commandBuffer);
+    vkEndCommandBuffer(commandBuffer);
+    
+}
+
+internal
+void VulkanGraphicsEndFrame(vg_backend* vb, render_commands* commands)
 {
     vg_device& device = vb->device;
+
+    VkResult result = vkWaitForFences(device.handle, 1, &device.pCurFrame->renderFence, VK_TRUE, UINT64_MAX);
+    result = vkAcquireNextImageKHR(device.handle, device.swapChain, UINT64_MAX, device.pCurFrame->presentSemaphore, VK_NULL_HANDLE, &device.curSwapChainIndex);
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR) 
+    {
+        ASSERT(false);
+        // Win32RecreateSwapChain(graphics);
+    }
+    else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        ASSERT(false);
+    }
+
+    vkResetCommandPool(device.handle, device.pCurFrame->commandPool, 0);
+    vgResetDescriptorPools(device.pCurFrame->dynamicDescriptorAllocator);
  
     // wait fence here...
     u32 imageIndex = device.curSwapChainIndex;
-    VkResult result = VK_SUCCESS;
     
     VkSemaphore waitSemaphores[] = { device.pCurFrame->presentSemaphore };
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
     VkSemaphore signalSemaphores[] = { device.pCurFrame->renderSemaphore };
 
+    vgTranslateRenderCommands(device, commands);
     //vgTempBuildRenderCommands(device, device.curSwapChainIndex);
 
     VkSubmitInfo submitInfo{};

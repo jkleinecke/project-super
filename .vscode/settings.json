@@ -53,7 +53,10 @@
         "format": "cpp",
         "array": "cpp",
         "xhash": "cpp",
-        "xtree": "cpp"
+        "xtree": "cpp",
+        "optional": "cpp",
+        "system_error": "cpp",
+        "thread": "cpp"
     },
     "editor.suggestOnTriggerCharacters": false,
     "C_Cpp.workspaceParsingPriority": "low"

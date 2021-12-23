@@ -82,7 +82,8 @@ struct vg_framedata
     vg_descriptor_allocator dynamicDescriptorAllocator;
 
     // TODO(james): make some room for buffers that are updated each frame
-    vg_buffer camera_buffer;
+    vg_buffer frame_buffer;
+    vg_buffer instance_buffer;
 };
 
 struct vg_device

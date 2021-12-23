@@ -65,6 +65,10 @@ typedef int8_t  i8;
 typedef int16_t i16;
 typedef int32_t i32;
 typedef int64_t i64;
+typedef int8_t  s8;
+typedef int16_t s16;
+typedef int32_t s32;
+typedef int64_t s64;
 
 typedef uint8_t  u8;
 typedef uint16_t u16;
@@ -130,7 +134,6 @@ typedef intptr_t imm;
     #define PSAPI_CALL
 #endif
 
-#ifdef __cplusplus
 #ifndef MAKE_ENUM_FLAG
 #define MAKE_ENUM_FLAG(TYPE, ENUM_TYPE)                                                                        \
 	static inline ENUM_TYPE operator|(ENUM_TYPE a, ENUM_TYPE b) { return (ENUM_TYPE)((TYPE)(a) | (TYPE)(b)); } \
@@ -138,9 +141,6 @@ typedef intptr_t imm;
 	static inline ENUM_TYPE operator|=(ENUM_TYPE& a, ENUM_TYPE b) { return a = (a | b); }                      \
 	static inline ENUM_TYPE operator&=(ENUM_TYPE& a, ENUM_TYPE b) { return a = (a & b); }
 
-#endif
-#else
-#define MAKE_ENUM_FLAG(TYPE, ENUM_TYPE)
 #endif
 
 // Clarify usage of static keyword with these defines

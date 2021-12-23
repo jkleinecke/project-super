@@ -1,0 +1,3 @@
+Write-Host Opening 4coder...
+
+4ed.exe -U E:/Projects/project-super

@@ -13,7 +13,7 @@
 #define CopyBuffer(src, dest) Copy(src.size, src.data, dest.data)
 #define CopyArray(count, src, dest) Copy((count)*sizeof(*(src)), (src), (dest))
 internal void*
-Copy(mem_size size, const void* src, void* dst)
+Copy(umm size, const void* src, void* dst)
 {
     CompileAssert(sizeof(umm)==sizeof(src));   // verify pointer size
     mem_size chunks = size / sizeof(src);  // Copy by CPU bit width
@@ -42,7 +42,7 @@ Copy(mem_size size, const void* src, void* dst)
 #define ZeroArray(count, array_ptr) ZeroSize((count)*sizeof((array_ptr)[0]), (array_ptr))
 #define ZeroBuffer(buffer) ZeroSize(buffer.size, buffer.data)
 internal void
-ZeroSize(mem_size size, void* ptr)
+ZeroSize(umm size, void* ptr)
 {
     CompileAssert(sizeof(umm)==sizeof(ptr));   // verify pointer size
     mem_size chunks = size/sizeof(ptr);
@@ -197,6 +197,7 @@ Advance(buffer& buff, umm count)
 }
 
 #define FormatString ps_snprintf
+#define FormatStringV ps_vsprintf
 
 #if COMPILER_MSVC
 #define CompletePreviousReadsBeforeFutureReads _ReadBarrier()

@@ -13,3 +13,4 @@
 
 #include "vulkan/vk_device.h"   // TODO(james): remove when ps_graphics.h can stand on its own
 #include "ps_graphics.h"
+#include "ps_render.h"

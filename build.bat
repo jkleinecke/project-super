@@ -1,6 +1,12 @@
 @echo off
 
-REM NOTE: Not actively maintained.. VS Code's build tasks are the normal usage
+REM Generated from 4coder project initialization
+REM set opts=-FC -GR- -EHa- -nologo -Zi
+REM set code=%cd%
+REM pushd build
+REM cl %opts% %code%\src\win32\build.bat -Febuild
+REM popd
+REM ====
 
 REM ctime -begin project_super.ctm
 
@@ -13,8 +19,8 @@ REM Setup the build directory
 IF NOT EXIST build mkdir build
 
 REM copy the redist files
-echo Copying redistributable files...
-xcopy redist\win32 build /D /E /I > NUL
+REM echo Copying redistributable files...
+REM xcopy redist\win32 build /D /E /I > NUL
 
 
 REM Use the build directory

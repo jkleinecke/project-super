@@ -7,9 +7,32 @@
 #include <algorithm>
 
 #include "../ps_image.h"            // this may not be the right place for this include
+#include "../ps_render.h"
 #include "vk_device.cpp"
 #include "vk_platform.h"
 
+/*******************************************************************************
+
+    TODO List:
+
+    - Integrate vulkan memory allocator or build one
+        - logical resource memory groups?
+    - Use volk to load vulkan functions direct from the driver
+    - Asset resource creation
+        - buffers
+        - textures? maybe just use materials
+        - shaders?
+    - Material system
+        - material description
+        - material instance
+    - Background upload of texture & buffer memory
+        - staging buffer?
+    - Integrate Shaderc for live compiling and reflecting shaders
+    - Move to GPU driven rendering
+
+    - Break out into a DLL
+
+********************************************************************************/
 
 global vg_backend g_VulkanBackend = {};
 global const int WIN32_MAX_FRAMES_IN_FLIGHT = 2;
@@ -104,7 +127,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
     }
     
-    result = vgCreateFramebuffers(vb.device);
+result = vgCreateFramebuffers(vb.device);
 
     if(result != VK_SUCCESS)
     {
@@ -163,14 +186,15 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         ASSERT(false);
     }
 
-    ps_graphics_backend_api api = {};
-    api.instance = &g_VulkanBackend;
-    api.BeginFrame = &VulkanGraphicsBeginFrame;
-    api.EndFrame = &VulkanGraphicsEndFrame;
-    
-    vgLoadApi(g_VulkanBackend, api.graphics);
+    ps_graphics_backend backend = {};
+    backend.instance = &g_VulkanBackend;
 
-    return api;
+    backend.api.BeginFrame = &VulkanGraphicsBeginFrame;
+    backend.api.EndFrame = &VulkanGraphicsEndFrame;
+    
+    //vgLoadApi(g_VulkanBackend, api.graphics);
+
+    return backend;
 }
 
 // internal void
@@ -215,9 +239,9 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
 extern "C"
 UNLOAD_GRAPHICS_BACKEND(platform_unload_graphics_backend)
 {
-    vkDeviceWaitIdle(backend->device.handle);
+    vkDeviceWaitIdle(backend->instance->device.handle);
 
-    vgDestroy(*backend);
+    vgDestroy(*backend->instance);
 
-    ZeroStruct(*backend);
+    ZeroStruct(*backend->instance);
 }

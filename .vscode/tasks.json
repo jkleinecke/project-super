@@ -5,7 +5,7 @@
 			"type": "shell",
 			"label": "BuildMainPlatform",
 			"windows":{
-				"command": "src/win32/build.bat"
+				"command": "./build.bat"
 			},
 			"osx": {
 				"command": "src/macos/build_mac.sh",

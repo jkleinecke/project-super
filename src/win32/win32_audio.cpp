@@ -150,7 +150,7 @@ Win32CopyAudioBuffer(Win32AudioContext& audio, float fFrameTimeStep)
 
     if(FAILED(hr))
     {
-        LOG_WARN("GetCurrentPadding Error: 0x%x", hr);
+        LOG_ERROR("GetCurrentPadding Error: 0x%x", hr);
         ASSERT(false);
     }
 

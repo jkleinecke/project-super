@@ -5,22 +5,58 @@
 
 //===================== PLATFORM API =================================
 
-#if defined(PROJECTSUPER_INTERNAL)
-typedef void (platform_logger)(const char* file, int lineno, const char* format, ...);
-#else
-typedef void (platform_logger)(const char* format, ...);
-#endif
+enum class FileUsage
+{
+    Read    = 0x01,
+    Write   = 0x02,
+    ReadWrite = Read | Write
+};
+MAKE_ENUM_FLAG(u32, FileUsage)
+
+enum class FileLocation
+{
+    Content,
+    User,
+    Diagnostic,
+    LocationsCount
+};
+
+struct platform_file
+{
+    b32 error;
+    u64 size;
+    void* platform;
+};
+
+enum class LogLevel
+{
+    Debug,
+    Info,
+    Error
+};
+
+#define API_FUNCTION(ret, name, ...)   \
+    typedef PS_API ret(PS_APICALL* PFN_##name)(__VA_ARGS__); \
+    PFN_##name    name
 
 struct platform_api
 {
-    platform_logger* logger;
-
-    // TODO(james): Add File APIs
+    API_FUNCTION(void, Log, LogLevel level, const char* format, ...);
+    
+    API_FUNCTION(platform_file, OpenFile, FileLocation location, const char* filename, FileUsage usage);
+    API_FUNCTION(u64, ReadFile, platform_file& file, void* buffer, u64 size);
+    API_FUNCTION(u64, WriteFile, platform_file& file, const void* buffer, u64 size);
+    API_FUNCTION(void, CloseFile, platform_file& file);
+    // TODO(james): Add list files API
     // TODO(james): Add Memory APIs
     // TODO(james): Add Threading APIs or just plain async APIs
     // TODO(james): Add window creation APIs? (Editor??)
+    
+#ifdef PROJECTSUPER_INTERNAL
+    API_FUNCTION(void, DEBUG_Log, LogLevel level, const char* file, int lineno, const char* format, ...);
+#endif
 };
-
+extern platform_api Platform;
 
 //===================== GAME API =====================================
 
@@ -33,18 +69,9 @@ struct GameClock
 
 struct MemoryArena
 {
-    uint64 size;
     void* basePointer;
     void* freePointer;
-};
-
-struct FrameContext
-{
-    GameClock clock;
-
-    // Should these live here?
-    MemoryArena persistantMemory;
-    MemoryArena transientMemory;
+    umm size;
 };
 
 struct Thumbstick
@@ -126,40 +153,51 @@ struct InputContext
     InputController controllers[5];
 };
 
-struct vg_device;
-struct ps_graphics_api;
-struct GraphicsContext
+struct render_commands
 {
-    vg_device* device;
-    ps_graphics_api* api;
-
-    // TODO(james): remove the raw buffer members
-    // format??
-    uint32 buffer_width;
-    uint32 buffer_height;
-    uint32 buffer_pitch;
-    void* buffer;
+    MemoryArena cmd_arena;
 };
 
-#define GAME_UPDATE_AND_RENDER(name) void name(FrameContext& frame, GraphicsContext& graphics, InputContext& input, AudioContext& audio)
+struct render_context
+{
+    u32 width;
+    u32 height;
+
+    render_commands commands;
+};
+
+struct game_state;
+struct game_memory
+{
+    game_state* state;
+    
+    MemoryArena persistantMemory;
+    MemoryArena transientMemory;
+
+    platform_api platformApi;
+};
+
+#define GAME_UPDATE_AND_RENDER(name) void name(game_memory& gameMemory, render_context& render, InputContext& input, AudioContext& audio)
 typedef GAME_UPDATE_AND_RENDER(game_update_and_render);
 
 inline internal
-void* PushStruct(MemoryArena& memory, u32 size)
+void* PushStruct(MemoryArena& memory, umm size)
 {
+    // TODO(james): handle overrun more gracefully
+    ASSERT(PtrToUMM(memory.freePointer)+size <= PtrToUMM(memory.basePointer) + memory.size); // already overrun
+    ASSERT(memory.size > (umm)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
     void* ret = memory.freePointer;
     memory.freePointer = ((u8*)memory.freePointer) + size;
-    // TODO(james): handle overrun more gracefully
-    ASSERT(memory.size > (u64)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
     return ret;
 }
 
 inline internal
-void* PushArray(MemoryArena& memory, u32 size, u32 count)
+void* PushArray(MemoryArena& memory, umm size, u32 count)
 {
+    // TODO(james): handle overrun more gracefully
+    ASSERT(PtrToUMM(memory.freePointer)+(size*count) <= PtrToUMM(memory.basePointer) + memory.size); // already overrun
+    ASSERT(memory.size > (umm)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
     void* ret = memory.freePointer;
     memory.freePointer = ((u8*)memory.freePointer) + (size*count);
-    // TODO(james): handle overrun more gracefully
-    ASSERT(memory.size > (u64)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
     return ret;
 }

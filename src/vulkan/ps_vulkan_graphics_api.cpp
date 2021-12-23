@@ -1,4 +1,5 @@
 
+#if 0
 VkCommandBuffer vgGetCmdBuffer(vg_device* device)
 {
     return device->pCurFrame->commandBuffer;
@@ -102,3 +103,4 @@ void vgLoadApi(vg_backend& vb, ps_graphics_api& api)
     api.BindIndexBuffer = &vgBindIndexBuffer;
     api.DrawIndexed = &vgDrawIndexed;
 }
+#endif

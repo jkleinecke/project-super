@@ -18,7 +18,11 @@ typedef hmm_v2 v2;
 typedef hmm_v3 v3;
 typedef hmm_v4 v4;
 typedef hmm_m4 m4;
-typedef hmm_quaternion quaternion;
+typedef hmm_quaternion q4;
+
+#define V3_Z_UP Vec3(0.0f, 0.0f, 1.0f)
+#define V3_Y_UP Vec3(0.0f, 1.0f, 0.0f)
+#define M4_IDENTITY Mat4d(1.0f)
 
 // GLM Based Perspective Calc
 // Maps depth range from 0..1

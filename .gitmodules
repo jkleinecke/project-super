@@ -10,3 +10,6 @@
 [submodule "src/libs/VulkanMemoryAllocator"]
 	path = src/libs/VulkanMemoryAllocator
 	url = git@github.com:GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "src/libs/volk"]
+	path = src/libs/volk
+	url = git@github.com:zeux/volk.git

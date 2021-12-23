@@ -1,5 +1,4 @@
 
-
 inline internal FILETIME
 Win32GetFileWriteTime(const char* szFilepath)
 {
@@ -97,4 +96,111 @@ Win32ReadMemoryArena(HANDLE hFile, MemoryArena& arena)
     ReadFile(hFile, arena.basePointer, memorySize, &dwBytesRead, 0);
 
     arena.freePointer = (u8*)arena.basePointer + freePointerOffset;
+}
+
+internal platform_file
+Win32OpenFile(FileLocation location, const char* filename, FileUsage usage)
+{
+    platform_file result { .error = 1 };
+    DWORD desiredAccess = 0;
+    DWORD shareMode = FILE_SHARE_READ;
+    DWORD creation = OPEN_EXISTING;
+
+    char filepath[WIN32_STATE_FILE_NAME_COUNT];
+    FormatString(filepath, WIN32_STATE_FILE_NAME_COUNT, "%s%s", FileLocationsTable[(u32)location].szFolder, filename);
+
+    if((usage & FileUsage::Read) == FileUsage::Read) { desiredAccess |= GENERIC_READ; }
+    if((usage & FileUsage::Write) == FileUsage::Write) { desiredAccess |= GENERIC_WRITE; }
+
+    if(usage == FileUsage::Write) {
+        creation = CREATE_ALWAYS;
+        shareMode = 0;
+    }
+
+    WIN32_FILE_ATTRIBUTE_DATA attribs;
+    if(GetFileAttributesExA(filepath, GetFileExInfoStandard, (LPVOID)&attribs))
+    {
+        result.size = ((u64)attribs.nFileSizeHigh << 32) | (u64)attribs.nFileSizeLow; 
+        HANDLE hFile = CreateFileA(filepath, desiredAccess, shareMode, 0, creation, 0, 0);
+
+        if(hFile != INVALID_HANDLE_VALUE)
+        {
+            result.error = 0;
+            result.platform = hFile;
+        }
+    }
+
+    return result;
+}
+
+internal u64
+Win32ReadFile(platform_file& file, void* buffer, u64 size)
+{
+    if(file.error)
+    {
+        ASSERT(false);
+        return 0;
+    }
+
+    u64 amountRead = 0;
+    u32 readSize = SafeTruncateToU32(size);
+    HANDLE hFile = (HANDLE)file.platform;
+
+    // have to loop to handle sizes too big to fit into a DWORD
+    while(size > 0)
+    {
+        DWORD dwReadBytes = 0;
+
+        if(ReadFile(hFile, buffer, readSize, &dwReadBytes, 0))
+        {
+            size -= readSize;
+            amountRead += readSize;
+        }
+        else
+        {
+            break;
+        }        
+    }
+
+    return amountRead;
+}
+
+internal u64
+Win32WriteFile(platform_file& file, const void* buffer, u64 size)
+{
+    if(file.error)
+    {
+        ASSERT(false);
+        return 0;
+    }
+
+    u64 amountWritten = 0;
+    u32 writeSize = SafeTruncateToU32(size);
+    HANDLE hFile = (HANDLE)file.platform;
+
+    while(size > 0)
+    {
+        DWORD dwWriteBytes = 0;
+
+        if(WriteFile(hFile, buffer, writeSize, &dwWriteBytes, 0))
+        {
+            size -= writeSize;
+            amountWritten += dwWriteBytes;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return amountWritten;
+}
+
+internal void
+Win32CloseFile(platform_file& file)
+{
+    if(!file.error)
+    {
+        CloseHandle((HANDLE)file.platform);
+    }
 }
