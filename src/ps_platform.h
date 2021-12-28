@@ -35,6 +35,10 @@ enum class LogLevel
     Error
 };
 
+struct platform_work_queue;
+#define PLATFORM_WORK_QUEUE_CALLBACK(name) void name(platform_work_queue* queue, void* data)
+typedef PLATFORM_WORK_QUEUE_CALLBACK(platform_work_queue_callback);
+
 #define API_FUNCTION(ret, name, ...)   \
     typedef PS_API ret(PS_APICALL* PFN_##name)(__VA_ARGS__); \
     PFN_##name    name
@@ -42,6 +46,9 @@ enum class LogLevel
 struct platform_api
 {
     API_FUNCTION(void, Log, LogLevel level, const char* format, ...);
+
+    API_FUNCTION(void, AddWorkEntry, platform_work_queue* queue, platform_work_queue_callback *callback, void* data);
+    API_FUNCTION(void, CompleteAllWork, platform_work_queue* queue);
     
     API_FUNCTION(platform_file, OpenFile, FileLocation location, const char* filename, FileUsage usage);
     API_FUNCTION(u64, ReadFile, platform_file& file, void* buffer, u64 size);
@@ -49,7 +56,6 @@ struct platform_api
     API_FUNCTION(void, CloseFile, platform_file& file);
     // TODO(james): Add list files API
     // TODO(james): Add Memory APIs
-    // TODO(james): Add Threading APIs or just plain async APIs
     // TODO(james): Add window creation APIs? (Editor??)
     
 #ifdef PROJECTSUPER_INTERNAL
@@ -173,6 +179,9 @@ struct game_memory
     
     MemoryArena persistantMemory;
     MemoryArena transientMemory;
+
+    platform_work_queue* highPriorityQueue;
+    platform_work_queue* lowPriorityQueue;
 
     platform_api platformApi;
 };

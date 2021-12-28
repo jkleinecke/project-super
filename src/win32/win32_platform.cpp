@@ -218,12 +218,118 @@ Win32ProcessKeyboardButton(InputButton& newState, bool pressed)
     newState.transitions = 1; 
 }
 
+internal void
+Win32AddWorkQueueEntry(platform_work_queue* queue, platform_work_queue_callback* callback, void* data)
+{
+    // TODO(james): Switch to InterlockedCompareExchange eventually
+    // so that any thread can add?
+    uint32 nextWriteIndex = (queue->writeIndex + 1) % ARRAY_COUNT(queue->entries);
+    ASSERT(nextWriteIndex != queue->readIndex);
+    platform_work_queue_entry *entry = queue->entries + queue->writeIndex;
+    entry->callback = callback;
+    entry->data = data;
+    ++queue->countToComplete;
+    _WriteBarrier();
+    queue->writeIndex = nextWriteIndex;
+    ReleaseSemaphore(queue->semaphore, 1, 0);
+}
+
+internal bool32
+Win32DoNextWorkQueueEntry(platform_work_queue *queue)
+{
+    bool32 didNoWork = false;
+    
+    uint32 readIndex = queue->readIndex;
+    uint32 nextReadIndex = (readIndex + 1) % ARRAY_COUNT(queue->entries);
+    if(readIndex != queue->writeIndex)
+    {
+        uint32 index = InterlockedCompareExchange((LONG volatile *)&queue->readIndex,
+                                                  nextReadIndex,
+                                                  readIndex);
+        if(index == readIndex)
+        {
+            platform_work_queue_entry entry = queue->entries[index];
+            // TODO(james): allocate some thread specific scratch memory
+            // for each task entry to use during execution
+            entry.callback(queue, entry.data);
+            InterlockedIncrement((LONG volatile *)&queue->countCompleted);
+        }
+    }
+    else
+    {
+        didNoWork = true;
+    }
+    
+    return didNoWork;
+}
+
+internal void
+Win32CompleteAllWorkQueueWork(platform_work_queue* queue)
+{
+    while(queue->countToComplete != queue->countCompleted)
+    {
+        Win32DoNextWorkQueueEntry(queue);
+    }
+    
+    queue->countToComplete = 0;
+    queue->countCompleted = 0;
+}
+
+DWORD WINAPI
+Win32ThreadProc(LPVOID lpParameter)
+{
+    win32_thread_info *thread = (win32_thread_info *)lpParameter;
+    platform_work_queue *queue = thread->queue;
+        
+    for(;;)
+    {
+        if(Win32DoNextWorkQueueEntry(queue))
+        {
+            WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
+        }
+    }
+    
+    //    return(0);
+}
+
+internal void
+Win32InitWorkQueue(platform_work_queue* queue, u32 numThreads, win32_thread_info* threads, u32 threadIndexOffset = 0)
+{
+    queue->countToComplete = 0;
+    queue->countCompleted = 0;
+    queue->writeIndex = 0;
+    queue->readIndex = 0;
+
+    u32 initCount = 0;
+    // TODO(james): Figure out if we really need the SEMAPHORE_ALL_ACCESS right...
+    queue->semaphore = CreateSemaphoreEx(0, initCount, numThreads, 0, 0, SEMAPHORE_ALL_ACCESS);
+
+    for(u32 threadIndex = 0; threadIndex < numThreads; ++threadIndex)
+    {
+        win32_thread_info* pThreadInfo = threads + threadIndex;
+        pThreadInfo->thread_index = threadIndex + threadIndexOffset;
+        pThreadInfo->queue = queue;
+
+        DWORD dwThreadID = 0;
+        HANDLE hThread = CreateThread(0, Megabytes(1), Win32ThreadProc, pThreadInfo, 0, &dwThreadID);
+        CloseHandle(hThread);
+    }
+}
+
 enum RunLoopMode
 {
     RLM_NORMAL,
     RLM_RECORDINPUT,
     RLM_PLAYBACKINPUT
 };
+
+internal
+PLATFORM_WORK_QUEUE_CALLBACK(ThreadPrintTest)
+{
+    char szOut[256];
+    wsprintf(szOut, "Thread %u: %s\n", GetCurrentThreadId(), (char*)data);
+    OutputDebugStringA(szOut);
+}
 
 #if 1
 int CALLBACK
@@ -241,6 +347,15 @@ extern "C" int __stdcall WinMainCRTStartup()
     HINSTANCE hInstance = GetModuleHandle(0);
 #endif
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+    win32_thread_info highPriorityThreadInfos[8];
+    win32_thread_info lowPriorityThreadInfos[2];
+    platform_work_queue highPriorityQueue;
+    platform_work_queue lowPriorityQueue;
+    LOG_DEBUG("Main Thread ID: %u", GetCurrentThreadId());
+
+    Win32InitWorkQueue(&highPriorityQueue, ARRAY_COUNT(highPriorityThreadInfos), highPriorityThreadInfos);
+    Win32InitWorkQueue(&lowPriorityQueue, ARRAY_COUNT(lowPriorityThreadInfos), lowPriorityThreadInfos);
 
     WNDCLASSEXA wndClass = {};
     wndClass.cbSize = sizeof(wndClass);
@@ -309,7 +424,12 @@ extern "C" int __stdcall WinMainCRTStartup()
     gameRender.commands.cmd_arena.basePointer = memory;
     gameRender.commands.cmd_arena.freePointer = memory;
 
+    gameMemory.highPriorityQueue = &highPriorityQueue;
+    gameMemory.lowPriorityQueue = &lowPriorityQueue;
+
     gameMemory.platformApi.Log = &Win32Log;
+    gameMemory.platformApi.AddWorkEntry = &Win32AddWorkQueueEntry;
+    gameMemory.platformApi.CompleteAllWork = &Win32CompleteAllWorkQueueWork;
     gameMemory.platformApi.OpenFile = &Win32OpenFile;
     gameMemory.platformApi.ReadFile = &Win32ReadFile;
     gameMemory.platformApi.WriteFile = &Win32WriteFile;

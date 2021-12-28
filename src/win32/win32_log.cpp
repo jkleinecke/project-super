@@ -57,25 +57,11 @@ Win32DebugLog(LogLevel level, const char* file, int lineno, const char* format, 
 
     va_end(args);
 
-    char logLine[512];
-    ps_sprintf(logLine, "%s(%d) | ", file, lineno);
+    const char* levels[] = { "DBG", "INF", "ERR" };
 
-    
-    switch(level)
-    {
-    case LogLevel::Debug:
-        OutputDebugStringA("DBG | ");
-        break;
-    case LogLevel::Info:
-        OutputDebugStringA("INF | ");
-        break;
-    case LogLevel::Error:
-        OutputDebugStringA("ERR | ");
-        break;
-    }
+    char logLine[4096];
+    ps_sprintf(logLine, "%s | %s(%d) | %s\n", levels[(u32)level], file, lineno, logMessage);
 
     // TODO(james): use console and/or log file
     OutputDebugStringA(logLine);
-    OutputDebugStringA(logMessage);
-    OutputDebugStringA("\n");
 }

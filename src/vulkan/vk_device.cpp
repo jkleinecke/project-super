@@ -1881,11 +1881,11 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
 
     render_cmd_header* header = (render_cmd_header*)commands->cmd_arena.basePointer;
 
-    while(header->type != RENDER_CMD_DONE)
+    while(header->type != RenderCommandType::Done)
     {
         switch(header->type)
         {
-            case RENDER_CMD_UPDATE_VIEWPROJECTION:
+            case RenderCommandType::UpdateViewProjection:
             {
                 render_cmd_update_viewprojection* cmd = (render_cmd_update_viewprojection*)header;
 
@@ -1897,7 +1897,7 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                     Copy(sizeof(frameObject), &frameObject, data);
                 vkUnmapMemory(device.handle, device.pCurFrame->frame_buffer.memory);
             } break;
-            case RENDER_CMD_DRAW_OBJECT:
+            case RenderCommandType::DrawObject:
             {
                 render_cmd_draw_object* cmd = (render_cmd_draw_object*)header;
 
@@ -1925,8 +1925,7 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
     }
 
     vkCmdEndRenderPass(commandBuffer);
-    vkEndCommandBuffer(commandBuffer);
-    
+    vkEndCommandBuffer(commandBuffer);    
 }
 
 internal

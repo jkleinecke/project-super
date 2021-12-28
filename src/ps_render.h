@@ -44,13 +44,26 @@
 
 typedef u64 render_buffer_id;
 
-struct ps_camera
+struct camera
 {
     v3  position;
     v3  target;
 };
 
-struct ps_geometry
+enum class RenderImageFormat
+{
+    RGBA
+};
+
+struct render_image
+{
+    u32 width;
+    u32 height;
+    RenderImageFormat format;
+    u32* pixels;
+};
+
+struct render_geometry
 {
     render_buffer_id indexBuffer;
     render_buffer_id vertexBuffer;  // For now we only need 1
@@ -73,12 +86,12 @@ struct PrVertexDesc
 
 // Rendering Commands
 
-enum RenderCommandType
+enum class RenderCommandType
 {
-    RENDER_CMD_UNKNOWN,
-    RENDER_CMD_UPDATE_VIEWPROJECTION,
-    RENDER_CMD_DRAW_OBJECT,
-    RENDER_CMD_DONE
+    Unknown,
+    UpdateViewProjection,
+    DrawObject,
+    Done
 };
 
 struct render_cmd_header

@@ -3,14 +3,6 @@
 #include "vulkan/vk_initializers.cpp"   // TODO(james): Remove this...
 #include "ps_render.cpp"
 
-struct game_state
-{
-    m4 cameraProjection;
-    ps_camera camera;
-    
-    ps_geometry mesh;
-};
-
 #if 0
 //#define GAME_LOG(msg, ...) Platform.Log(__FILE__, __LINE__, msg, __VA_ARGS__)
 #define GAME_LOG
@@ -329,7 +321,8 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         state.camera.target = Vec3(0.0f, 0.0f, 0.0f);
         state.cameraProjection = Perspective(45.0f, (f32)render.width, (f32)render.height, 0.1f, 10.0f);
         
-        state.mesh = ps_geometry{};
+        //state.mesh = render_geometry{};
+        //LoadRenderImage(gameMemory.transientMemory, "viking_room.png", state.image);
         
         gameMemory.state = &state;
     }

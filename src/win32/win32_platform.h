@@ -46,6 +46,30 @@ struct win32_state
     HWND mainWindow;    
 };
 
+struct platform_work_queue_entry
+{
+    platform_work_queue_callback *callback;
+    void *data;
+};
+
+struct platform_work_queue
+{
+    u32 volatile countToComplete;
+    u32 volatile countCompleted;
+    
+    u32 volatile writeIndex;
+    u32 volatile readIndex;
+    HANDLE semaphore;
+    
+    platform_work_queue_entry entries[256];
+};
+
+struct win32_thread_info
+{
+    u32 thread_index;
+    platform_work_queue* queue;
+};
+
 struct win32_file_location {
     FileLocation location;
     char szFolder[WIN32_STATE_FILE_NAME_COUNT];

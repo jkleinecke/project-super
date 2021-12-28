@@ -1,40 +1,23 @@
 
-template<typename T> struct rendercmdtype { };
-#define DECLARE_RENDER_CMD_TYPE(typename, typeval) template<> struct rendercmdtype<typename> { internal RenderCommandType cmd_type; }; RenderCommandType rendercmdtype<typename>::cmd_type = typeval;
-DECLARE_RENDER_CMD_TYPE(render_cmd_update_viewprojection, RENDER_CMD_UPDATE_VIEWPROJECTION)
-DECLARE_RENDER_CMD_TYPE(render_cmd_draw_object, RENDER_CMD_DRAW_OBJECT)
-
-template<typename T>
-internal inline
-T Cmd()
-{
-     T ret = { rendercmdtype<T>::cmd_type, sizeof(T) };
-     return ret;
-} 
-
-#define ADD_CMD(cmds, var) do{ void* pcmd = PushStruct(cmds.cmd_arena, sizeof(var)); Copy(sizeof(var), &var, pcmd); }while(0)
-
 internal void
 push_cmd_UpdateViewProjection(render_commands& cmds, const m4& view, const m4& projection)
 {
-    auto cmd = Cmd<render_cmd_update_viewprojection>();
-
+    render_cmd_update_viewprojection& cmd = *(render_cmd_update_viewprojection*)PushStruct(cmds.cmd_arena, sizeof(render_cmd_update_viewprojection));
+    cmd.header = { RenderCommandType::UpdateViewProjection, sizeof(cmd) };
+    
     cmd.view = view;
     cmd.projection = projection;
-
-    ADD_CMD(cmds, cmd);   
 }
 
 internal void
-push_cmd_DrawObject(render_commands& cmds, const ps_geometry& geometry, const m4& modelTransform)
+push_cmd_DrawObject(render_commands& cmds, const render_geometry& geometry, const m4& modelTransform)
 {
-    auto cmd = Cmd<render_cmd_draw_object>();
+    render_cmd_draw_object& cmd = *(render_cmd_draw_object*)PushStruct(cmds.cmd_arena, sizeof(render_cmd_draw_object));
+    cmd.header = { RenderCommandType::DrawObject, sizeof(cmd) };
 
     cmd.model = modelTransform;
     cmd.indexBuffer = geometry.indexBuffer;
     cmd.vertexBuffer = geometry.vertexBuffer;
-
-    ADD_CMD(cmds, cmd);
 }
 
 internal void
@@ -47,7 +30,6 @@ BeginRenderCommands(render_commands& cmds)
 internal void
 EndRenderCommands(render_commands& cmds)
 {
-    render_cmd_header cmd = { RENDER_CMD_DONE, sizeof(render_cmd_header) };
-
-    ADD_CMD(cmds, cmd);
+    render_cmd_header& cmd = *(render_cmd_header*)PushStruct(cmds.cmd_arena, sizeof(render_cmd_header));
+    cmd = { RenderCommandType::Done, sizeof(render_cmd_header) };
 }
