@@ -16,8 +16,8 @@ internal void*
 Copy(umm size, const void* src, void* dst)
 {
     CompileAssert(sizeof(umm)==sizeof(src));   // verify pointer size
-    mem_size chunks = size / sizeof(src);  // Copy by CPU bit width
-    mem_size slice = size % sizeof(src);   // remaining bytes < CPU bit width
+    memory_index chunks = size / sizeof(src);  // Copy by CPU bit width
+    memory_index slice = size % sizeof(src);   // remaining bytes < CPU bit width
 
     umm* s = (umm*)src;
     umm* d = (umm*)dst;
@@ -45,8 +45,8 @@ internal void
 ZeroSize(umm size, void* ptr)
 {
     CompileAssert(sizeof(umm)==sizeof(ptr));   // verify pointer size
-    mem_size chunks = size/sizeof(ptr);
-    mem_size slice = size%sizeof(ptr);
+    memory_index chunks = size/sizeof(ptr);
+    memory_index slice = size%sizeof(ptr);
 
     umm* p = (umm*)ptr;
 
@@ -199,9 +199,16 @@ Advance(buffer& buff, umm count)
 #define FormatString ps_snprintf
 #define FormatStringV ps_vsprintf
 
+inline b32x IsPow2(u32 Value)
+{
+    b32x Result = ((Value & ~(Value - 1)) == Value);
+    return(Result);
+}
+
 #if COMPILER_MSVC
 #define CompletePreviousReadsBeforeFutureReads _ReadBarrier()
 #define CompletePreviousWritesBeforeFutureWrites _WriteBarrier()
+#define YieldProcessor _mm_pause
 inline uint32 AtomicCompareExchangeUInt32(uint32 volatile *Value, uint32 New, uint32 Expected)
 {
     uint32 Result = _InterlockedCompareExchange((long volatile *)Value, New, Expected);
@@ -233,6 +240,8 @@ inline u32 GetThreadID(void)
 // TODO(james): Does LLVM have real read-specific barriers yet?
 #define CompletePreviousReadsBeforeFutureReads asm volatile("" ::: "memory")
 #define CompletePreviousWritesBeforeFutureWrites asm volatile("" ::: "memory")
+// TODO(james): is this right for llvm?
+#define YieldProcessor _mm_pause
 inline uint32 AtomicCompareExchangeUInt32(uint32 volatile *Value, uint32 New, uint32 Expected)
 {
     uint32 Result = __sync_val_compare_and_swap(Value, Expected, New);
@@ -293,6 +302,26 @@ SafeTruncateToU8(u64 Value)
     ASSERT(Value <= U8MAX);
     u8 Result = (u8)Value;
     return(Result);
+}
+
+struct ticket_mutex
+{
+    u64 volatile ticket;
+    u64 volatile serving;
+};
+
+inline void
+BeginTicketMutex(ticket_mutex *mutex)
+{
+    u64 Ticket = AtomicAddU64(&mutex->ticket, 1);
+    while(Ticket != mutex->serving) {YieldProcessor();}
+}
+
+
+inline void
+EndTicketMutex(ticket_mutex *mutex)
+{
+    AtomicAddU64(&mutex->serving, 1);
 }
 
 uint64_t psMurmurHash64(const void * key, u32 len, u64 seed)

@@ -1795,14 +1795,16 @@ void vgDestroy(vg_backend& vb)
 }
 
 internal
-void VulkanGraphicsBeginFrame(vg_backend* vb)
+void VulkanGraphicsBeginFrame(vg_backend* vb, render_commands* cmds)
 {
     vg_device& device = vb->device;
 
     device.pPrevFrame = device.pCurFrame;
     device.pCurFrame = &device.frames[device.currentFrameIndex];
     
- 
+    cmds->pushBufferBase = vb->pushBuffer;
+    cmds->pushBufferDataAt = vb->pushBuffer;
+    cmds->maxPushBufferSize = U16MAX;
 
     // update the g_UBO with the latest matrices
     // {
@@ -1879,7 +1881,7 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
     // Iterate through the render commands
     //
 
-    render_cmd_header* header = (render_cmd_header*)commands->cmd_arena.basePointer;
+    render_cmd_header* header = (render_cmd_header*)commands->pushBufferBase;
 
     while(header->type != RenderCommandType::Done)
     {

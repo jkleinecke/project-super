@@ -63,7 +63,7 @@ struct ps_graphics_api
     DECLARE_GRAPHICS_FUNCTION(VkFramebuffer, GetFramebuffer, vg_device* device);
     DECLARE_GRAPHICS_FUNCTION(VkDescriptorSet, CreateDescriptor, vg_device* device, VkDescriptorSetLayout layout);
     
-    DECLARE_GRAPHICS_FUNCTION(void, UpdateBufferData, vg_device* device, vg_buffer& buffer, mem_size size, const void* data);
+    DECLARE_GRAPHICS_FUNCTION(void, UpdateBufferData, vg_device* device, vg_buffer& buffer, memory_index size, const void* data);
     DECLARE_GRAPHICS_FUNCTION(void, UpdateDescriptorSets, vg_device* device, u32 count, VkWriteDescriptorSet* pWrites);
 
     DECLARE_GRAPHICS_FUNCTION(void, BeginRecordingCmds, VkCommandBuffer cmds);
@@ -73,7 +73,7 @@ struct ps_graphics_api
     DECLARE_GRAPHICS_FUNCTION(void, EndRenderPass, VkCommandBuffer cmds);
     DECLARE_GRAPHICS_FUNCTION(void, BindPipeline, VkCommandBuffer cmds, VkPipeline pipeline); // Allow for different bind points
     DECLARE_GRAPHICS_FUNCTION(void, BindDescriptorSets, VkCommandBuffer cmds, VkPipelineLayout layout, u32 count, VkDescriptorSet* pDescriptorSets);
-    DECLARE_GRAPHICS_FUNCTION(void, BindVertexBuffers, VkCommandBuffer cmds, u32 count, VkBuffer* pBuffers, mem_size* pOffsets);
+    DECLARE_GRAPHICS_FUNCTION(void, BindVertexBuffers, VkCommandBuffer cmds, u32 count, VkBuffer* pBuffers, memory_index* pOffsets);
     DECLARE_GRAPHICS_FUNCTION(void, BindIndexBuffer, VkCommandBuffer cmds, VkBuffer buffer);
 
     DECLARE_GRAPHICS_FUNCTION(void, DrawIndexed, VkCommandBuffer cmds, u32 indexCount, u32 instanceCount);

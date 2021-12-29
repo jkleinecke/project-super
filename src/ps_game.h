@@ -18,6 +18,10 @@
 
 struct game_state
 {
+    memory_arena totalArena;
+    memory_arena* frameArena;
+    temporary_memory temporaryFrameMemory;
+
     m4 cameraProjection;
     camera camera;
     render_geometry mesh;

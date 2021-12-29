@@ -28,12 +28,38 @@ struct platform_file
     void* platform;
 };
 
+enum class PlatformMemoryFlags
+{
+    NotRestored     = 0x01,
+    UnderflowCheck  = 0x02,
+    OverflowCheck   = 0x04,
+    MAX             = U64MAX
+};
+MAKE_ENUM_FLAG(u64, PlatformMemoryFlags);
+
+struct platform_memory_block
+{
+    PlatformMemoryFlags flags;
+    u64 size;
+    u8* base;
+    umm used;
+    platform_memory_block* prev_block;
+};
+
 enum class LogLevel
 {
     Debug,
     Info,
     Error
 };
+
+#if defined(PROJECTSUPER_INTERNAL)
+struct debug_platform_memory_stats
+{
+    u64 totalSize;
+    u64 totalUsed;
+};
+#endif
 
 struct platform_work_queue;
 #define PLATFORM_WORK_QUEUE_CALLBACK(name) void name(platform_work_queue* queue, void* data)
@@ -50,15 +76,18 @@ struct platform_api
     API_FUNCTION(void, AddWorkEntry, platform_work_queue* queue, platform_work_queue_callback *callback, void* data);
     API_FUNCTION(void, CompleteAllWork, platform_work_queue* queue);
     
+    API_FUNCTION(platform_memory_block*, AllocateMemoryBlock, memory_index size, PlatformMemoryFlags flags);
+    API_FUNCTION(void, DeallocateMemoryBlock, platform_memory_block*);
+
     API_FUNCTION(platform_file, OpenFile, FileLocation location, const char* filename, FileUsage usage);
     API_FUNCTION(u64, ReadFile, platform_file& file, void* buffer, u64 size);
     API_FUNCTION(u64, WriteFile, platform_file& file, const void* buffer, u64 size);
     API_FUNCTION(void, CloseFile, platform_file& file);
     // TODO(james): Add list files API
-    // TODO(james): Add Memory APIs
     // TODO(james): Add window creation APIs? (Editor??)
     
 #ifdef PROJECTSUPER_INTERNAL
+    API_FUNCTION(debug_platform_memory_stats, DEBUG_GetMemoryStats);
     API_FUNCTION(void, DEBUG_Log, LogLevel level, const char* file, int lineno, const char* format, ...);
 #endif
 };
@@ -70,14 +99,6 @@ struct GameClock
 {
     uint64 frameCounter;
     real32 elapsedFrameTime;  // seconds since the last frame
-};
-
-
-struct MemoryArena
-{
-    void* basePointer;
-    void* freePointer;
-    umm size;
 };
 
 struct Thumbstick
@@ -161,7 +182,9 @@ struct InputContext
 
 struct render_commands
 {
-    MemoryArena cmd_arena;
+    u8* pushBufferBase;
+    u8* pushBufferDataAt;
+    umm maxPushBufferSize;
 };
 
 struct render_context
@@ -176,9 +199,6 @@ struct game_state;
 struct game_memory
 {
     game_state* state;
-    
-    MemoryArena persistantMemory;
-    MemoryArena transientMemory;
 
     platform_work_queue* highPriorityQueue;
     platform_work_queue* lowPriorityQueue;
@@ -189,24 +209,3 @@ struct game_memory
 #define GAME_UPDATE_AND_RENDER(name) void name(game_memory& gameMemory, render_context& render, InputContext& input, AudioContext& audio)
 typedef GAME_UPDATE_AND_RENDER(game_update_and_render);
 
-inline internal
-void* PushStruct(MemoryArena& memory, umm size)
-{
-    // TODO(james): handle overrun more gracefully
-    ASSERT(PtrToUMM(memory.freePointer)+size <= PtrToUMM(memory.basePointer) + memory.size); // already overrun
-    ASSERT(memory.size > (umm)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
-    void* ret = memory.freePointer;
-    memory.freePointer = ((u8*)memory.freePointer) + size;
-    return ret;
-}
-
-inline internal
-void* PushArray(MemoryArena& memory, umm size, u32 count)
-{
-    // TODO(james): handle overrun more gracefully
-    ASSERT(PtrToUMM(memory.freePointer)+(size*count) <= PtrToUMM(memory.basePointer) + memory.size); // already overrun
-    ASSERT(memory.size > (umm)((u8*)memory.freePointer - (u8*)memory.basePointer));    // buffer overrun
-    void* ret = memory.freePointer;
-    memory.freePointer = ((u8*)memory.freePointer) + (size*count);
-    return ret;
-}

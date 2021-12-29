@@ -300,9 +300,9 @@ void BuildRenderCommands(game_state& state, render_commands& cmds)
     
     m4 view = LookAt(state.camera.position, state.camera.target, V3_Z_UP);
     
-    push_cmd_UpdateViewProjection(cmds, view, state.cameraProjection);
+    PushCmd_UpdateViewProjection(cmds, view, state.cameraProjection);
     
-    push_cmd_DrawObject(cmds, state.mesh, M4_IDENTITY);
+    PushCmd_DrawObject(cmds, state.mesh, M4_IDENTITY);
     
     EndRenderCommands(cmds);
 }
@@ -313,21 +313,28 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
     Platform = gameMemory.platformApi;
     
-    if(gameMemory.state != (game_state*)&gameMemory.persistantMemory)
+    // TODO(james): Use bootstrap arena to allocate and initialize game state!!!
+
+    if(!gameMemory.state)
     {
-        game_state& state = *(game_state*)PushStruct(gameMemory.persistantMemory, sizeof(game_state));
+        gameMemory.state = BootstrapPushStruct(game_state, totalArena);
+        game_state& gameState = *gameMemory.state;
+        gameState.frameArena = (memory_arena*)BootstrapPushSize_(DEBUG_MEMORY_NAME("FrameArena") sizeof(memory_arena), 0, NonRestoredArena());
+        gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
         
-        state.camera.position = Vec3(4.0f, 4.0f, 4.0f);
-        state.camera.target = Vec3(0.0f, 0.0f, 0.0f);
-        state.cameraProjection = Perspective(45.0f, (f32)render.width, (f32)render.height, 0.1f, 10.0f);
+        gameState.camera.position = Vec3(4.0f, 4.0f, 4.0f);
+        gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
+        gameState.cameraProjection = Perspective(45.0f, (f32)render.width, (f32)render.height, 0.1f, 10.0f);
         
-        //state.mesh = render_geometry{};
-        //LoadRenderImage(gameMemory.transientMemory, "viking_room.png", state.image);
-        
-        gameMemory.state = &state;
+        //gameState.mesh = render_geometry{};
+        //LoadRenderImage(gameMemory.transientMemory, "viking_room.png", gameState.image);
     }
     
     game_state& gameState = *gameMemory.state;
+
+    // NOTE(james): Setup scratch memory for the frame...
+    EndTemporaryMemory(gameState.temporaryFrameMemory);
+    gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
     
     BuildRenderCommands(gameState, render.commands);
     

@@ -10,7 +10,7 @@ struct ps_graphics_backend_api
     // TODO(james): create,resize,destroy swapchain per platform window/surface
     //ResizeSwapChain(vg_backend &graphics, )
 
-    DECLARE_GB_FUNCTION(void, BeginFrame, vg_backend* vb);
+    DECLARE_GB_FUNCTION(void, BeginFrame, vg_backend* vb, render_commands* commands);
     DECLARE_GB_FUNCTION(void, EndFrame, vg_backend* vb, render_commands* commands);
 };
 

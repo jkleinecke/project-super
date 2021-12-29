@@ -12,6 +12,7 @@
 
 #include "win32_platform.h"
 
+win32_state GlobalWin32State;
 platform_api Platform;
 win32_file_location FileLocationsTable[(u32)FileLocation::LocationsCount];
 
@@ -115,9 +116,35 @@ Win32BeginRecordingInput(win32_state& state, const game_memory& memory)
     // maybe verify that a file isn't open?
     state.hInputRecordHandle = CreateFileA("recorded_input.psi", GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
 
-    // save out game state
-    Win32WriteMemoryArena(state.hInputRecordHandle, memory.persistantMemory);
-    Win32WriteMemoryArena(state.hInputRecordHandle, memory.transientMemory);
+    if(state.hInputRecordHandle)
+    {
+        DWORD dwWritten = 0;
+        // save out game memory
+        BeginTicketMutex(&GlobalWin32State.memoryMutex);
+        win32_memory_block* sentinal = &GlobalWin32State.memorySentinal;
+        for(win32_memory_block* sourceBlk = sentinal->next; sourceBlk != sentinal; sourceBlk = sourceBlk->next)
+        {
+            // NOTE(james): only write out blocks that have been flagged NOT to restore
+            if(IS_FLAG_BIT_NOT_SET(sourceBlk->block.flags, PlatformMemoryFlags::NotRestored))
+            {
+                win32_saved_memory_block savedBlock = {};
+                // TODO(james): See if we can find a way to not directly depend on the pointer location for the recording
+                savedBlock.base_pointer = (u64)sourceBlk->block.base;
+                savedBlock.size = sourceBlk->block.size;
+
+                
+                BOOL success_size = WriteFile(state.hInputRecordHandle, &savedBlock, sizeof(savedBlock), &dwWritten, 0);
+                ASSERT(dwWritten == sizeof(savedBlock));
+                BOOL success_data = WriteFile(state.hInputRecordHandle, sourceBlk->block.base, (u32)sourceBlk->block.size, &dwWritten, 0);
+                ASSERT(dwWritten == (DWORD)sourceBlk->block.size);
+            }
+        }
+        EndTicketMutex(&GlobalWin32State.memoryMutex);
+
+        win32_saved_memory_block finalBlock = {};
+        WriteFile(state.hInputRecordHandle, &finalBlock, sizeof(finalBlock), &dwWritten, 0);
+        ASSERT(dwWritten == sizeof(finalBlock));
+    }
 
     return state.hInputRecordHandle != INVALID_HANDLE_VALUE;
 }
@@ -127,6 +154,12 @@ Win32RecordInput(win32_state& state, const InputContext& input)
 {
     DWORD dwBytesWritten = 0;
     WriteFile(state.hInputRecordHandle, &input, sizeof(input), &dwBytesWritten, 0);
+}
+
+inline bool32
+Win32IsInLoop(win32_state& state)
+{
+    return state.runMode == RunLoopMode::Playback;
 }
 
 internal void
@@ -141,9 +174,25 @@ Win32BeginInputPlayback(win32_state& state, game_memory& memory)
 {
     state.hInputRecordHandle = CreateFileA("recorded_input.psi", GENERIC_READ, 0, 0, OPEN_EXISTING, 0, 0);
 
-    // read in game state
-    Win32ReadMemoryArena(state.hInputRecordHandle, memory.persistantMemory);
-    Win32ReadMemoryArena(state.hInputRecordHandle, memory.transientMemory);
+    // read in game memory
+    if(state.hInputRecordHandle)
+    {
+        DWORD dwRead = 0;
+        for(;;)
+        {
+            win32_saved_memory_block savedBlock = {};
+            ReadFile(state.hInputRecordHandle, &savedBlock, sizeof(savedBlock), &dwRead, 0);
+            if(savedBlock.base_pointer != 0)
+            {
+                void* basePointer = (void*)savedBlock.base_pointer;
+                ReadFile(state.hInputRecordHandle, basePointer, (u32)savedBlock.size, &dwRead, 0);
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
 
     return state.hInputRecordHandle != INVALID_HANDLE_VALUE;
 }
@@ -216,6 +265,141 @@ Win32ProcessKeyboardButton(InputButton& newState, bool pressed)
 {
     newState.pressed = pressed;
     newState.transitions = 1; 
+}
+
+#if defined(PROJECTSUPER_INTERNAL)
+internal debug_platform_memory_stats
+Win32GetMemoryStats()
+{
+    debug_platform_memory_stats stats = {};
+
+    BeginTicketMutex(&GlobalWin32State.memoryMutex);
+    win32_memory_block* sentinal = &GlobalWin32State.memorySentinal;
+    for(win32_memory_block* block = sentinal->next; block != sentinal; block = block->next)
+    {
+        // make sure we don't have any obviously bad allocations
+        ASSERT(block->block.size <= U32MAX);
+
+        stats.totalSize += block->block.size;
+        stats.totalUsed += block->block.used;
+    } 
+    EndTicketMutex(&GlobalWin32State.memoryMutex);
+
+    return stats;
+}
+#endif
+
+internal platform_memory_block*
+Win32AllocateMemoryBlock(memory_index size, PlatformMemoryFlags flags)
+{
+    // NOTE(james): We require memory block headers not to change the cache
+    // line alignment of an allocation
+    CompileAssert(sizeof(win32_memory_block) == 64);
+    
+    const umm pageSize = 4096; // TODO(james): Query from system?
+    umm totalSize = size + sizeof(win32_memory_block);
+    umm baseOffset = sizeof(win32_memory_block);
+    umm protectOffset = 0;
+    if(IS_FLAG_BIT_SET(flags, PlatformMemoryFlags::UnderflowCheck))
+    {
+        totalSize = size + 2*pageSize;
+        baseOffset = 2*pageSize;
+        protectOffset = pageSize;
+    }
+    else if(IS_FLAG_BIT_SET(flags,PlatformMemoryFlags::OverflowCheck))
+    {
+        umm sizeRoundedUp = AlignPow2(size, pageSize);
+        totalSize = sizeRoundedUp + 2*pageSize;
+        baseOffset = pageSize + sizeRoundedUp - size;
+        protectOffset = pageSize + sizeRoundedUp;
+    }
+    
+    win32_memory_block *block = (win32_memory_block *) VirtualAlloc(0, totalSize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
+    ASSERT(block);
+    block->block.base = (u8 *)block + baseOffset;
+    ASSERT(block->block.used == 0);
+    ASSERT(block->block.prev_block == 0);
+    
+    if(IS_FLAG_BIT_SET(flags,PlatformMemoryFlags::OverflowCheck) || IS_FLAG_BIT_SET(flags,PlatformMemoryFlags::UnderflowCheck))
+    {
+        DWORD oldProtect = 0;
+        BOOL isprotected = VirtualProtect((u8 *)block + protectOffset, pageSize, PAGE_NOACCESS, &oldProtect);
+        ASSERT(isprotected);
+    }
+    
+    win32_memory_block *sentinel = &GlobalWin32State.memorySentinal;
+    block->next = sentinel;
+    block->block.size = size;
+    block->block.flags = flags;
+    block->loopingFlags = MemoryLoopingFlags::None;
+    if(Win32IsInLoop(GlobalWin32State) && IS_FLAG_BIT_NOT_SET(flags,PlatformMemoryFlags::NotRestored))
+    {
+        block->loopingFlags = MemoryLoopingFlags::Allocated;
+    }
+    
+    BeginTicketMutex(&GlobalWin32State.memoryMutex);
+    block->prev = sentinel->prev;
+    block->prev->next = block;
+    block->next->prev = block;
+    EndTicketMutex(&GlobalWin32State.memoryMutex);
+    
+    platform_memory_block *platformBlock = &block->block;
+    return platformBlock;
+}
+
+internal void
+Win32FreeMemoryBlock(win32_memory_block *block)
+{
+    BeginTicketMutex(&GlobalWin32State.memoryMutex);
+    block->prev->next = block->next;
+    block->next->prev = block->prev;
+    EndTicketMutex(&GlobalWin32State.memoryMutex);
+    
+    // NOTE(james): For porting to other platforms that need the size to unmap
+    // pages, you can get it from Block->Block.Size!
+    
+    BOOL Result = VirtualFree(block, 0, MEM_RELEASE);
+    ASSERT(Result);
+}
+
+internal void
+Win32DeallocateMemoryBlock(platform_memory_block* block)
+{
+    if(block)
+    {
+        win32_memory_block *win32Block = ((win32_memory_block *)block);
+        if(Win32IsInLoop(GlobalWin32State) && IS_FLAG_BIT_NOT_SET(win32Block->block.flags, PlatformMemoryFlags::NotRestored))
+        {
+            win32Block->loopingFlags = MemoryLoopingFlags::Deallocated;
+        }
+        else
+        {
+            Win32FreeMemoryBlock(win32Block);
+        }
+    }
+}
+
+internal void
+Win32ClearMemoryBlocksByMask(win32_state& state, MemoryLoopingFlags mask)
+{
+    BeginTicketMutex(&state.memoryMutex);
+    win32_memory_block* sentinal = &state.memorySentinal;
+    for(win32_memory_block* block_iter = sentinal->next; block_iter != sentinal; )
+    {
+        win32_memory_block* block = block_iter;
+        block_iter = block->next;
+
+        if((block->loopingFlags & mask) == mask)
+        {
+            Win32FreeMemoryBlock(block);
+        }
+        else
+        {
+            block->loopingFlags = MemoryLoopingFlags::None;
+        }
+    }
+
+    EndTicketMutex(&state.memoryMutex);
 }
 
 internal void
@@ -316,12 +500,7 @@ Win32InitWorkQueue(platform_work_queue* queue, u32 numThreads, win32_thread_info
     }
 }
 
-enum RunLoopMode
-{
-    RLM_NORMAL,
-    RLM_RECORDINPUT,
-    RLM_PLAYBACKINPUT
-};
+
 
 internal
 PLATFORM_WORK_QUEUE_CALLBACK(ThreadPrintTest)
@@ -347,6 +526,12 @@ extern "C" int __stdcall WinMainCRTStartup()
     HINSTANCE hInstance = GetModuleHandle(0);
 #endif
     SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+    GlobalWin32State.runMode = RunLoopMode::Normal;
+    // NOTE(james): Initialize sentinal to point to itself to establish the memory ring
+    win32_memory_block* sentinal = &GlobalWin32State.memorySentinal;
+    sentinal->next = sentinal;
+    sentinal->prev = sentinal;
 
     win32_thread_info highPriorityThreadInfos[8];
     win32_thread_info lowPriorityThreadInfos[2];
@@ -389,40 +574,13 @@ extern "C" int __stdcall WinMainCRTStartup()
                 
     Win32InitClockFrequency();
 
-    win32_state win32State = {};
-    Win32GetExecutablePath(win32State);
-    Win32SetupFileLocationsTable(win32State);
+    Win32GetExecutablePath(GlobalWin32State);
+    Win32SetupFileLocationsTable(GlobalWin32State);
   
     game_memory gameMemory = {};
     render_context gameRender = {};
     gameRender.width = FIXED_RENDER_WIDTH;  // TODO(james): make these dynamic at runtime..
     gameRender.height = FIXED_RENDER_HEIGHT;
-    gameMemory.persistantMemory.size = Megabytes(64);
-    gameMemory.transientMemory.size = Gigabytes(1);
-    gameRender.commands.cmd_arena.size = Megabytes(16); // Is this enough?
-    LPVOID baseAddress = 0;
-#ifdef PROJECTSUPER_INTERNAL
-    baseAddress = (LPVOID)Terabytes(2);
-#endif
-    // TODO(james): include some extra memory for some fences to check for memory overwrites
-    umm memorySize = gameMemory.persistantMemory.size + gameMemory.transientMemory.size + gameRender.commands.cmd_arena.size;
-    uint8* memory = (uint8*)VirtualAlloc(baseAddress, memorySize, MEM_RESERVE|MEM_COMMIT, PAGE_READWRITE);
-
-    if(!memory)
-    {
-        // failed to allocate enough memory for the game... might as well quit now
-        // TODO(james): Log the reason...
-        return 0x80000000;
-    }
-
-    gameMemory.persistantMemory.basePointer = memory;
-    gameMemory.persistantMemory.freePointer = memory;
-    memory += gameMemory.persistantMemory.size;
-    gameMemory.transientMemory.basePointer = memory;
-    gameMemory.transientMemory.freePointer = memory;
-    memory += gameMemory.transientMemory.size;
-    gameRender.commands.cmd_arena.basePointer = memory;
-    gameRender.commands.cmd_arena.freePointer = memory;
 
     gameMemory.highPriorityQueue = &highPriorityQueue;
     gameMemory.lowPriorityQueue = &lowPriorityQueue;
@@ -430,6 +588,8 @@ extern "C" int __stdcall WinMainCRTStartup()
     gameMemory.platformApi.Log = &Win32Log;
     gameMemory.platformApi.AddWorkEntry = &Win32AddWorkQueueEntry;
     gameMemory.platformApi.CompleteAllWork = &Win32CompleteAllWorkQueueWork;
+    gameMemory.platformApi.AllocateMemoryBlock = &Win32AllocateMemoryBlock;
+    gameMemory.platformApi.DeallocateMemoryBlock = &Win32DeallocateMemoryBlock;
     gameMemory.platformApi.OpenFile = &Win32OpenFile;
     gameMemory.platformApi.ReadFile = &Win32ReadFile;
     gameMemory.platformApi.WriteFile = &Win32WriteFile;
@@ -480,11 +640,9 @@ extern "C" int __stdcall WinMainCRTStartup()
     gameCode.ppFunctions = (void**)&gameFunctions;
     gameCode.ppszFunctionNames = (char**)&Win32GameFunctionTableNames;
     
-    Win32LoadCode(win32State, gameCode);
+    Win32LoadCode(GlobalWin32State, gameCode);
     ASSERT(gameCode.isValid);
-
-    RunLoopMode runMode = RLM_NORMAL;
-
+    
     MSG msg;
     while(GlobalRunning)
     {
@@ -492,7 +650,7 @@ extern "C" int __stdcall WinMainCRTStartup()
         if(CompareFileTime(&ftLastWriteTime, &gameCode.ftLastFileWriteTime) != 0)
         {
             Win32UnloadGameCode(gameCode);
-            Win32LoadCode(win32State, gameCode);
+            Win32LoadCode(GlobalWin32State, gameCode);
         }
 
         InputController keyboard = {};
@@ -583,20 +741,20 @@ extern "C" int __stdcall WinMainCRTStartup()
                             {
                                 if(altDownFlag && !upFlag && !repeated)
                                 {
-                                    switch(runMode)
+                                    switch(GlobalWin32State.runMode)
                                     {
-                                        case RLM_NORMAL:
-                                            runMode = RLM_RECORDINPUT;
-                                            Win32BeginRecordingInput(win32State, gameMemory);
+                                        case RunLoopMode::Normal:
+                                            GlobalWin32State.runMode = RunLoopMode::Record;
+                                            Win32BeginRecordingInput(GlobalWin32State, gameMemory);
                                             break;
-                                        case RLM_RECORDINPUT:
-                                            runMode = RLM_NORMAL;
-                                            Win32StopRecordingInput(win32State);
+                                        case RunLoopMode::Record:
+                                            GlobalWin32State.runMode = RunLoopMode::Normal;
+                                            Win32StopRecordingInput(GlobalWin32State);
                                             break;
-                                        case RLM_PLAYBACKINPUT:
-                                            runMode = RLM_RECORDINPUT;
-                                            Win32StopInputPlayback(win32State);
-                                            Win32BeginRecordingInput(win32State, gameMemory);
+                                        case RunLoopMode::Playback:
+                                            GlobalWin32State.runMode = RunLoopMode::Record;
+                                            Win32StopInputPlayback(GlobalWin32State);
+                                            Win32BeginRecordingInput(GlobalWin32State, gameMemory);
                                             break;
                                     }
                                 }
@@ -605,20 +763,20 @@ extern "C" int __stdcall WinMainCRTStartup()
                             {
                                 if(altDownFlag && !upFlag && !repeated)
                                 {
-                                    switch(runMode)
+                                    switch(GlobalWin32State.runMode)
                                     {
-                                        case RLM_NORMAL:
-                                            runMode = RLM_PLAYBACKINPUT;
-                                            Win32BeginInputPlayback(win32State, gameMemory);
+                                        case RunLoopMode::Normal:
+                                            GlobalWin32State.runMode = RunLoopMode::Playback;
+                                            Win32BeginInputPlayback(GlobalWin32State, gameMemory);
                                             break;
-                                        case RLM_RECORDINPUT:
-                                            runMode = RLM_PLAYBACKINPUT;
-                                            Win32StopRecordingInput(win32State);
-                                            Win32BeginInputPlayback(win32State, gameMemory);
+                                        case RunLoopMode::Record:
+                                            GlobalWin32State.runMode = RunLoopMode::Playback;
+                                            Win32StopRecordingInput(GlobalWin32State);
+                                            Win32BeginInputPlayback(GlobalWin32State, gameMemory);
                                             break;
-                                        case RLM_PLAYBACKINPUT:
-                                            runMode = RLM_NORMAL;
-                                            Win32StopInputPlayback(win32State);
+                                        case RunLoopMode::Playback:
+                                            GlobalWin32State.runMode = RunLoopMode::Normal;
+                                            Win32StopInputPlayback(GlobalWin32State);
                                             break;
                                     }
                                 }
@@ -642,23 +800,23 @@ extern "C" int __stdcall WinMainCRTStartup()
             Win32ReadGamepad(dwControllerIndex, input.controllers[dwControllerIndex+1]);
         }
 
-        switch(runMode)
+        switch(GlobalWin32State.runMode)
         {
-            case RLM_RECORDINPUT:
-                Win32RecordInput(win32State, input);
+            case RunLoopMode::Record:
+                Win32RecordInput(GlobalWin32State, input);
                 break;
-            case RLM_PLAYBACKINPUT:
+            case RunLoopMode::Playback:
                 // read the input from a file
-                if(!Win32PlaybackInput(win32State, input))
+                if(!Win32PlaybackInput(GlobalWin32State, input))
                 {
                     // No more input to read, so let's loop the playback
-                    Win32StopInputPlayback(win32State);
-                    Win32BeginInputPlayback(win32State, gameMemory);
+                    Win32StopInputPlayback(GlobalWin32State);
+                    Win32BeginInputPlayback(GlobalWin32State, gameMemory);
                 }
                 break;
         }
 
-        graphicsApi.BeginFrame(graphicsDriver.instance);
+        graphicsApi.BeginFrame(graphicsDriver.instance, &gameRender.commands);
 
         if(gameFunctions.GameUpdateAndRender)
         {

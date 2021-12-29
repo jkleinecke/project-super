@@ -54,7 +54,7 @@ typedef uintptr_t uintptr;
 typedef intptr_t iptr;
 typedef uintptr_t uptr;
 
-typedef size_t mem_size;
+typedef size_t memory_index;
 
 typedef float   real32;
 typedef double  real64;
@@ -134,14 +134,6 @@ typedef intptr_t imm;
     #define PSAPI_CALL
 #endif
 
-#ifndef MAKE_ENUM_FLAG
-#define MAKE_ENUM_FLAG(TYPE, ENUM_TYPE)                                                                        \
-	static inline ENUM_TYPE operator|(ENUM_TYPE a, ENUM_TYPE b) { return (ENUM_TYPE)((TYPE)(a) | (TYPE)(b)); } \
-	static inline ENUM_TYPE operator&(ENUM_TYPE a, ENUM_TYPE b) { return (ENUM_TYPE)((TYPE)(a) & (TYPE)(b)); } \
-	static inline ENUM_TYPE operator|=(ENUM_TYPE& a, ENUM_TYPE b) { return a = (a | b); }                      \
-	static inline ENUM_TYPE operator&=(ENUM_TYPE& a, ENUM_TYPE b) { return a = (a & b); }
-
-#endif
 
 // Clarify usage of static keyword with these defines
 #define internal static
@@ -211,6 +203,33 @@ typedef intptr_t imm;
 #define NotImplemented ASSERT(!"NotImplemented")
 #else
 #define NotImplemented CompileAssert(!"NotImplemented!!!!!!!!!!!!")
+#endif
+
+#define InvalidCodePath ASSERT(!"InvalidCodePath")
+#define InvalidDefaultCase default: {InvalidCodePath;} break
+
+#if !defined(MAKE_ENUM_FLAGS)
+// NOTE(james): This is because I constantly screw this up... so just make it real
+#define MAKE_ENUM_FLAGS CompileAssert("Remove the plural from flags!!!");
+#endif
+
+#if !defined(MAKE_ENUM_FLAG)
+#define MAKE_ENUM_FLAG(TYPE, ENUM_TYPE)                                                                        \
+	static inline TYPE operator~(ENUM_TYPE a) { return ~((TYPE)(a)); }                                         \
+	static inline ENUM_TYPE operator|(ENUM_TYPE a, ENUM_TYPE b) { return (ENUM_TYPE)((TYPE)(a) | (TYPE)(b)); } \
+	static inline ENUM_TYPE operator&(ENUM_TYPE a, ENUM_TYPE b) { return (ENUM_TYPE)((TYPE)(a) & (TYPE)(b)); } \
+	static inline ENUM_TYPE operator|=(ENUM_TYPE& a, ENUM_TYPE b) { return a = (a | b); }                      \
+	static inline ENUM_TYPE operator&=(ENUM_TYPE& a, ENUM_TYPE b) { return a = (a & b); }                      \
+    static inline ENUM_TYPE operator|(ENUM_TYPE a, TYPE b) { return (ENUM_TYPE)((TYPE)(a) | (TYPE)(b)); } \
+	static inline ENUM_TYPE operator&(ENUM_TYPE a, TYPE b) { return (ENUM_TYPE)((TYPE)(a) & (TYPE)(b)); } \
+	static inline ENUM_TYPE operator|=(ENUM_TYPE& a, TYPE b) { return a = (a | b); }                      \
+	static inline ENUM_TYPE operator&=(ENUM_TYPE& a, TYPE b) { return a = (a & b); }
+#endif
+
+#if !defined(IS_FLAG_BIT_SET)
+#define IS_FLAG_BIT_SET(flags, flag_bit) (((flags) & (flag_bit)) == (flag_bit))
+#define IS_FLAG_BIT_NOT_SET(flags, flag_bit) (((flags) & (flag_bit)) != (flag_bit))
+#define IS_ANY_FLAG_SET(flags, bits) (((flags) & ~(bits)) != (flags))
 #endif
 
 #define AlignPow2(Value, Alignment) (((Value) + ((Alignment) - 1)) & ~(((Value) - (Value)) + (Alignment) - 1))

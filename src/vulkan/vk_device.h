@@ -134,5 +134,8 @@ struct vg_backend
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
 
+    // TODO(james): Is this enough room for rendering commands?
+    u8 pushBuffer[U16MAX];
+
     vg_device device;
 };

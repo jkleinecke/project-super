@@ -68,36 +68,6 @@ Win32UnloadGameCode(win32_loaded_code& code)
     code.ftLastFileWriteTime = {};
 }
 
-internal void
-Win32WriteMemoryArena(HANDLE hFile, const MemoryArena& arena)
-{
-    // TODO(james): handle writing out buffers larger than 32-bits
-    
-    DWORD dwBytesWritten = 0;
-    DWORD dwArenaSize = (DWORD)arena.size;
-    ASSERT(arena.size <= 0xFFFFFFFF);
-    u64 freePointerOffset = (u8*)arena.freePointer - (u8*)arena.basePointer;
-    WriteFile(hFile, &arena.size, sizeof(u64), &dwBytesWritten, 0);
-    WriteFile(hFile, &freePointerOffset, sizeof(u64), &dwBytesWritten, 0);
-    WriteFile(hFile, arena.basePointer, dwArenaSize, &dwBytesWritten, 0);
-}
-
-internal void
-Win32ReadMemoryArena(HANDLE hFile, MemoryArena& arena)
-{
-    // TODO(james): handle reading in buffers larger than 32-bits
-    
-    DWORD dwBytesRead = 0;
-    u64 freePointerOffset = 0;
-    DWORD memorySize = 0;
-    ReadFile(hFile, &memorySize, sizeof(u64), &dwBytesRead, 0);
-    ReadFile(hFile, &freePointerOffset, sizeof(u64), &dwBytesRead, 0);
-    ASSERT(arena.size >= (u64)memorySize); // allocated size MUST be at least bigger than what we are reading in...
-    ReadFile(hFile, arena.basePointer, memorySize, &dwBytesRead, 0);
-
-    arena.freePointer = (u8*)arena.basePointer + freePointerOffset;
-}
-
 internal platform_file
 Win32OpenFile(FileLocation location, const char* filename, FileUsage usage)
 {

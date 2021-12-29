@@ -18,7 +18,7 @@ VkDescriptorSet vgCreateDescriptor(vg_device* device, VkDescriptorSetLayout layo
     return ret;
 }
 
-void vgUpdateBufferData(vg_device* device, vg_buffer& buffer, mem_size size, const void* data)
+void vgUpdateBufferData(vg_device* device, vg_buffer& buffer, memory_index size, const void* data)
 {
     void* gpuMemory;
     vkMapMemory(device->handle, buffer.memory, 0, size, 0, &gpuMemory);

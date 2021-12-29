@@ -97,7 +97,7 @@ enum class RenderCommandType
 struct render_cmd_header
 {
     RenderCommandType   type;
-    mem_size        size;
+    memory_index        size;
 };
 
 struct render_cmd_update_viewprojection

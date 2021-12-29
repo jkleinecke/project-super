@@ -27,16 +27,44 @@ struct Win32Dimensions
     uint32 height;
 };
 
-struct win32_graphics_backend
+enum class MemoryLoopingFlags
 {
-    MemoryArena memory;
+    None,
+    Allocated   = 0x1,
+    Deallocated = 0x2
+};
+MAKE_ENUM_FLAG(u32, MemoryLoopingFlags);
 
-    void* backend;
+struct win32_saved_memory_block
+{
+    u64 base_pointer;
+    u64 size;
+};
+
+struct win32_memory_block
+{
+    platform_memory_block block;
+    win32_memory_block* next;
+    win32_memory_block* prev;
+    MemoryLoopingFlags loopingFlags;
+};
+
+enum class RunLoopMode
+{
+    Normal,
+    Record,
+    Playback
 };
 
 #define WIN32_STATE_FILE_NAME_COUNT MAX_PATH
 struct win32_state
 {
+    // NOTE(james): To touch the memory sentinal, you have to
+    // take a ticket!
+    ticket_mutex memoryMutex;
+    win32_memory_block memorySentinal;
+    
+    RunLoopMode runMode;
     HANDLE hInputRecordHandle;
     
     char EXEFolder[WIN32_STATE_FILE_NAME_COUNT];
