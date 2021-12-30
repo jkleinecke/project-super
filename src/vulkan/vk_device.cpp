@@ -1,15 +1,15 @@
 
 #include <vulkan/vulkan.h>
 
+#include <SPIRV-Reflect/spirv_reflect.h>
 #include "vk_device.h"
-#include "../ps_graphics.h"
 
 #include "vk_extensions.h"
 #include "vk_initializers.cpp"
 #include "vk_descriptor.cpp"
-#include "ps_vulkan_graphics_api.cpp"
 
 #include <vector>
+#include <algorithm>
 #include <array>
 #include <unordered_map>
 
@@ -1084,16 +1084,150 @@ buffer DEBUG_readFile(const char* szFilepath)
 }
 
 internal
-VkResult vgCreateShaderModule(VkDevice device, buffer& bytes, VkShaderModule* shader)
+VkResult vgCreateShader(VkDevice device, buffer& bytes, vg_shader* shader)
 {
+    {
+        // TODO(james): Only load reflection at asset compile time, build out structures we need at that point
+        SpvReflectShaderModule module = {};
+        SpvReflectResult result = spvReflectCreateShaderModule(bytes.size, bytes.data, &module);
+
+        shader->shaderStageMask = (VkShaderStageFlagBits)module.shader_stage;
+        uint32_t count = 0;
+
+        // NOTE(james): Straight from SPIRV-Reflect examples...
+        // Loads the shader's vertex buffer description attributes
+        {
+            result = spvReflectEnumerateInputVariables(&module, &count, NULL);
+            ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+
+            std::vector<SpvReflectInterfaceVariable*> input_vars(count);
+            result = spvReflectEnumerateInputVariables(&module, &count, input_vars.data());
+            ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+
+            count = 0;
+            result = spvReflectEnumerateOutputVariables(&module, &count, NULL);
+            ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+
+            std::vector<SpvReflectInterfaceVariable*> output_vars(count);
+            result = spvReflectEnumerateOutputVariables(&module, &count, output_vars.data());
+            ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+
+            if(module.shader_stage & SPV_REFLECT_SHADER_STAGE_VERTEX_BIT)
+            {
+                // Demonstrates how to generate all necessary data structures to populate
+                // a VkPipelineVertexInputStateCreateInfo structure, given the module's
+                // expected input variables.
+                //
+                // Simplifying assumptions:
+                // - All vertex input attributes are sourced from a single vertex buffer,
+                //   bound to VB slot 0.
+                // - Each vertex's attribute are laid out in ascending order by location.
+                // - The format of each attribute matches its usage in the shader;
+                //   float4 -> VK_FORMAT_R32G32B32A32_FLOAT, etc. No attribute compression is applied.
+                // - All attributes are provided per-vertex, not per-instance.
+                shader->vertexBindingDesc.binding = 0;
+                shader->vertexBindingDesc.stride = 0;  // computed below
+                shader->vertexBindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+                VkPipelineVertexInputStateCreateInfo vertexInfo = vkInit_vertex_input_state_create_info();
+                shader->vertexAttributes.assign(input_vars.size(), VkVertexInputAttributeDescription{});
+                for(size_t index = 0; index < input_vars.size(); ++index)
+                {
+                    const SpvReflectInterfaceVariable& input = *(input_vars[index]);
+                    VkVertexInputAttributeDescription& attr = shader->vertexAttributes[index];
+                    attr.location = input.location;
+                    attr.binding = shader->vertexBindingDesc.binding;
+                    attr.format = (VkFormat)input.format;
+                    attr.offset = 0;    // final value computed below
+                }
+
+                // sort by location
+                std::sort(shader->vertexAttributes.begin(), shader->vertexAttributes.end(),
+                [](const VkVertexInputAttributeDescription& a, const VkVertexInputAttributeDescription& b)
+                {
+                    return a.location < b.location;
+                });
+
+                for (auto& attribute : shader->vertexAttributes) {
+                    uint32_t format_size = vkInit_GetFormatSize(attribute.format);
+                    attribute.offset = shader->vertexBindingDesc.stride;
+                    shader->vertexBindingDesc.stride += format_size;
+                }
+            }
+        }
+
+        // Loads the shader's descriptor sets
+        {
+            result = spvReflectEnumerateDescriptorSets(&module, &count, NULL);
+            ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+
+            std::vector<SpvReflectDescriptorSet*> sets(count);
+            result = spvReflectEnumerateDescriptorSets(&module, &count, sets.data());
+            ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+            
+            shader->set_layouts.assign(sets.size(), vg_shader_descriptorset_layoutdata{});
+            for(size_t index = 0; index < sets.size(); ++index)
+            {
+                const SpvReflectDescriptorSet& reflSet = *sets[index];
+                vg_shader_descriptorset_layoutdata& layoutdata = shader->set_layouts[index];
+
+                layoutdata.bindings.resize(reflSet.binding_count);
+                for(u32 bindingIndex = 0; bindingIndex < reflSet.binding_count; ++bindingIndex)
+                {
+                    const SpvReflectDescriptorBinding& refl_binding = *(reflSet.bindings[bindingIndex]);
+                    VkDescriptorSetLayoutBinding& layout_binding = layoutdata.bindings[bindingIndex];
+
+                    layout_binding.binding = refl_binding.binding;
+                    layout_binding.descriptorType = (VkDescriptorType)refl_binding.descriptor_type;
+                    layout_binding.descriptorCount = 1;
+                    for (u32 i_dim = 0; i_dim < refl_binding.array.dims_count; ++i_dim)
+                    {
+                        layout_binding.descriptorCount *= refl_binding.array.dims[i_dim];
+                    }
+                    layout_binding.stageFlags = (VkShaderStageFlagBits)module.shader_stage;
+                }
+                layoutdata.setNumber = reflSet.set;
+            }
+        }
+
+        // loads the push constant blocks
+        {
+            result = spvReflectEnumeratePushConstantBlocks(&module, &count, NULL);
+            ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+
+            std::vector<SpvReflectBlockVariable*> blocks(count);
+            result = spvReflectEnumeratePushConstantBlocks(&module, &count, blocks.data());
+            ASSERT(result == SPV_REFLECT_RESULT_SUCCESS);
+
+            shader->pushConstants.assign(count, VkPushConstantRange{});
+            for(size_t index = 0; index < blocks.size(); ++index)
+            {
+                const SpvReflectBlockVariable& block = *blocks[index];
+                VkPushConstantRange& pushConstant = shader->pushConstants[index];
+
+                pushConstant.offset = block.offset;
+                pushConstant.size = block.size;
+                pushConstant.stageFlags = shader->shaderStageMask;
+            }
+        }
+
+        spvReflectDestroyShaderModule(&module);
+    }
+
     VkShaderModuleCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.codeSize = bytes.size;
     createInfo.pCode = (u32*)bytes.data; 
 
-    VkResult result = vkCreateShaderModule(device, &createInfo, nullptr, shader);
+    VkResult vulkanResult = vkCreateShaderModule(device, &createInfo, nullptr, &shader->shaderModule);
 
-    return result;
+    return vulkanResult;
+}
+
+internal void
+vgDestroyShader(VkDevice device, vg_shader& shader)
+{
+    vkDestroyShaderModule(device, shader.shaderModule, nullptr);
 }
 
 internal
@@ -1182,24 +1316,33 @@ VkResult vgCreateGraphicsPipeline(vg_device& device)
 #define VERIFY_SUCCESS(result) if(DIDFAIL(result)) { LOG_ERROR("Vulkan Error: %X", (result)); ASSERT(false); return result; }
     VkResult result = VK_SUCCESS;   
 
-    buffer vertShaderBuffer = DEBUG_readFile("../data/vert.spv");
-    buffer fragShaderBuffer = DEBUG_readFile("../data/frag.spv");
+    buffer vertShaderBuffer = DEBUG_readFile("../data/shader.vert.spv");
+    buffer fragShaderBuffer = DEBUG_readFile("../data/shader.frag.spv");
 
-    result = vgCreateShaderModule(device.handle, vertShaderBuffer, &device.pipeline.shaders.vertex);
+    vg_shader& vertexShader = device.pipeline.shaders.vertex;
+    vg_shader& fragShader = device.pipeline.shaders.frag;
+
+    result = vgCreateShader(device.handle, vertShaderBuffer, &vertexShader);
     VERIFY_SUCCESS(result);
-    result = vgCreateShaderModule(device.handle, fragShaderBuffer, &device.pipeline.shaders.frag);
+    result = vgCreateShader(device.handle, fragShaderBuffer, &fragShader);
     VERIFY_SUCCESS(result);
     
     delete[] vertShaderBuffer.data;
     delete[] fragShaderBuffer.data;
 
     VkPipelineShaderStageCreateInfo shaderStages[2] = {
-        vkInit_pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, device.pipeline.shaders.vertex),
-        vkInit_pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, device.pipeline.shaders.frag)
+        vkInit_pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, vertexShader.shaderModule),
+        vkInit_pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, fragShader.shaderModule)
     };
 
+#if 1
+    // use shader reflection
+    auto& bindingDescription = vertexShader.vertexBindingDesc;
+    auto& attributeDescriptions = vertexShader.vertexAttributes;
+#else
     auto bindingDescription = vgGetVertexBindingDescription();
     auto attributeDescriptions = vgGetVertexAttributeDescriptions();
+#endif
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = vkInit_vertex_input_state_create_info();
     vertexInputInfo.vertexBindingDescriptionCount = 1;
@@ -1270,24 +1413,57 @@ VkResult vgCreateGraphicsPipeline(vg_device& device)
     // dynamicState.dynamicStateCount = 2;
     // dynamicState.pDynamicStates = dynamicStates;
 
-    // TODO(james): use reflection on the shaderset to discover these
+
+#if 1
+    // TODO(james): support multiple layout sets
+    // use shader reflection
+    std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
+
+    for(auto& layout : vertexShader.set_layouts)
+    {
+        layoutBindings.insert(layoutBindings.end(), layout.bindings.begin(), layout.bindings.end());
+    }
+    
+    for(auto& layout : fragShader.set_layouts)
+    {
+        layoutBindings.insert(layoutBindings.end(), layout.bindings.begin(), layout.bindings.end());
+    }
+
+    VkDescriptorSetLayout layout = vgGetDescriptorLayoutFromCache( device.descriptorLayoutCache, (u32)layoutBindings.size(), layoutBindings.data());
+#else
+    // manual binding
     VkDescriptorSetLayoutBinding layoutBindings[] = {
         // camera
         vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
-        // instance 
-        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 1),
         // sampler
-        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 2)
+        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1)
     };
 
     VkDescriptorSetLayout layout = vgGetDescriptorLayoutFromCache( device.descriptorLayoutCache, ARRAY_COUNT(layoutBindings), layoutBindings );
+#endif
+
     device.pipeline.descriptorLayout = layout;
 
+    std::vector<VkPushConstantRange> pushConstants;
+#if 1
+    // use reflection
+    // TODO(james): make this more efficient
+    pushConstants.insert(pushConstants.end(), vertexShader.pushConstants.begin(), vertexShader.pushConstants.end());
+    pushConstants.insert(pushConstants.end(), fragShader.pushConstants.begin(), fragShader.pushConstants.end());
+#else
+    VkPushConstantRange pushConstant;
+    pushConstant.offset = 0;
+    pushConstant.size = sizeof(m4);
+    pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    pushConstants.push_back(pushConstant);
+#endif
+
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkInit_pipeline_layout_create_info();
-    pipelineLayoutInfo.setLayoutCount = 1; // Optional
+    pipelineLayoutInfo.setLayoutCount = 1; // TODO(james): see above TODO about multiple layout sets
     pipelineLayoutInfo.pSetLayouts = &layout; // Optional
-    pipelineLayoutInfo.pushConstantRangeCount = 0; // Optional
-    pipelineLayoutInfo.pPushConstantRanges = nullptr; // Optional
+    pipelineLayoutInfo.pushConstantRangeCount = (u32)pushConstants.size(); 
+    pipelineLayoutInfo.pPushConstantRanges = pushConstants.data(); // Optional
 
     result = vkCreatePipelineLayout(device.handle, &pipelineLayoutInfo, nullptr, &device.pipeline.layout);
     VERIFY_SUCCESS(result);
@@ -1509,8 +1685,7 @@ VkResult vgTempCreateUniformBuffers(vg_device& device)
     {
         VkResult result = vgCreateBuffer(device, sizeof(FrameObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &device.frames[i].frame_buffer);
         ASSERT(result == VK_SUCCESS);
-        result = vgCreateBuffer(device, sizeof(InstanceObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &device.frames[i].instance_buffer);
-        ASSERT(result == VK_SUCCESS);
+
     }
 
     return VK_SUCCESS;
@@ -1736,7 +1911,6 @@ void vgDestroySwapChain(vg_device& device)
         vkDestroySemaphore(device.handle, frame.presentSemaphore, nullptr);
         vkDestroyFence(device.handle, frame.renderFence, nullptr);
         vgDestroyBuffer(device.handle, frame.frame_buffer);
-        vgDestroyBuffer(device.handle, frame.instance_buffer);
     }
 
     IFF(device.pipeline.handle, vkDestroyPipeline(device.handle, device.pipeline.handle, nullptr));
@@ -1774,9 +1948,9 @@ void vgDestroy(vg_backend& vb)
 
         // TODO(james): Account for this in the window resize
         vgDestroyImage(device.handle, device.depth_image);
-
-        vkDestroyShaderModule(device.handle, device.pipeline.shaders.vertex, nullptr);
-        vkDestroyShaderModule(device.handle, device.pipeline.shaders.frag, nullptr);
+        
+        vgDestroyShader(device.handle, device.pipeline.shaders.vertex);
+        vgDestroyShader(device.handle, device.pipeline.shaders.frag);
 
         vgCleanupDescriptorAllocator(device.descriptorAllocator);
         vgCleanupDescriptorLayoutCache(device.descriptorLayoutCache);
@@ -1840,11 +2014,6 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
     cameraBufferInfo.offset = 0;
     cameraBufferInfo.range = sizeof(FrameObject);
 
-    VkDescriptorBufferInfo instanceBufferInfo{};
-    instanceBufferInfo.buffer = device.pCurFrame->instance_buffer.handle;
-    instanceBufferInfo.offset = 0;
-    instanceBufferInfo.range = sizeof(InstanceObject);
-
     VkDescriptorImageInfo imageInfo{};
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     imageInfo.imageView = device.texture.view;
@@ -1852,8 +2021,7 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
 
     VkWriteDescriptorSet writes[] = {
         vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &cameraBufferInfo, 0),
-        vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &instanceBufferInfo, 1),
-        vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 2)};
+        vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 1)};
 
     vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
 
@@ -1906,15 +2074,12 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                 InstanceObject instanceObject;
                 instanceObject.model = cmd->model;
 
-                void* data;
-                vkMapMemory(device.handle, device.pCurFrame->instance_buffer.memory, 0, sizeof(InstanceObject), 0, &data);
-                    Copy(sizeof(instanceObject), &instanceObject, data);
-                vkUnmapMemory(device.handle, device.pCurFrame->instance_buffer.memory);
 
                 VkDeviceSize offsets[] = {0};
                 vkCmdBindVertexBuffers(commandBuffer, 0, 1, &device.vertex_buffer.handle, offsets);
                 vkCmdBindIndexBuffer(commandBuffer, device.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
+                vkCmdPushConstants(commandBuffer, device.pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(instanceObject.model), &instanceObject.model);
                 vkCmdDrawIndexed(commandBuffer, (u32)g_ModelIndices.size(), 1, 0, 0, 0);                
             } break;
             default:

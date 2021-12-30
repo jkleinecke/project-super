@@ -1,4 +1,5 @@
 
+#include <vector>
 
 constexpr unsigned int FRAME_OVERLAP = 2;
 
@@ -25,10 +26,27 @@ struct vg_sampler
     VkSampler handle;
 };
 
+struct vg_shader_descriptorset_layoutdata
+{
+    u32 setNumber;
+    std::vector<VkDescriptorSetLayoutBinding> bindings;
+};
+
+struct vg_shader
+{
+    VkShaderModule shaderModule;
+    VkShaderStageFlags shaderStageMask;
+
+    VkVertexInputBindingDescription vertexBindingDesc;
+    std::vector<VkVertexInputAttributeDescription> vertexAttributes;
+    std::vector<vg_shader_descriptorset_layoutdata> set_layouts;
+    std::vector<VkPushConstantRange> pushConstants;
+};
+
 struct vg_shaderset
 {
-    VkShaderModule vertex;
-    VkShaderModule frag;
+    vg_shader vertex;
+    vg_shader frag;
 };
 
 struct vg_pipeline
@@ -83,7 +101,6 @@ struct vg_framedata
 
     // TODO(james): make some room for buffers that are updated each frame
     vg_buffer frame_buffer;
-    vg_buffer instance_buffer;
 };
 
 struct vg_device

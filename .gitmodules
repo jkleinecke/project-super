@@ -13,3 +13,6 @@
 [submodule "src/libs/volk"]
 	path = src/libs/volk
 	url = git@github.com:zeux/volk.git
+[submodule "src/libs/SPIRV-Reflect"]
+	path = src/libs/SPIRV-Reflect
+	url = git@github.com:KhronosGroup/SPIRV-Reflect.git

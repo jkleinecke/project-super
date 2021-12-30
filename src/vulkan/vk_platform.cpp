@@ -1,6 +1,7 @@
 
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
+#include <SPIRV-Reflect/spirv_reflect.h>
 
 #include <vector>
 #include <cstdint>
@@ -10,6 +11,8 @@
 #include "../ps_render.h"
 #include "vk_device.cpp"
 #include "vk_platform.h"
+
+#include <SPIRV-Reflect/spirv_reflect.c>
 
 /*******************************************************************************
 
@@ -27,7 +30,7 @@
         - material instance
     - Background upload of texture & buffer memory
         - staging buffer?
-    - Integrate Shaderc for live compiling and reflecting shaders
+    - Integrate Shaderc for live compiling
     - Move to GPU driven rendering
 
     - Break out into a DLL
@@ -36,6 +39,7 @@
 
 global vg_backend g_VulkanBackend = {};
 global const int WIN32_MAX_FRAMES_IN_FLIGHT = 2;
+
 
 extern "C"
 LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
@@ -127,7 +131,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
     }
     
-result = vgCreateFramebuffers(vb.device);
+    result = vgCreateFramebuffers(vb.device);
 
     if(result != VK_SUCCESS)
     {

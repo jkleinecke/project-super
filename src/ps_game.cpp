@@ -299,10 +299,15 @@ void BuildRenderCommands(game_state& state, render_commands& cmds)
     BeginRenderCommands(cmds);
     
     m4 view = LookAt(state.camera.position, state.camera.target, V3_Z_UP);
-    
     PushCmd_UpdateViewProjection(cmds, view, state.cameraProjection);
     
-    PushCmd_DrawObject(cmds, state.mesh, M4_IDENTITY);
+    m4 viewProj = state.cameraProjection * view;
+
+    // for each object need to compute the mvp
+    m4 model = M4_IDENTITY;
+    m4 mvp = viewProj * model;
+
+    PushCmd_DrawObject(cmds, state.mesh, mvp);
     
     EndRenderCommands(cmds);
 }

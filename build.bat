@@ -12,7 +12,7 @@ REM ctime -begin project_super.ctm
 
 pushd data
 echo Building Shaders...
-call build.bat
+Powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& '.\build.ps1'"
 popd
 
 REM Setup the build directory
@@ -65,7 +65,7 @@ set HostLinkerFlags=-STACK:0x100000,0x100000 %LinkerFlags% ole32.lib user32.lib 
 REM clang++ %CompilerDefines% -I..\src -Oi -Od -std=c++17 -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp  
 
 cl %GameCompilerFlags% -I%VulkanIncludeDir% ..\src\ps_game.cpp -Fmps_game.map /link %GameLinkerFlags%
-cl %HostCompilerFlags% -I..\src -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp ..\src\libs\tinyobjloader\tiny_obj_loader.cc -Fmwin32_platform.map /link -LIBPATH:%VulkanLibDir% %HostLinkerFlags%
+cl %HostCompilerFlags% -I..\src -I..\src\libs -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp ..\src\libs\tinyobjloader\tiny_obj_loader.cc -Fmwin32_platform.map /link -LIBPATH:%VulkanLibDir% %HostLinkerFlags%
 set LastError=%ERRORLEVEL%
 
 REM pop build directory

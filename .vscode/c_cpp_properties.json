@@ -5,6 +5,7 @@
             "includePath": [
                 "${default}",
                 "${workspaceFolder}/src",
+                "${workspaceFolder}/src/libs",
                 "${env:VULKAN_SDK}/Include"
             ],
             "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.30.30705/bin/Hostx64/x64/cl.exe",
@@ -46,6 +47,7 @@
             "includePath": [
                 "${default}",
                 "${workspaceFolder}/src",
+                "${workspaceFolder}/src/libs",
                 "/usr/local/include"
             ],
             "compilerPath": "clang++",

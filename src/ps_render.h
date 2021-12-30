@@ -71,19 +71,55 @@ struct render_geometry
 
 // Resource Descriptions
 
-struct PrIndexDesc
+#if 0
+enum class RenderTargetType
 {
-    u32 count;
-    u32* indices;
+    Screen,
+    DepthStencil,
+    Color
 };
 
-struct PrVertexDesc
+enum class RenderTargetFormat
 {
-    // TODO(james): pass vertex description?
-    u32 count;
-    void* vertexData;
+    DontCare,
+    Depth32,
+    Depth32Stencil8,
+
+    Depth24Stencil8,
+    StandardBGRA32,
+    StandardRGBA32
 };
 
+struct RenderTargetDesc
+{
+    RenderTargetType type;
+    // Only used if type is NOT Screen
+    RenderTargetFormat format;
+    u32 width;
+    u32 height;
+};
+
+struct MaterialDesc
+{
+    u32 numRenderTargets;
+    RenderTargetDesc* pRenderTargets;
+    
+    u32 numVertexBuffers;
+    VertexAttributeDesc* pVertexBuffers;
+
+    // shaders
+
+    // shader data descriptors
+
+    // push constants
+
+    // blend state
+
+    // depth stencil state 
+
+    // multisampling?
+};
+#endif
 // Rendering Commands
 
 enum class RenderCommandType
