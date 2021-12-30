@@ -40,9 +40,13 @@
 
 ********************************************************************************/
 
-// Rendering Objects
+typedef u32 render_manifest_id;
+typedef u32 render_material_id;
+typedef u32 render_buffer_id;
+typedef u32 render_image_id;
+typedef u32 render_shader_id;
 
-typedef u64 render_buffer_id;
+// Rendering Objects
 
 struct camera
 {
@@ -50,76 +54,144 @@ struct camera
     v3  target;
 };
 
-enum class RenderImageFormat
-{
-    RGBA
-};
-
-struct render_image
-{
-    u32 width;
-    u32 height;
-    RenderImageFormat format;
-    u32* pixels;
-};
-
 struct render_geometry
 {
+    u32 indexCount;
     render_buffer_id indexBuffer;
     render_buffer_id vertexBuffer;  // For now we only need 1
 };
 
 // Resource Descriptions
 
-#if 0
-enum class RenderTargetType
+struct render_mesh_vertex
 {
-    Screen,
-    DepthStencil,
-    Color
-};
-
-enum class RenderTargetFormat
-{
-    DontCare,
-    Depth32,
-    Depth32Stencil8,
-
-    Depth24Stencil8,
-    StandardBGRA32,
-    StandardRGBA32
-};
-
-struct RenderTargetDesc
-{
-    RenderTargetType type;
-    // Only used if type is NOT Screen
-    RenderTargetFormat format;
-    u32 width;
-    u32 height;
-};
-
-struct MaterialDesc
-{
-    u32 numRenderTargets;
-    RenderTargetDesc* pRenderTargets;
+    v3 pos;
+    v3 color;
+    v2 texCoord;
     
-    u32 numVertexBuffers;
-    VertexAttributeDesc* pVertexBuffers;
-
-    // shaders
-
-    // shader data descriptors
-
-    // push constants
-
-    // blend state
-
-    // depth stencil state 
-
-    // multisampling?
+    bool operator==(const render_mesh_vertex& other) const {
+        return pos == other.pos && color == other.color && texCoord == other.texCoord;
+    }
 };
-#endif
+
+struct render_shader_desc
+{
+    render_shader_id    id;
+    
+    u32                 sizeInBytes;
+    void*               bytes;
+};
+
+enum class SamplerAddressMode
+{
+    Repeat              = 0,    // VK_SAMPLER_ADDRESS_MODE_REPEAT
+    MirrorRepeat        = 1,    // VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT
+    ClampEdge           = 2,    // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+    ClampBorder         = 3,    // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
+    MirrorClampEdge     = 4     // VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE
+};
+
+enum class SamplerMipMapMode
+{
+    Nearest             = 0,    // VK_SAMPLER_MIPMAP_MODE_NEAREST
+    Linear              = 1     // VK_SAMPLER_MIPMAP_MODE_LINEAR
+};
+
+enum class SamplerFilter
+{
+    Nearest             = 0,            // VK_FILTER_NEAREST
+    Linear              = 1,            // VK_FILTER_LINEAR
+    Cubic               = 1000015000,   // VK_FILTER_CUBIC_IMG
+};
+
+struct render_sampler_desc
+{
+    b32                 enableAnisotropy;
+    b32                 coordinatesNotNormalized;
+
+    SamplerFilter       minFilter;
+    SamplerFilter       magFilter;
+
+    SamplerAddressMode  addressMode_U;
+    SamplerAddressMode  addressMode_V;
+    SamplerAddressMode  addressMode_W;
+
+    f32                 mipLodBias;
+    SamplerMipMapMode   mipmapMode;
+    f32                 minLod;
+    f32                 maxLod;
+};
+
+struct render_material_desc
+{
+    render_material_id id;
+
+    u32 shaderCount;
+    render_shader_id shaders[10]; // TODO(james): Tune this
+    // render targets
+    // blend states
+    u32 samplerCount;
+    render_sampler_desc samplers[16]; // TODO(james): Tune this
+    // etc...
+};
+
+enum class RenderBufferType
+{
+    Vertex,
+    Index,
+    Uniform
+};
+
+enum class RenderUsage
+{
+    Static,     // Utilize staging buffer to upload from CPU prior to GPU usage
+    Dynamic     // No staging buffer during upload, but slower GPU access
+};
+
+struct render_buffer_desc
+{
+    render_buffer_id        id;
+
+    RenderBufferType        type;
+    RenderUsage             usage;
+    u32                     sizeInBytes;
+    void*                   bytes;
+};
+
+enum class RenderImageFormat
+{
+    RGBA_32
+};
+
+// TODO(james): support 1D & 3D images too...
+
+// NOTE(james): Only intended to support 2D images
+struct render_image_desc
+{
+    render_image_id     id;
+
+    RenderUsage         usage;
+    RenderImageFormat   format;
+    v2                  dimensions;
+    void*               pixels;
+
+    // TODO(james): add support for mip levels here too
+};
+
+struct render_manifest
+{
+    render_manifest_id id;
+
+    u32 shaderCount;
+    render_shader_desc shaders[255];        // TODO(james): Tune this
+    u32 materialCount;
+    render_material_desc materials[255];    // TODO(james): Tune this
+    u32 bufferCount;
+    render_buffer_desc buffers[255];        // TODO(james): Tune this
+    u32 imageCount;
+    render_image_desc images[255];          // TODO(james): Tune this
+};
+
 // Rendering Commands
 
 enum class RenderCommandType
@@ -144,13 +216,47 @@ struct render_cmd_update_viewprojection
     m4 projection;
 };
 
+enum class RenderMaterialBindingType
+{
+    Buffer,
+    Image
+};
+
+struct render_material_binding
+{
+    RenderMaterialBindingType type;
+    u32 layoutIndex;
+    u32 bindingIndex;
+
+    union
+    {
+        // Valid for the buffer binding type
+        struct
+        {
+            render_buffer_id buffer_id;
+            u32              buffer_offset;
+            u32              buffer_range;
+        };
+
+        // valid for the image binding type
+        struct
+        {
+            render_image_id  image_id;
+            u32              image_sampler_index;
+        };
+    };
+};
+
 struct render_cmd_draw_object
 {
     render_cmd_header header;
 
-    m4 model;
+    m4 mvp;
     u32 indexCount;
     render_buffer_id indexBuffer;
     render_buffer_id vertexBuffer;
+    render_material_id material_id;
+    u32 materialBindingCount;
+    render_material_binding materialBindings[20];   // TODO(james): tune this
 };
 

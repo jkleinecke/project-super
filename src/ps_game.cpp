@@ -1,7 +1,9 @@
 #include "ps_game.h"
 #include "ps_audio_synth.cpp"
-#include "vulkan/vk_initializers.cpp"   // TODO(james): Remove this...
 #include "ps_render.cpp"
+#include "ps_asset.cpp"
+
+
 
 #if 0
 //#define GAME_LOG(msg, ...) Platform.Log(__FILE__, __LINE__, msg, __VA_ARGS__)
@@ -299,7 +301,7 @@ void BuildRenderCommands(game_state& state, render_commands& cmds)
     BeginRenderCommands(cmds);
     
     m4 view = LookAt(state.camera.position, state.camera.target, V3_Z_UP);
-    PushCmd_UpdateViewProjection(cmds, view, state.cameraProjection);
+    //PushCmd_UpdateViewProjection(cmds, view, state.cameraProjection);
     
     m4 viewProj = state.cameraProjection * view;
 
@@ -307,7 +309,22 @@ void BuildRenderCommands(game_state& state, render_commands& cmds)
     m4 model = M4_IDENTITY;
     m4 mvp = viewProj * model;
 
-    PushCmd_DrawObject(cmds, state.mesh, mvp);
+    // TODO(james): use asset references to properly fill out draw object params
+    render_geometry mesh;
+    mesh.indexCount = state.assets->vikingModel->indexCount;
+    mesh.indexBuffer = state.assets->vikingModel->index_id;
+    mesh.vertexBuffer = state.assets->vikingModel->vertex_id;
+
+    render_material_id materialId = state.assets->vikingMaterial->id;
+
+    render_material_binding bindings[1];
+    bindings[0].type                = RenderMaterialBindingType::Image;
+    bindings[0].layoutIndex         = 0;        // TODO(james): perhaps change this to a "named" layout?
+    bindings[0].bindingIndex        = 0;
+    bindings[0].image_id            = state.assets->vikingTexture->id;
+    bindings[0].image_sampler_index = 0;    // TODO(james): This needs to be easier to figure out that just "knowing" which index to use
+
+    PushCmd_DrawObject(cmds, mesh, mvp, materialId, ARRAY_COUNT(bindings), bindings);
     
     EndRenderCommands(cmds);
 }
@@ -326,14 +343,14 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         game_state& gameState = *gameMemory.state;
         gameState.frameArena = (memory_arena*)BootstrapPushSize_(DEBUG_MEMORY_NAME("FrameArena") sizeof(memory_arena), 0, NonRestoredArena());
         gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
-        
+
+        gameState.resourceQueue = render.resourceQueue;   
+        gameState.assets = AllocateGameAssets(gameState, render);
+     
         gameState.camera.position = Vec3(4.0f, 4.0f, 4.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
-        gameState.cameraProjection = Perspective(45.0f, (f32)render.width, (f32)render.height, 0.1f, 10.0f);
-        
-        //gameState.mesh = render_geometry{};
-        //LoadRenderImage(gameMemory.transientMemory, "viking_room.png", gameState.image);
-    }
+        gameState.cameraProjection = Perspective(45.0f, render.renderDimensions.Width, render.renderDimensions.Height, 0.1f, 10.0f);
+    }    
     
     game_state& gameState = *gameMemory.state;
 

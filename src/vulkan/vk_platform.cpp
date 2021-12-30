@@ -40,6 +40,61 @@
 global vg_backend g_VulkanBackend = {};
 global const int WIN32_MAX_FRAMES_IN_FLIGHT = 2;
 
+internal render_sync_token
+PlatformAddResourceOperation(render_resource_queue* queue, RenderResourceOpType operationType, render_manifest* manifest)
+{
+    render_sync_token syncToken = 0;
+
+    {    
+        // TODO(james): switch to InterlockedCompareExchange() so any thread can add a resource operation
+        u32 writeIndex = queue->writeIndex;
+        u32 nextWriteIndex = (queue->writeIndex + 1) % ARRAY_COUNT(queue->resourceOps);
+        ASSERT(nextWriteIndex != queue->readIndex);
+
+        u32 index = InterlockedCompareExchange(&queue->writeIndex, nextWriteIndex, writeIndex);
+        if(index == writeIndex)
+        {
+            render_resource_op* op = queue->resourceOps + index;
+            op->type = operationType;
+            op->manifest = manifest;
+
+            syncToken = InterlockedIncrement(&queue->requestedSyncToken);
+        }
+        else
+        {   
+            // TODO(james): Setup a loop here so that we can ensure that the resource operation is always added
+            InvalidCodePath;
+        }
+    }
+
+    
+    // TODO(james): Move this part to a different thread
+    {
+        // NOTE(james): assumes that this queue works on the main vulkan device
+        u32 readIndex = queue->readIndex;
+        u32 nextReadIndex = (readIndex + 1) % ARRAY_COUNT(queue->resourceOps);
+        if(readIndex != queue->writeIndex)
+        {
+            u32 index = InterlockedCompareExchange(&queue->readIndex, nextReadIndex, readIndex);
+
+            if(index == readIndex)
+            {
+                render_resource_op& operation = queue->resourceOps[index];
+                vgPerformResourceOperation(g_VulkanBackend.device, operation.type, operation.manifest);
+                InterlockedIncrement(&queue->currentSyncToken);
+            }
+        }
+    }
+
+    return syncToken;
+}
+
+internal b32
+PlatformIsResourceOperationComplete(render_resource_queue* queue, render_sync_token syncToken)
+{
+    // TODO(james): account for a wrapping 64-bit integer <-- how "correct" do we really need to be here?
+    return syncToken <= queue->currentSyncToken;
+}
 
 extern "C"
 LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
@@ -115,7 +170,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     result = vgInitializeMemory(vb.device);
 
     // just temporary here until we have more framework in place
-    result = vgCreateGraphicsPipeline(vb.device);
+    result = vgCreateScreenRenderPass(vb.device);
 
     if(result != VK_SUCCESS)
     {
@@ -147,6 +202,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
     }
 
+    #if 0
     ///////////////////////////////////
     // Temporary Model Loading
     vgTempLoadModel(vb.device);
@@ -189,12 +245,20 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         LOG_ERROR("Vulkan Error: %X", (result));
         ASSERT(false);
     }
+    #endif
 
     ps_graphics_backend backend = {};
     backend.instance = &g_VulkanBackend;
 
+    // WINDOWS SPECIFIC
+    // TODO(james): Setup resource operation thread
+    backend.resourceQueue.semaphore = CreateSemaphore(0, 0, 1, 0);    // Only 1 resource operation thread will be active
+    // ----------------
+
     backend.api.BeginFrame = &VulkanGraphicsBeginFrame;
     backend.api.EndFrame = &VulkanGraphicsEndFrame;
+    backend.api.AddResourceOperation = &PlatformAddResourceOperation;
+    backend.api.IsResourceOperationComplete = &PlatformIsResourceOperationComplete;
     
     //vgLoadApi(g_VulkanBackend, api.graphics);
 

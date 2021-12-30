@@ -62,6 +62,8 @@ struct debug_platform_memory_stats
 #endif
 
 struct platform_work_queue;
+
+
 #define PLATFORM_WORK_QUEUE_CALLBACK(name) void name(platform_work_queue* queue, void* data)
 typedef PLATFORM_WORK_QUEUE_CALLBACK(platform_work_queue_callback);
 
@@ -187,12 +189,26 @@ struct render_commands
     umm maxPushBufferSize;
 };
 
+struct render_manifest;
+
+enum class RenderResourceOpType
+{
+    Create,
+    Update,
+    Destroy
+};
+
+typedef u64 render_sync_token;
+struct render_resource_queue;
 struct render_context
 {
-    u32 width;
-    u32 height;
+    v2 renderDimensions;
 
+    render_resource_queue* resourceQueue;
     render_commands commands;
+
+    API_FUNCTION(render_sync_token, AddResourceOperation, render_resource_queue* queue, RenderResourceOpType operationType, render_manifest* manifest);
+    API_FUNCTION(b32, IsResourceOperationComplete, render_resource_queue* queue, render_sync_token operationToken);
 };
 
 struct game_state;

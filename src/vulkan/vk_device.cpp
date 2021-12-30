@@ -43,7 +43,7 @@ struct FrameObject
 
 struct InstanceObject
 {
-    alignas(16) m4 model;
+    alignas(16) m4 mvp;
 };
 
 struct ps_vertex
@@ -1231,7 +1231,7 @@ vgDestroyShader(VkDevice device, vg_shader& shader)
 }
 
 internal
-VkResult vgCreateRenderPass(vg_device& device)
+VkResult vgCreateScreenRenderPass(vg_device& device)
 {
     VkAttachmentDescription depthAttachment{};
     depthAttachment.format = vgFindDepthFormat(device);
@@ -1285,7 +1285,7 @@ VkResult vgCreateRenderPass(vg_device& device)
     renderPassInfo.dependencyCount = 1;
     renderPassInfo.pDependencies = &dependency;
 
-    VkResult result = vkCreateRenderPass(device.handle, &renderPassInfo, nullptr, &device.renderPass.handle);
+    VkResult result = vkCreateRenderPass(device.handle, &renderPassInfo, nullptr, &device.screenRenderPass);
 
     return result;
 }
@@ -1310,6 +1310,7 @@ VkResult vgCreateRenderPass(vg_device& device)
 //     return result;
 // }
 
+#if 0
 internal
 VkResult vgCreateGraphicsPipeline(vg_device& device)
 {
@@ -1484,7 +1485,7 @@ VkResult vgCreateGraphicsPipeline(vg_device& device)
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.pDynamicState = nullptr; // Optional
     pipelineInfo.layout = device.pipeline.layout;
-    pipelineInfo.renderPass = device.renderPass.handle;
+    pipelineInfo.renderPass = device.screenRenderpass;
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
     pipelineInfo.basePipelineIndex = -1;
@@ -1495,6 +1496,7 @@ VkResult vgCreateGraphicsPipeline(vg_device& device)
 #undef VERIFY_SUCCESS
     return VK_SUCCESS;
 }
+#endif
 
 internal
 VkResult vgCreateFramebuffers(vg_device& device)
@@ -1543,7 +1545,7 @@ VkResult vgCreateFramebuffers(vg_device& device)
         };
 
         VkFramebufferCreateInfo framebufferInfo = vkInit_framebuffer_create_info(
-            device.renderPass.handle, device.extent
+            device.screenRenderPass, device.extent
         );
         framebufferInfo.attachmentCount = ARRAY_COUNT(attachments);
         framebufferInfo.pAttachments = attachments;
@@ -1555,6 +1557,7 @@ VkResult vgCreateFramebuffers(vg_device& device)
     return VK_SUCCESS;
 }
 
+#if 0
 internal
 void vgTempLoadModel(vg_device& device)
 {
@@ -1761,6 +1764,7 @@ VkResult vgTempCreateTextureSamplers(vg_device& device)
 
     return result;
 }
+#endif
 
 internal
 VkResult vgCreateDepthResources(vg_device& device)
@@ -1853,13 +1857,13 @@ void vgTempBuildRenderCommands(vg_device& device, u32 swapChainImageIndex)
     // }
 
     // VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
-    //     device.renderPass.handle, device.extent, device.paFramebuffers[swapChainImageIndex]
+    //     device.screenRenderPass, device.extent, device.paFramebuffers[swapChainImageIndex]
     // );
 
     VkClearValue clearValues[2] = {};
     clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     clearValues[1].depthStencil = {1.0f, 0};
-    vgBeginRenderPass(commandBuffer, device.renderPass.handle, 2, clearValues, device.extent, device.paFramebuffers[swapChainImageIndex]);
+    vgBeginRenderPass(commandBuffer, device.screenRenderPass, 2, clearValues, device.extent, device.paFramebuffers[swapChainImageIndex]);
     // renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
     // renderPassInfo.pClearValues = clearValues;
     // vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
@@ -1913,9 +1917,7 @@ void vgDestroySwapChain(vg_device& device)
         vgDestroyBuffer(device.handle, frame.frame_buffer);
     }
 
-    IFF(device.pipeline.handle, vkDestroyPipeline(device.handle, device.pipeline.handle, nullptr));
-    IFF(device.pipeline.layout, vkDestroyPipelineLayout(device.handle, device.pipeline.layout, nullptr));
-    IFF(device.renderPass.handle, vkDestroyRenderPass(device.handle, device.renderPass.handle, nullptr));
+    IFF(device.screenRenderPass, vkDestroyRenderPass(device.handle, device.screenRenderPass, nullptr));
     
     for(size_t i = 0; i < arrlenu(device.paSwapChainImages); ++i)
     {
@@ -1932,6 +1934,51 @@ void vgDestroySwapChain(vg_device& device)
     vkDestroySwapchainKHR(device.handle, device.swapChain, nullptr);
 }
 
+
+internal void
+vgCleanupResourcePool(vg_device& device)
+{
+    vg_device_resource_pool& pool = device.resource_pool;
+
+    for(u32 i = 0; i < pool.materialCount; ++i)
+    {
+        vkDestroyPipeline(device.handle, pool.materials[i].pipeline, nullptr);
+        vkDestroyPipelineLayout(device.handle, pool.materials[i].layout, nullptr);
+
+        if(pool.materials[i].renderPass != VK_NULL_HANDLE)
+        {
+            vkDestroyRenderPass(device.handle, pool.materials[i].renderPass, nullptr);
+            vkDestroyFramebuffer(device.handle, pool.materials[i].framebuffer, nullptr);
+        }
+
+        for(u32 k = 0; k < pool.materials[i].samplerCount; ++k)
+        {
+            vkDestroySampler(device.handle, pool.materials[i].samplers[k], nullptr);
+        }
+        pool.materials[i].samplerCount = 0;
+    }
+
+    for(u32 i = 0; i < pool.imageCount; ++i)
+    {
+        vgDestroyImage(device.handle, pool.images[i]);
+    }
+
+    for(u32 i = 0; i < pool.shaderCount; ++i)
+    {
+        vgDestroyShader(device.handle, pool.shaders[i]);
+    }
+
+    for(u32 i = 0; i < pool.bufferCount; ++i)
+    {
+        vgDestroyBuffer(device.handle, pool.buffers[i]);
+    }
+
+    pool.materialCount = 0;
+    pool.imageCount = 0;
+    pool.shaderCount = 0;
+    pool.bufferCount = 0;
+}
+
 internal
 void vgDestroy(vg_backend& vb)
 {
@@ -1939,19 +1986,13 @@ void vgDestroy(vg_backend& vb)
     if(vb.device.handle)
     {
         vg_device& device = vb.device;
-        vgDestroySwapChain(device);
+        vgCleanupResourcePool(device);
 
-        IFF(device.sampler.handle, vkDestroySampler(device.handle, device.sampler.handle, nullptr));
-        vgDestroyImage(device.handle, device.texture);
-        vgDestroyBuffer(device.handle, device.index_buffer);
-        vgDestroyBuffer(device.handle, device.vertex_buffer);
+        vgDestroySwapChain(device);
 
         // TODO(james): Account for this in the window resize
         vgDestroyImage(device.handle, device.depth_image);
         
-        vgDestroyShader(device.handle, device.pipeline.shaders.vertex);
-        vgDestroyShader(device.handle, device.pipeline.shaders.frag);
-
         vgCleanupDescriptorAllocator(device.descriptorAllocator);
         vgCleanupDescriptorLayoutCache(device.descriptorLayoutCache);
 
@@ -1968,8 +2009,462 @@ void vgDestroy(vg_backend& vb)
     vkDestroyInstance(vb.instance, nullptr);
 }
 
-internal
-void VulkanGraphicsBeginFrame(vg_backend* vb, render_commands* cmds)
+inline vg_shader* 
+vgGetPoolShaderFromId(vg_device_resource_pool& pool, render_shader_id id)
+{
+    vg_shader* shader = 0;
+
+    for(u32 i = 0; i < pool.shaderCount && !shader; ++i)
+    {
+        if(pool.shaders[i].id == id)
+        {
+            shader = &pool.shaders[i];
+        }
+    }
+
+    return shader;
+}
+
+inline vg_image* 
+vgGetPoolImageFromId(vg_device_resource_pool& pool, render_image_id id)
+{
+    vg_image* image = 0;
+
+    for(u32 i = 0; i < pool.imageCount && !image; ++i)
+    {
+        if(pool.images[i].id == id)
+        {
+            image = &pool.images[i];
+        }
+    }
+
+    return image;
+}
+
+inline vg_buffer* 
+vgGetPoolBufferFromId(vg_device_resource_pool& pool, render_buffer_id id)
+{
+    vg_buffer* buffer = 0;
+
+    for(u32 i = 0; i < pool.bufferCount && !buffer; ++i)
+    {
+        if(pool.buffers[i].id == id)
+        {
+            buffer = &pool.buffers[i];
+        }
+    }
+
+    return buffer;
+}
+
+inline vg_material_resource* 
+vgGetPoolMaterialFromId(vg_device_resource_pool& pool, render_material_id id)
+{
+    vg_material_resource* material = 0;
+
+    for(u32 i = 0; i < pool.materialCount && !material; ++i)
+    {
+        if(pool.materials[i].id == id)
+        {
+            material = &pool.materials[i];
+        }
+    }
+
+    return material;
+}
+
+internal void
+vgCreateManifestResources(vg_device& device, render_manifest* manifest)
+{
+    VkResult result = VK_SUCCESS;
+
+    // TODO(james): Just create a single persistant staging buffer per device
+    VkDeviceSize stagingBufferSize = Megabytes(256);
+    vg_buffer stagingBuffer{};
+    result = vgCreateBuffer(device, stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
+    ASSERT(result == VK_SUCCESS);
+    void* mappedStagingData;    // NOTE(james): using persistant mapped staging memory here
+    umm lastStagingWriteOffset = 0;
+    vkMapMemory(device.handle, stagingBuffer.memory, 0, stagingBufferSize, 0, &mappedStagingData);
+
+    // TODO(james): allocate the command buffer from a thread specific command pool for background creation/transfer of resources
+    VkCommandBuffer cmds = vgBeginSingleTimeCommands(device);
+
+    vg_device_resource_pool& pool = device.resource_pool;
+
+    for(u32 i = 0; i < manifest->shaderCount; ++i)
+    {
+        const render_shader_desc& shaderDesc = manifest->shaders[i];
+        vg_shader& shader = pool.shaders[pool.shaderCount++];
+
+        buffer shaderBuffer;
+        shaderBuffer.size = shaderDesc.sizeInBytes;
+        shaderBuffer.data = (u8*)shaderDesc.bytes;
+
+        result = vgCreateShader(device.handle, shaderBuffer, &shader);
+        ASSERT(result == VK_SUCCESS);
+
+        shader.id = shaderDesc.id;
+    }
+
+    for(u32 i = 0; i < manifest->bufferCount; ++i)
+    {
+        const render_buffer_desc& bufferDesc = manifest->buffers[i];
+        vg_buffer& buffer = pool.buffers[pool.bufferCount++];
+
+        VkBufferUsageFlags usageFlags = 0;
+        VkMemoryPropertyFlags memProperties = 0;
+        VkDeviceSize bufferSize = bufferDesc.sizeInBytes;
+
+        switch(bufferDesc.type)
+        {
+            case RenderBufferType::Vertex:
+                usageFlags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+                break;
+            case RenderBufferType::Index:
+                usageFlags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+                break;
+            case RenderBufferType::Uniform:
+                usageFlags |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                break;
+
+            InvalidDefaultCase;
+        }
+
+        b32 useStagingBuffer = false;
+
+        switch(bufferDesc.usage)
+        {
+            case RenderUsage::Static:
+                useStagingBuffer = true;
+                usageFlags |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+                memProperties |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+                break;
+            case RenderUsage::Dynamic:
+                usageFlags |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+                memProperties |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;    // TODO(james): confirm these properties are the most efficient for a dynamically changing buffer
+                break;
+
+            InvalidDefaultCase;
+        }
+
+        result = vgCreateBuffer(device, bufferSize, usageFlags, memProperties, &buffer);
+        ASSERT(result == VK_SUCCESS);
+
+        buffer.id = bufferDesc.id;
+
+        // now upload the buffer data
+        if(useStagingBuffer)
+        {
+            // NOTE(james): If this asserts, we'll need to go ahead and flush the staging buffer before proceeding further...
+            ASSERT(lastStagingWriteOffset + bufferDesc.sizeInBytes <= Megabytes(256));
+            void* stagingOffsetPtr = OffsetPtr(mappedStagingData, lastStagingWriteOffset);
+            Copy(bufferDesc.sizeInBytes, bufferDesc.bytes, stagingOffsetPtr);
+
+            VkBufferCopy copyRegion{};
+            copyRegion.srcOffset = lastStagingWriteOffset;
+            copyRegion.size = bufferDesc.sizeInBytes;
+            copyRegion.dstOffset = 0;
+            vkCmdCopyBuffer(cmds, stagingBuffer.handle, buffer.handle, 1, &copyRegion);
+
+            lastStagingWriteOffset += bufferDesc.sizeInBytes;
+        }
+        else
+        {
+            // NOTE(james): dynamic buffers need to have a copy for each in-flight frame so that they can be updated
+            // TODO(james): actually support this dynamic update per frame...
+            NotImplemented;
+            void* data;
+            vkMapMemory(device.handle, buffer.memory, 0, bufferDesc.sizeInBytes, 0, &data);
+                Copy(bufferDesc.sizeInBytes, bufferDesc.bytes, data);
+            vkUnmapMemory(device.handle, buffer.memory);
+        }
+    }
+
+    for(u32 i = 0; i < manifest->imageCount; ++i)
+    {
+        const render_image_desc& imageDesc = manifest->images[i];
+        vg_image& image = pool.images[pool.imageCount++];
+
+        VkBufferUsageFlags usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
+        VkMemoryPropertyFlags memProperties = 0;
+        VkFormat format = GetVkFormatFromRenderFormat(imageDesc.format);
+        VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
+
+        b32 useStagingBuffer = false;
+
+        switch(imageDesc.usage)
+        {
+            case RenderUsage::Static:
+                useStagingBuffer = true;
+                usageFlags |= VK_IMAGE_USAGE_TRANSFER_DST_BIT ;
+                memProperties |= VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+                break;
+            case RenderUsage::Dynamic:
+                tiling = VK_IMAGE_TILING_LINEAR;
+                usageFlags |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+                memProperties |= VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;    // TODO(james): confirm these properties are the most efficient for a dynamically changing buffer
+                break;
+
+            InvalidDefaultCase;
+        }
+
+        result = vgCreateImage(device, (u32)imageDesc.dimensions.Width, (u32)imageDesc.dimensions.Height, format, tiling, usageFlags, memProperties, &image);
+        ASSERT(result == VK_SUCCESS);
+
+        image.id = imageDesc.id;
+
+        // now setup the image "view"
+        
+        VkImageViewCreateInfo viewInfo = vkInit_imageview_create_info(
+            format, image.handle, VK_IMAGE_ASPECT_COLOR_BIT
+        );
+
+        result = vkCreateImageView(device.handle, &viewInfo, nullptr, &image.view);
+        ASSERT(result == VK_SUCCESS);
+
+        // and finally copy the image pixels over to VRAM
+
+        if(useStagingBuffer)
+        {
+            umm pixelSizeInBytes = (umm)(imageDesc.dimensions.Width * imageDesc.dimensions.Height * vkInit_GetFormatSize(format));
+            ASSERT(lastStagingWriteOffset + pixelSizeInBytes <= Megabytes(256));
+            void* stagingOffsetPtr = OffsetPtr(mappedStagingData, lastStagingWriteOffset);
+            Copy(pixelSizeInBytes, imageDesc.pixels, stagingOffsetPtr);
+
+            // NOTE(james): Images are weird in that you have to transfer them to the proper format for each stage you use them
+            VkImageMemoryBarrier copyBarrier = vkInit_image_barrier(
+                image.handle, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
+            );
+
+            vkCmdPipelineBarrier(cmds, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &copyBarrier);
+
+            VkBufferImageCopy region{};
+            region.bufferOffset = lastStagingWriteOffset;
+            region.bufferRowLength = 0;
+            region.bufferImageHeight = 0;
+
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+
+            region.imageOffset = {0,0,0};
+            region.imageExtent = { (u32)imageDesc.dimensions.Width, (u32)imageDesc.dimensions.Height, 1 };
+
+            vkCmdCopyBufferToImage(cmds, stagingBuffer.handle, image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+            lastStagingWriteOffset += pixelSizeInBytes;
+
+            VkImageMemoryBarrier useBarrier = vkInit_image_barrier(
+                image.handle, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
+            );
+
+            vkCmdPipelineBarrier(cmds, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &useBarrier);
+        }
+        else
+        {
+            NotImplemented;
+        }
+    }
+    
+    for(u32 i = 0; i < manifest->materialCount; ++i)
+    {
+        const render_material_desc& materialDesc = manifest->materials[i];
+        vg_material_resource& material = pool.materials[pool.materialCount++];
+        material.id = materialDesc.id;
+
+        // first gather the shader references
+        for(u32 k = 0; k < materialDesc.shaderCount; ++k)
+        {
+            material.shaderRefs[material.shaderCount++] = vgGetPoolShaderFromId(pool, materialDesc.shaders[k]);
+        }
+
+        // now create the samplers
+        for(u32 k = 0; k < materialDesc.samplerCount; ++k)
+        {
+            const render_sampler_desc& samplerDesc = materialDesc.samplers[k];
+            VkSampler& sampler = material.samplers[material.samplerCount++];
+
+            VkSamplerCreateInfo samplerInfo = vkInit_sampler_create_info(
+                VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT
+            );
+            samplerInfo.anisotropyEnable = samplerDesc.enableAnisotropy ? VK_TRUE : VK_FALSE;
+            samplerInfo.maxAnisotropy = device.device_properties.limits.maxSamplerAnisotropy;
+            
+            samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+            samplerInfo.unnormalizedCoordinates = samplerDesc.coordinatesNotNormalized ? VK_TRUE : VK_FALSE;     // False = [0..1,0..1], [True = 0..Width, 0..Height]
+            
+            samplerInfo.compareEnable = VK_FALSE;
+            samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+
+            samplerInfo.mipmapMode = (VkSamplerMipmapMode) samplerDesc.mipmapMode;
+            samplerInfo.mipLodBias = samplerDesc.mipLodBias;
+            samplerInfo.minLod = samplerDesc.minLod;
+            samplerInfo.maxLod = samplerDesc.maxLod;
+
+            samplerInfo.minFilter = (VkFilter) samplerDesc.minFilter;
+            samplerInfo.magFilter = (VkFilter) samplerDesc.magFilter;
+
+            samplerInfo.addressModeU = (VkSamplerAddressMode) samplerDesc.addressMode_U;
+            samplerInfo.addressModeV = (VkSamplerAddressMode) samplerDesc.addressMode_V;
+            samplerInfo.addressModeW = (VkSamplerAddressMode) samplerDesc.addressMode_W;
+            
+            result = vkCreateSampler(device.handle, &samplerInfo, nullptr, &sampler);
+            ASSERT(result == VK_SUCCESS);
+        }
+
+        // and finally it is time to slog through the render pass and pipeline creation, ugh...
+
+        // NOTE(james): A render pass of VK_NULL_HANDLE will indicate that the material will use the default screen render pass
+        // TODO(james): implement render target creation logic
+        material.renderPass = VK_NULL_HANDLE;
+        material.framebuffer = VK_NULL_HANDLE;
+
+        VkRenderPass pipelineRenderPass = device.screenRenderPass;
+
+        VkVertexInputBindingDescription* vertexBindingDescription = 0;
+        std::vector<VkVertexInputAttributeDescription>* vertexAttributeDescriptions = 0;
+
+        std::vector<VkPipelineShaderStageCreateInfo> shaderStages(material.shaderCount);
+        for(u32 k = 0; k < material.shaderCount; ++k)
+        {
+            shaderStages[k] = vkInit_pipeline_shader_stage_create_info((VkShaderStageFlagBits)material.shaderRefs[k]->shaderStageMask, material.shaderRefs[k]->shaderModule);
+
+            if(material.shaderRefs[k]->shaderStageMask == VK_SHADER_STAGE_VERTEX_BIT)
+            {
+                vertexBindingDescription = &material.shaderRefs[k]->vertexBindingDesc;
+                vertexAttributeDescriptions = &material.shaderRefs[k]->vertexAttributes;
+            }
+        }
+        // NOTE(james): I'm assuming these have to be valid for now
+        ASSERT(vertexBindingDescription);
+        ASSERT(vertexAttributeDescriptions);
+
+        VkPipelineVertexInputStateCreateInfo vertexInputInfo = vkInit_vertex_input_state_create_info();
+        vertexInputInfo.vertexBindingDescriptionCount = vertexBindingDescription ? 1 : 0;
+        vertexInputInfo.pVertexBindingDescriptions = vertexBindingDescription;
+        vertexInputInfo.vertexAttributeDescriptionCount = vertexAttributeDescriptions ? (u32)vertexAttributeDescriptions->size() : 0;
+        vertexInputInfo.pVertexAttributeDescriptions = vertexAttributeDescriptions ? vertexAttributeDescriptions->data() : 0;
+
+        VkPipelineInputAssemblyStateCreateInfo inputAssembly = vkInit_input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = (f32)device.extent.width;
+        viewport.height = (f32)device.extent.height;
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+
+        VkRect2D scissor{};
+        scissor.offset = {0,0};
+        scissor.extent = device.extent;
+
+        VkPipelineViewportStateCreateInfo viewportState{};
+        viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewportState.viewportCount = 1;
+        viewportState.pViewports = &viewport;
+        viewportState.scissorCount = 1;
+        viewportState.pScissors = &scissor;
+
+        VkPipelineRasterizationStateCreateInfo rasterizer = vkInit_rasterization_state_create_info(
+            VK_POLYGON_MODE_FILL
+        );
+        rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+        VkPipelineMultisampleStateCreateInfo multisampling = vkInit_multisampling_state_create_info();
+
+        VkPipelineColorBlendAttachmentState colorBlendAttachment = vkInit_color_blend_attachment_state();
+        colorBlendAttachment.blendEnable = VK_TRUE;
+        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo colorBlending{};
+        colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        colorBlending.logicOpEnable = VK_FALSE;
+        colorBlending.logicOp = VK_LOGIC_OP_COPY; 
+        colorBlending.attachmentCount = 1;
+        colorBlending.pAttachments = &colorBlendAttachment;
+        colorBlending.blendConstants[0] = 0.0f; 
+        colorBlending.blendConstants[1] = 0.0f; 
+        colorBlending.blendConstants[2] = 0.0f; 
+        colorBlending.blendConstants[3] = 0.0f; 
+
+        VkPipelineDepthStencilStateCreateInfo depthStencil = vkInit_depth_stencil_create_info(
+            true, true, VK_COMPARE_OP_LESS
+        );
+
+        std::vector<VkPushConstantRange> pushConstants;
+        for(u32 k = 0; k < material.shaderCount; ++k)
+        {
+            pushConstants.insert(pushConstants.end(), material.shaderRefs[k]->pushConstants.begin(), material.shaderRefs[k]->pushConstants.end());
+
+            for(auto& layout : material.shaderRefs[k]->set_layouts)
+            {
+                ASSERT(material.descriptorSetLayoutCount < 20);
+                material.descriptorLayouts[material.descriptorSetLayoutCount++] = vgGetDescriptorLayoutFromCache( device.descriptorLayoutCache, (u32)layout.bindings.size(), layout.bindings.data());
+            }
+        }
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkInit_pipeline_layout_create_info();
+        pipelineLayoutInfo.setLayoutCount = material.descriptorSetLayoutCount; 
+        pipelineLayoutInfo.pSetLayouts = material.descriptorLayouts; 
+        pipelineLayoutInfo.pushConstantRangeCount = (u32)pushConstants.size(); 
+        pipelineLayoutInfo.pPushConstantRanges = pushConstants.data(); 
+
+        result = vkCreatePipelineLayout(device.handle, &pipelineLayoutInfo, nullptr, &material.layout);
+        ASSERT(result == VK_SUCCESS);
+
+        VkGraphicsPipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipelineInfo.stageCount = (u32)shaderStages.size();
+        pipelineInfo.pStages = shaderStages.data();
+        pipelineInfo.pVertexInputState = &vertexInputInfo;
+        pipelineInfo.pInputAssemblyState = &inputAssembly;
+        pipelineInfo.pViewportState = &viewportState;
+        pipelineInfo.pRasterizationState = &rasterizer;
+        pipelineInfo.pMultisampleState = &multisampling;
+        pipelineInfo.pDepthStencilState = &depthStencil; // TODO(james): make this depend on the render target setup of the material
+        pipelineInfo.pColorBlendState = &colorBlending;
+        pipelineInfo.pDynamicState = nullptr; // Optional
+        pipelineInfo.layout = material.layout;
+        pipelineInfo.renderPass = pipelineRenderPass;
+        pipelineInfo.subpass = 0;
+        // TODO(james): Figure out how to use the base pipeline definitions to make this simpler/easier
+        pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+        pipelineInfo.basePipelineIndex = -1;
+
+        result = vkCreateGraphicsPipelines(device.handle, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &material.pipeline);
+        ASSERT(result == VK_SUCCESS);
+        
+    }
+
+    vkUnmapMemory(device.handle, stagingBuffer.memory);
+
+    vgEndSingleTimeCommands(device, cmds);
+    vgDestroyBuffer(device.handle, stagingBuffer);
+}
+
+internal void
+vgPerformResourceOperation(vg_device& device, RenderResourceOpType opType, render_manifest* manifest)
+{
+    switch(opType)
+    {
+        case RenderResourceOpType::Create:
+            vgCreateManifestResources(device, manifest);
+            break;
+
+        InvalidDefaultCase;
+    }
+}
+
+internal void
+VulkanGraphicsBeginFrame(vg_backend* vb, render_commands* cmds)
 {
     vg_device& device = vb->device;
 
@@ -2006,24 +2501,25 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
     // TODO(james): Turn this into an actual renderer, this is just to get some stuff on the screen
 
     // prepare for recording...
-    VkDescriptorSet shaderDescriptor = VK_NULL_HANDLE;
-    vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, device.pipeline.descriptorLayout, &shaderDescriptor);
+    // VkDescriptorSet shaderDescriptor = VK_NULL_HANDLE;
+    // vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, device.pipeline.descriptorLayout, &shaderDescriptor);
 
-    VkDescriptorBufferInfo cameraBufferInfo{};
-    cameraBufferInfo.buffer = device.pCurFrame->frame_buffer.handle;
-    cameraBufferInfo.offset = 0;
-    cameraBufferInfo.range = sizeof(FrameObject);
+    // VkDescriptorBufferInfo cameraBufferInfo{};
+    // cameraBufferInfo.buffer = device.pCurFrame->frame_buffer.handle;
+    // cameraBufferInfo.offset = 0;
+    // cameraBufferInfo.range = sizeof(FrameObject);
 
-    VkDescriptorImageInfo imageInfo{};
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = device.texture.view;
-    imageInfo.sampler = device.sampler.handle;
+    // VkDescriptorImageInfo imageInfo{};
 
-    VkWriteDescriptorSet writes[] = {
-        vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &cameraBufferInfo, 0),
-        vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 1)};
+    // imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // imageInfo.imageView = device.texture.view;
+    // imageInfo.sampler = device.sampler.handle;
 
-    vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
+    // VkWriteDescriptorSet writes[] = {
+    //     vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &cameraBufferInfo, 0),
+    //     vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 1)};
+
+    // vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
 
     VkCommandBufferBeginInfo beginInfo = vkInit_command_buffer_begin_info(0);
 
@@ -2033,17 +2529,21 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
     VkClearValue clearValues[2] = {};
     clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
     clearValues[1].depthStencil = {1.0f, 0};
+
+    VkFramebuffer currentScreenFramebuffer = device.paFramebuffers[device.curSwapChainIndex];
     
-    VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
-        device.renderPass.handle, device.extent, device.paFramebuffers[device.curSwapChainIndex]
-    );
-    renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
-    renderPassInfo.pClearValues = clearValues;
-    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+    // VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
+    //     device.screenRenderPass, device.extent, device.paFramebuffers[device.curSwapChainIndex]
+    // );
+    // renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
+    // renderPassInfo.pClearValues = clearValues;
+    // vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.handle);
+    //vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.handle);
 
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.layout, 0, 1, &shaderDescriptor, 0, nullptr);
+    //vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.layout, 0, 1, &shaderDescriptor, 0, nullptr);
+
+    // TODO(james): MAJOR PERFORMANCE BOTTLENECK!!! Need to sort objects into render pass bins first -OR- add a command to bind the material prior to drawing!
 
     //
     // Iterate through the render commands
@@ -2072,15 +2572,82 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                 render_cmd_draw_object* cmd = (render_cmd_draw_object*)header;
 
                 InstanceObject instanceObject;
-                instanceObject.model = cmd->model;
+                instanceObject.mvp = cmd->mvp;
 
+                vg_material_resource& material = *vgGetPoolMaterialFromId(device.resource_pool, cmd->material_id);
+
+                VkRenderPass renderPass = device.screenRenderPass;
+                VkFramebuffer framebuffer = currentScreenFramebuffer;
+
+                if(material.renderPass != VK_NULL_HANDLE)
+                {
+                    renderPass = material.renderPass;
+                    framebuffer = material.framebuffer;
+                }
+                
+                VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
+                    renderPass, device.extent, framebuffer
+                );
+                renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
+                renderPassInfo.pClearValues = clearValues;
+                vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+                vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, material.pipeline);
+
+                vg_buffer& vertexBuffer = *vgGetPoolBufferFromId(device.resource_pool, cmd->vertexBuffer);
+                vg_buffer& indexBuffer = *vgGetPoolBufferFromId(device.resource_pool, cmd->indexBuffer);
+
+                std::vector<VkDescriptorSet> descriptors(material.descriptorSetLayoutCount, VK_NULL_HANDLE);
+                for(u32 i = 0; i < material.descriptorSetLayoutCount; ++i)
+                {
+                    vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, material.descriptorLayouts[i], &descriptors[i]);
+                }
+
+                std::vector<VkWriteDescriptorSet> writes(cmd->materialBindingCount);
+                for(u32 i = 0; i < cmd->materialBindingCount; ++i)
+                {
+                    const render_material_binding& binding = cmd->materialBindings[i];
+                    ASSERT(binding.layoutIndex < (u32)descriptors.size());
+
+                    switch(binding.type)
+                    {
+                        case RenderMaterialBindingType::Buffer:
+                            {
+                                vg_buffer& buffer = *vgGetPoolBufferFromId(device.resource_pool, binding.buffer_id);
+                                VkDescriptorBufferInfo bufferInfo{};
+                                bufferInfo.buffer = buffer.handle;
+                                bufferInfo.offset = (VkDeviceSize)binding.buffer_offset;
+                                bufferInfo.range = (VkDeviceSize)binding.buffer_range;
+                                writes[i] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptors[binding.layoutIndex], &bufferInfo, binding.bindingIndex);
+                            }
+                            break;
+                        case RenderMaterialBindingType::Image:
+                            {
+                                vg_image& image = *vgGetPoolImageFromId(device.resource_pool, binding.image_id);
+                                ASSERT(binding.image_sampler_index < material.samplerCount);
+                                VkSampler sampler = material.samplers[binding.image_sampler_index];
+
+                                VkDescriptorImageInfo imageInfo{};
+                                imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                                imageInfo.imageView = image.view;
+                                imageInfo.sampler = sampler;
+                                writes[i] = vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptors[binding.layoutIndex], &imageInfo, binding.bindingIndex);
+                            }
+                            break;
+                        
+                        InvalidDefaultCase;
+                    }
+                }
+
+                vkUpdateDescriptorSets(device.handle, (u32)writes.size(), writes.data(), 0, nullptr);
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, material.layout, 0, (u32)descriptors.size(), descriptors.data(), 0, nullptr);
 
                 VkDeviceSize offsets[] = {0};
-                vkCmdBindVertexBuffers(commandBuffer, 0, 1, &device.vertex_buffer.handle, offsets);
-                vkCmdBindIndexBuffer(commandBuffer, device.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
+                vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer.handle, offsets);
+                vkCmdBindIndexBuffer(commandBuffer, indexBuffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
-                vkCmdPushConstants(commandBuffer, device.pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(instanceObject.model), &instanceObject.model);
-                vkCmdDrawIndexed(commandBuffer, (u32)g_ModelIndices.size(), 1, 0, 0, 0);                
+                vkCmdPushConstants(commandBuffer, material.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(instanceObject.mvp), &instanceObject.mvp);
+                vkCmdDrawIndexed(commandBuffer, (u32)cmd->indexCount, 1, 0, 0, 0);                
             } break;
             default:
                 // command is not supported

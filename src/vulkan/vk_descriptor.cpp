@@ -36,7 +36,7 @@ VkDescriptorSetLayout vgGetDescriptorLayoutFromCache(vg_descriptorlayout_cache& 
         // NOTE(james): if this isn't sufficient, just call the hash function for each specific value that
         // needs better collision handling
         u64 bindingHash = pBindings[i].binding | pBindings[i].descriptorType << 8 | pBindings[i].descriptorCount << 16 | pBindings[i].stageFlags;
-        hash = psMurmurHash64(&bindingHash, sizeof(u64), hash);
+        hash = MurmurHash64(&bindingHash, sizeof(u64), hash);
     }
 
     // now pull the layout from the cache

@@ -279,6 +279,11 @@ typedef union hmm_vec3
         hmm_vec2 VW;
     };
 
+    struct
+    {
+        float Width, Height, Depth;
+    };
+
     float Elements[3];
 
 #ifdef __cplusplus

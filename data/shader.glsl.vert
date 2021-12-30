@@ -1,8 +1,8 @@
 #version 460
 
-layout(binding = 0) uniform FrameObject {
-    mat4 viewProjection;
-} frame;
+// layout(binding = 0) uniform FrameObject {
+//     mat4 viewProjection;
+// } frame;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec3 inColor;

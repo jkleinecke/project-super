@@ -28,14 +28,18 @@ PushCmd_UpdateViewProjection(render_commands& cmds, const m4& view, const m4& pr
 }
 
 internal void
-PushCmd_DrawObject(render_commands& cmds, const render_geometry& geometry, const m4& modelTransform)
+PushCmd_DrawObject(render_commands& cmds, const render_geometry& geometry, const m4& modelTransform, render_material_id material, u32 bindingCount, render_material_binding* bindings)
 {
     render_cmd_draw_object& cmd = *PushCmd(cmds, render_cmd_draw_object);
     cmd.header = { RenderCommandType::DrawObject, sizeof(cmd) };
 
-    cmd.model = modelTransform;
+    cmd.mvp = modelTransform;
+    cmd.indexCount = geometry.indexCount;
     cmd.indexBuffer = geometry.indexBuffer;
     cmd.vertexBuffer = geometry.vertexBuffer;
+    cmd.material_id = material;
+    cmd.materialBindingCount = bindingCount;
+    Copy(sizeof(render_material_binding) * bindingCount, bindings, cmd.materialBindings);
 }
 
 internal void

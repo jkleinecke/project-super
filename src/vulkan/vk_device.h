@@ -10,12 +10,16 @@ struct vg_render_commands
 
 struct vg_buffer
 {
+    render_buffer_id id;
+    
     VkBuffer handle;
     VkDeviceMemory memory;
 };
 
 struct vg_image
 {
+    render_image_id id;
+
     VkImage handle;
     VkImageView view;
     VkDeviceMemory memory;
@@ -34,6 +38,8 @@ struct vg_shader_descriptorset_layoutdata
 
 struct vg_shader
 {
+    render_shader_id id;
+
     VkShaderModule shaderModule;
     VkShaderStageFlags shaderStageMask;
 
@@ -103,6 +109,43 @@ struct vg_framedata
     vg_buffer frame_buffer;
 };
 
+#define RESOURCE_FACTOR 1024
+#define RESOURCE_MULTIPLIER(scalar) (umm)((scalar) * RESOURCE_FACTOR)
+
+struct vg_material_resource
+{
+    render_material_id id;
+
+    VkPipeline pipeline;
+    VkPipelineLayout layout;
+    u32 descriptorSetLayoutCount;
+    VkDescriptorSetLayout descriptorLayouts[20];
+
+    VkRenderPass renderPass;
+    VkFramebuffer framebuffer; 
+
+    u32 shaderCount;
+    vg_shader* shaderRefs[10];
+
+    u32 samplerCount;
+    VkSampler samplers[16];    // TODO(james): pool these instead of allocate per material
+};
+
+struct vg_device_resource_pool
+{
+    u32 materialCount;
+    vg_material_resource materials[RESOURCE_MULTIPLIER(1)];
+
+    u32 shaderCount;
+    vg_shader shaders[RESOURCE_MULTIPLIER(0.5)];
+
+    u32 imageCount;
+    vg_image images[RESOURCE_MULTIPLIER(1)];
+
+    u32 bufferCount;
+    vg_buffer buffers[RESOURCE_MULTIPLIER(1.5)];
+};
+
 struct vg_device
 {
     VkDevice handle;
@@ -133,17 +176,11 @@ struct vg_device
     // TODO(james): these are temp until I figure out
     //    how to deal with them.
 
+    vg_device_resource_pool resource_pool;
     
     VkExtent2D extent;
-    vg_renderpass renderPass;
-    vg_pipeline pipeline;
-
+    VkRenderPass screenRenderPass;
     vg_image depth_image;
-    vg_image texture;
-    vg_sampler sampler;
-
-    vg_buffer index_buffer;
-    vg_buffer vertex_buffer;
 };
 
 struct vg_backend

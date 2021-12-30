@@ -529,8 +529,22 @@ vkInit_GetFormatSize(VkFormat format)
   case VK_FORMAT_B10G11R11_UFLOAT_PACK32: result = 4; break;
   case VK_FORMAT_E5B9G9R9_UFLOAT_PACK32: result = 4; break;
 
-  default:
-    break;
+  InvalidDefaultCase;
   }
   return result;
+}
+
+internal VkFormat
+GetVkFormatFromRenderFormat(RenderImageFormat renderFmt)
+{
+	VkFormat fmt = VK_FORMAT_UNDEFINED;
+	
+	switch(renderFmt)
+	{
+		case RenderImageFormat::RGBA_32: fmt = VK_FORMAT_R8G8B8A8_SRGB; break;
+
+		InvalidDefaultCase;
+	}
+
+	return fmt;
 }

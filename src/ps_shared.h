@@ -324,7 +324,7 @@ EndTicketMutex(ticket_mutex *mutex)
     AtomicAddU64(&mutex->serving, 1);
 }
 
-uint64_t psMurmurHash64(const void * key, u32 len, u64 seed)
+u64 MurmurHash64(const void * key, u32 len, u64 seed)
 {
     const u64 m = 0xc6a4a7935bd1e995ULL;
     const u32 r = 47;
