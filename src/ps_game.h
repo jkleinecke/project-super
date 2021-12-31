@@ -24,4 +24,8 @@ struct game_state
 
     m4 cameraProjection;
     camera camera;
+
+    v3 skullPosition;
+    f32 skullScaleFactor;
+    f32 skullRotationAngle;
 };

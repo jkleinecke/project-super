@@ -166,7 +166,7 @@ LoadShaderAsset(game_assets& assets, const char* filename)
 }
 
 internal material_asset*
-LoadMaterialAsset(game_assets& assets, const char* filename)
+LoadMaterialAsset(game_assets& assets)
 {
     // TODO(james): Actually load a material definition from a file, if it makes sense??
     material_asset* asset = PushStruct(assets.memory, material_asset);
@@ -195,6 +195,37 @@ LoadMaterialAsset(game_assets& assets, const char* filename)
 }
 
 internal void
+AddModelToManifest(render_manifest* manifest, model_asset* model)
+{
+    u32 index = manifest->bufferCount;
+    manifest->bufferCount += 2;
+
+    manifest->buffers[index+0].id             = model->index_id;
+    manifest->buffers[index+0].type           = RenderBufferType::Index;
+    manifest->buffers[index+0].usage          = RenderUsage::Static;
+    manifest->buffers[index+0].sizeInBytes    = sizeof(u32) * model->indexCount;
+    manifest->buffers[index+0].bytes          = model->indices;
+
+    manifest->buffers[index+1].id             = model->vertex_id;
+    manifest->buffers[index+1].type           = RenderBufferType::Vertex;
+    manifest->buffers[index+1].usage          = RenderUsage::Static;
+    manifest->buffers[index+1].sizeInBytes    = sizeof(render_mesh_vertex) * model->vertexCount;
+    manifest->buffers[index+1].bytes          = model->vertices;
+}
+
+internal void
+AddImageToManifest(render_manifest* manifest, image_asset* image)
+{
+    u32 index = manifest->imageCount++;
+
+    manifest->images[index].id              = image->id;
+    manifest->images[index].usage           = RenderUsage::Static;
+    manifest->images[index].format          = image->format;
+    manifest->images[index].dimensions      = image->dimensions;
+    manifest->images[index].pixels          = image->pixels;
+}
+
+internal void
 FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
 {
     // TODO(james): Build this up dynamically from a streaming world chunk or resource pack
@@ -217,34 +248,18 @@ FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
     {
         manifest->materialCount = 1;
 
-        Copy(sizeof(render_material_desc), &assets.vikingMaterial->desc, &manifest->materials[0]);
-        manifest->materials[0].id = assets.vikingMaterial->id;
+        Copy(sizeof(render_material_desc), &assets.basicTextureMaterial->desc, &manifest->materials[0]);
+        manifest->materials[0].id = assets.basicTextureMaterial->id;
     }
     // buffers
     {
-        manifest->bufferCount = 2;
-
-        manifest->buffers[0].id             = assets.vikingModel->index_id;
-        manifest->buffers[0].type           = RenderBufferType::Index;
-        manifest->buffers[0].usage          = RenderUsage::Static;
-        manifest->buffers[0].sizeInBytes    = sizeof(u32) * assets.vikingModel->indexCount;
-        manifest->buffers[0].bytes          = assets.vikingModel->indices;
-
-        manifest->buffers[1].id             = assets.vikingModel->vertex_id;
-        manifest->buffers[1].type           = RenderBufferType::Vertex;
-        manifest->buffers[1].usage          = RenderUsage::Static;
-        manifest->buffers[1].sizeInBytes    = sizeof(render_mesh_vertex) * assets.vikingModel->vertexCount;
-        manifest->buffers[1].bytes          = assets.vikingModel->vertices;
+        AddModelToManifest(manifest, assets.vikingModel);
+        AddModelToManifest(manifest, assets.skullModel);
     }
     // images
     {
-        manifest->imageCount = 1;
-
-        manifest->images[0].id              = assets.vikingTexture->id;
-        manifest->images[0].usage           = RenderUsage::Static;
-        manifest->images[0].format          = assets.vikingTexture->format;
-        manifest->images[0].dimensions      = assets.vikingTexture->dimensions;
-        manifest->images[0].pixels          = assets.vikingTexture->pixels;
+        AddImageToManifest(manifest, assets.vikingTexture);
+        AddImageToManifest(manifest, assets.skullTexture);
     }
 }
 
@@ -265,13 +280,18 @@ AllocateGameAssets(game_state& gm_state, render_context& renderer)
 
     assets.simpleVS = LoadShaderAsset(assets, "shader.vert.spv");
     assets.simpleFS = LoadShaderAsset(assets, "shader.frag.spv");
+    assets.basicTextureMaterial = LoadMaterialAsset(assets);
 
     assets.vikingTexture = LoadImageAsset(assets, "viking_room.png");
-    assets.vikingMaterial = LoadMaterialAsset(assets, "viking_room.mat");
     
     assets.vikingModel = LoadModelAsset(assets, "../data/viking_room.obj");    // TODO(james): data folder reference can be removed once tinyobj loader is gone
     assets.vikingModel->texture_id = assets.vikingTexture->id;
-    assets.vikingModel->material_id = assets.vikingMaterial->id;
+    assets.vikingModel->material_id = assets.basicTextureMaterial->id;
+
+    assets.skullTexture = LoadImageAsset(assets, "skull.jpg");
+    assets.skullModel = LoadModelAsset(assets, "../data/skull.obj");
+    assets.skullModel->texture_id = assets.skullTexture->id;
+    assets.skullModel->material_id = assets.basicTextureMaterial->id;
 
     // TODO(james): Allow this part to be streamed in as part of a streaming assets system.  For now we'll just make one load at startup time
     render_manifest* manifest = PushStruct(*gm_state.frameArena, render_manifest);

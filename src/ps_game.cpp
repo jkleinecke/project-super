@@ -295,6 +295,26 @@ void RenderScene(GraphicsContext& graphics, GameTestState& gameState, FrameConte
 
 #endif
 
+internal void
+RenderModel(render_commands& cmds, model_asset* model, m4& mvp)
+{
+    render_geometry mesh;
+    mesh.indexCount = model->indexCount;
+    mesh.indexBuffer = model->index_id;
+    mesh.vertexBuffer = model->vertex_id;
+
+    render_material_id materialId = model->material_id;
+
+    render_material_binding bindings[1];
+    bindings[0].type                = RenderMaterialBindingType::Image;
+    bindings[0].layoutIndex         = 0;        // TODO(james): perhaps change this to a "named" layout?
+    bindings[0].bindingIndex        = 0;
+    bindings[0].image_id            = model->texture_id;
+    bindings[0].image_sampler_index = 0;    // TODO(james): This needs to be easier to figure out that just "knowing" which index to use
+
+    PushCmd_DrawObject(cmds, mesh, mvp, materialId, ARRAY_COUNT(bindings), bindings);
+}
+
 internal
 void BuildRenderCommands(game_state& state, render_commands& cmds)
 {
@@ -305,27 +325,20 @@ void BuildRenderCommands(game_state& state, render_commands& cmds)
     
     m4 viewProj = state.cameraProjection * view;
 
-    // for each object need to compute the mvp
-    m4 model = M4_IDENTITY;
-    m4 mvp = viewProj * model;
+    {
+        m4 mvp = viewProj * M4_IDENTITY;
+        RenderModel(cmds, state.assets->vikingModel, mvp);
+    }
 
-    // TODO(james): use asset references to properly fill out draw object params
-    render_geometry mesh;
-    mesh.indexCount = state.assets->vikingModel->indexCount;
-    mesh.indexBuffer = state.assets->vikingModel->index_id;
-    mesh.vertexBuffer = state.assets->vikingModel->vertex_id;
+    {
+        v3 scale = Vec3(state.skullScaleFactor,state.skullScaleFactor,state.skullScaleFactor);
+        // for each object need to compute the mvp
+        m4 model = Translate(state.skullPosition) * Rotate(state.skullRotationAngle, Vec3i(0,0,1)) * Scale(scale);//M4_IDENTITY;
+        m4 mvp = viewProj * model;
 
-    render_material_id materialId = state.assets->vikingMaterial->id;
+        RenderModel(cmds, state.assets->skullModel, mvp);
+    }
 
-    render_material_binding bindings[1];
-    bindings[0].type                = RenderMaterialBindingType::Image;
-    bindings[0].layoutIndex         = 0;        // TODO(james): perhaps change this to a "named" layout?
-    bindings[0].bindingIndex        = 0;
-    bindings[0].image_id            = state.assets->vikingTexture->id;
-    bindings[0].image_sampler_index = 0;    // TODO(james): This needs to be easier to figure out that just "knowing" which index to use
-
-    PushCmd_DrawObject(cmds, mesh, mvp, materialId, ARRAY_COUNT(bindings), bindings);
-    
     EndRenderCommands(cmds);
 }
 
@@ -350,6 +363,11 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.camera.position = Vec3(4.0f, 4.0f, 4.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
         gameState.cameraProjection = Perspective(45.0f, render.renderDimensions.Width, render.renderDimensions.Height, 0.1f, 10.0f);
+
+        // NOTE(james): Values taken from testing to setup a good starting point
+        gameState.skullPosition = Vec3(0.218433440f,0.126181871f,0.596520841f);
+        gameState.skullScaleFactor = 0.0172703639f;
+        gameState.skullRotationAngle = 120.188347f;
     }    
     
     game_state& gameState = *gameMemory.state;
@@ -357,6 +375,61 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // NOTE(james): Setup scratch memory for the frame...
     EndTemporaryMemory(gameState.temporaryFrameMemory);
     gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
+
+    // simple rotation update
+    GameClock& clock = input.clock;
+    //gameState.skullRotationAngle += clock.elapsedFrameTime * 90.0f;
+    const f32 skullVelocity = 1.5f * clock.elapsedFrameTime;
+    const f32 skullScaleRate = 0.4f * clock.elapsedFrameTime;
+    const f32 skullRotRate = 360.0f * clock.elapsedFrameTime;
+    
+    for(int controllerIndex = 0; controllerIndex < 5; ++controllerIndex)
+    {
+        InputController& controller = input.controllers[controllerIndex];
+        if(controller.isConnected)
+        {
+            if(controller.isAnalog)
+            {
+                v2 lstick = Vec2(controller.leftStick.x, controller.leftStick.y);
+                f32 magnitude = LengthVec2(lstick);                
+                v2 norm_lstick = NormalizeVec2(lstick);
+
+                
+                v3 skullOffset = Vec3(norm_lstick.X, norm_lstick.Y, 0.0f) * (magnitude * skullVelocity);
+                gameState.skullPosition -= skullOffset;
+
+                gameState.skullScaleFactor *= (1.0f - (skullScaleRate * controller.leftTrigger.value));
+                gameState.skullScaleFactor *= (1.0f + (skullScaleRate * controller.rightTrigger.value));
+            }
+
+            if(controller.leftShoulder.pressed)
+            {
+                gameState.skullRotationAngle += skullRotRate;
+            }
+            if(controller.rightShoulder.pressed)
+            {
+                gameState.skullRotationAngle -= skullRotRate;
+            }
+
+            if(controller.y.pressed)
+            {
+                gameState.skullPosition.Z += skullVelocity;
+            }
+            if(controller.a.pressed)
+            {
+                gameState.skullPosition.Z -= skullVelocity;
+            }
+
+            if(gameState.skullRotationAngle > 360.0f)
+            {
+                gameState.skullRotationAngle -= 360.0f;
+            }
+            else if(gameState.skullRotationAngle < 0.0f)
+            {
+                gameState.skullRotationAngle += 360.0f;
+            }
+        }
+    }
     
     BuildRenderCommands(gameState, render.commands);
     

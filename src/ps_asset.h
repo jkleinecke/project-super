@@ -59,8 +59,11 @@ struct game_assets
 
     shader_asset* simpleVS;
     shader_asset* simpleFS;
+    material_asset* basicTextureMaterial;
 
     image_asset*    vikingTexture;
     model_asset*    vikingModel;
-    material_asset* vikingMaterial;
+
+    image_asset*    skullTexture;
+    model_asset*    skullModel;
 };
