@@ -46,112 +46,6 @@ struct InstanceObject
     alignas(16) m4 mvp;
 };
 
-struct ps_vertex
-{
-    v3 pos;
-    v3 color;
-    v2 texCoord;
-    
-    bool operator==(const ps_vertex& other) const {
-        return pos == other.pos && color == other.color && texCoord == other.texCoord;
-    }
-};
-
-internal
-inline void ps_hash_combine(size_t &seed, size_t hash)
-{
-    hash +=  0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= hash;
-}
-
-internal
-inline size_t ps_hash_v2(v2 const& v)
-{
-    size_t seed = 0;
-    std::hash<f32> hasher;
-    ps_hash_combine(seed, hasher(v.X));
-    ps_hash_combine(seed, hasher(v.Y));
-    return seed;
-}
-
-internal
-inline size_t ps_hash_v3(v3 const& v)
-{
-    size_t seed = 0;
-    std::hash<f32> hasher;
-    ps_hash_combine(seed, hasher(v.X));
-    ps_hash_combine(seed, hasher(v.Y));
-    ps_hash_combine(seed, hasher(v.Z));
-    return seed;
-}
-
-namespace std {
-    template<> struct hash<ps_vertex> {
-        size_t operator()(ps_vertex const& vertex) const {
-            // pos ^ color ^ texCoord
-            return (ps_hash_v3(vertex.pos) ^ (ps_hash_v3(vertex.color) << 1) >> 1) ^ (ps_hash_v2(vertex.texCoord) << 1);
-        }
-    };
-}
-
-// Uncomment to compute a proper index buffer and reduce the number of vertices
-#define COMPUTE_MODEL_VERTEX_REUSE
-
-global const char* MODEL_PATH = "../data/viking_room.obj";
-global const char* TEXTURE_PATH = "../data/viking_room.png"; 
-
-global std::vector<ps_vertex> g_ModelVertices;
-global std::vector<u32> g_ModelIndices;
-
-// global const ps_vertex g_Vertices[] = {
-//     {{-0.5f, -0.5f,  0.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-//     {{ 0.5f, -0.5f,  0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-//     {{ 0.5f,  0.5f,  0.0f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-//     {{-0.5f,  0.5f,  0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-
-//     {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-//     {{ 0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-//     {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {0.0f, 1.0f}},
-//     {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-// };
-
-// global const u16 g_Indices[] {
-//     0, 1, 2, 2, 3, 0,
-//     4, 5, 6, 6, 7, 4
-// };
-
-internal VkVertexInputBindingDescription vgGetVertexBindingDescription()
-{
-    VkVertexInputBindingDescription bindingDescription{};
-    bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(ps_vertex);
-    bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-    return bindingDescription;
-}
-
-internal std::array<VkVertexInputAttributeDescription, 3> vgGetVertexAttributeDescriptions()
-{
-    std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
-
-    attributeDescriptions[0].binding = 0;
-    attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[0].offset = OffsetOf(ps_vertex, pos);
-
-    attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[1].offset = OffsetOf(ps_vertex, color);
-
-    attributeDescriptions[2].binding = 0;
-    attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
-    attributeDescriptions[2].offset = OffsetOf(ps_vertex, texCoord);
-
-    return attributeDescriptions;
-}
-
 internal
 VkSurfaceFormatKHR vgChooseSwapSurfaceFormat(const vg_device& device, VkFormat preferredFormat, VkColorSpaceKHR preferredColorSpace)
 {
@@ -365,24 +259,6 @@ void vgGetAvailableExtensions(VkPhysicalDevice device, std::vector<VkExtensionPr
 internal
 void vgLogAvailableExtensions(VkPhysicalDevice device)
 {
-// NOTE(james): This is what is available on my 3090 
-// Available Vulkan Extensions:
-//     VK_KHR_device_group_creation
-//     VK_KHR_display
-//     VK_KHR_external_fence_capabilities
-//     VK_KHR_external_memory_capabilities
-//     VK_KHR_external_semaphore_capabilities
-//     VK_KHR_get_display_properties2
-//     VK_KHR_get_physical_device_properties2
-//     VK_KHR_get_surface_capabilities2
-//     VK_KHR_surface
-//     VK_KHR_surface_protected_capabilities
-//     VK_KHR_win32_surface
-//     VK_EXT_debug_report
-//     VK_EXT_debug_utils
-//     VK_EXT_swapchain_colorspace
-//     VK_NV_external_memory_capabilities
-
     // now get the full list
     std::vector<VkExtensionProperties> extensions;
     vgGetAvailableExtensions(device, extensions);
@@ -465,8 +341,6 @@ VkResult vgInitialize(vg_backend& vb, const std::vector<const char*>* platformEx
             result = vbCreateDebugUtilsMessengerEXT(instance, &debugCreateInfo, nullptr, &debugMessenger);
             VERIFY_SUCCESS(result);
         }
-
-        //--vbLogAvailableExtensions(nullptr);
 
         // Assign the values to the instance
         vb.debugMessenger = debugMessenger;
@@ -1058,31 +932,6 @@ VkResult vgInitializeMemory(vg_device& device)
     return VK_SUCCESS;
 }
 
-// TODO(james): remove this once the asset system is in place
-#include <stdio.h>
-internal
-buffer DEBUG_readFile(const char* szFilepath)
-{
-    buffer buf{};
-    FILE* file = 0 ;
-    fopen_s(&file, szFilepath, "rb");
-    if(file)
-    {
-        fseek(file, 0, SEEK_END);
-        u32 size = ftell(file);
-        rewind(file);
-
-        buf.size = size;
-
-        buf.data = new u8[size];
-        buf.size = fread(buf.data, sizeof(u8), size, file);
-
-        fclose(file);
-    }
-
-    return buf;
-}
-
 internal
 VkResult vgCreateShader(VkDevice device, buffer& bytes, vg_shader* shader)
 {
@@ -1290,214 +1139,6 @@ VkResult vgCreateScreenRenderPass(vg_device& device)
     return result;
 }
 
-// internal
-// VkResult vgCreateDescriptorSetLayout(vg_device& device)
-// {
-//     VkDescriptorSetLayoutBinding layoutBindings[] = {
-//         // ubo
-//         vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0), 
-//         // sampler
-//         vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1)
-//     };
-
-//     VkDescriptorSetLayoutCreateInfo layoutInfo = vkInit_descritorset_layout_create_info(
-//         ARRAY_COUNT(layoutBindings), layoutBindings
-//     );
-
-//     VkResult result = vkCreateDescriptorSetLayout(device.handle, &layoutInfo, nullptr, &device.pipeline.descriptorLayout);
-//     ASSERT(DIDSUCCEED(result));
-
-//     return result;
-// }
-
-#if 0
-internal
-VkResult vgCreateGraphicsPipeline(vg_device& device)
-{
-#define VERIFY_SUCCESS(result) if(DIDFAIL(result)) { LOG_ERROR("Vulkan Error: %X", (result)); ASSERT(false); return result; }
-    VkResult result = VK_SUCCESS;   
-
-    buffer vertShaderBuffer = DEBUG_readFile("../data/shader.vert.spv");
-    buffer fragShaderBuffer = DEBUG_readFile("../data/shader.frag.spv");
-
-    vg_shader& vertexShader = device.pipeline.shaders.vertex;
-    vg_shader& fragShader = device.pipeline.shaders.frag;
-
-    result = vgCreateShader(device.handle, vertShaderBuffer, &vertexShader);
-    VERIFY_SUCCESS(result);
-    result = vgCreateShader(device.handle, fragShaderBuffer, &fragShader);
-    VERIFY_SUCCESS(result);
-    
-    delete[] vertShaderBuffer.data;
-    delete[] fragShaderBuffer.data;
-
-    VkPipelineShaderStageCreateInfo shaderStages[2] = {
-        vkInit_pipeline_shader_stage_create_info(VK_SHADER_STAGE_VERTEX_BIT, vertexShader.shaderModule),
-        vkInit_pipeline_shader_stage_create_info(VK_SHADER_STAGE_FRAGMENT_BIT, fragShader.shaderModule)
-    };
-
-#if 1
-    // use shader reflection
-    auto& bindingDescription = vertexShader.vertexBindingDesc;
-    auto& attributeDescriptions = vertexShader.vertexAttributes;
-#else
-    auto bindingDescription = vgGetVertexBindingDescription();
-    auto attributeDescriptions = vgGetVertexAttributeDescriptions();
-#endif
-
-    VkPipelineVertexInputStateCreateInfo vertexInputInfo = vkInit_vertex_input_state_create_info();
-    vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.vertexAttributeDescriptionCount = (u32)attributeDescriptions.size();
-    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
-
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly = vkInit_input_assembly_create_info(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = (f32)device.extent.width;
-    viewport.height = (f32)device.extent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-
-    VkRect2D scissor{};
-    scissor.offset = {0,0};
-    scissor.extent = device.extent;
-
-    VkPipelineViewportStateCreateInfo viewportState{};
-    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewportState.viewportCount = 1;
-    viewportState.pViewports = &viewport;
-    viewportState.scissorCount = 1;
-    viewportState.pScissors = &scissor;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer = vkInit_rasterization_state_create_info(
-        VK_POLYGON_MODE_FILL
-    );
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling = vkInit_multisampling_state_create_info();
-
-    VkPipelineColorBlendAttachmentState colorBlendAttachment = vkInit_color_blend_attachment_state();
-    colorBlendAttachment.blendEnable = VK_TRUE;
-    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-
-    VkPipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    colorBlending.logicOpEnable = VK_FALSE;
-    colorBlending.logicOp = VK_LOGIC_OP_COPY; // Optional
-    colorBlending.attachmentCount = 1;
-    colorBlending.pAttachments = &colorBlendAttachment;
-    colorBlending.blendConstants[0] = 0.0f; // Optional
-    colorBlending.blendConstants[1] = 0.0f; // Optional
-    colorBlending.blendConstants[2] = 0.0f; // Optional
-    colorBlending.blendConstants[3] = 0.0f; // Optional
-
-    VkPipelineDepthStencilStateCreateInfo depthStencil = vkInit_depth_stencil_create_info(
-        true, true, VK_COMPARE_OP_LESS
-    );
-
-    // Possible to change some values at draw time, here's an example of how to set that up
-    // VkDynamicState dynamicStates[] = {
-    //     VK_DYNAMIC_STATE_VIEWPORT,
-    //     VK_DYNAMIC_STATE_LINE_WIDTH
-    // };
-
-    // VkPipelineDynamicStateCreateInfo dynamicState{};
-    // dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    // dynamicState.dynamicStateCount = 2;
-    // dynamicState.pDynamicStates = dynamicStates;
-
-
-#if 1
-    // TODO(james): support multiple layout sets
-    // use shader reflection
-    std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
-
-    for(auto& layout : vertexShader.set_layouts)
-    {
-        layoutBindings.insert(layoutBindings.end(), layout.bindings.begin(), layout.bindings.end());
-    }
-    
-    for(auto& layout : fragShader.set_layouts)
-    {
-        layoutBindings.insert(layoutBindings.end(), layout.bindings.begin(), layout.bindings.end());
-    }
-
-    VkDescriptorSetLayout layout = vgGetDescriptorLayoutFromCache( device.descriptorLayoutCache, (u32)layoutBindings.size(), layoutBindings.data());
-#else
-    // manual binding
-    VkDescriptorSetLayoutBinding layoutBindings[] = {
-        // camera
-        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0),
-        // sampler
-        vkInit_descriptorset_layout_binding(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT, 1)
-    };
-
-    VkDescriptorSetLayout layout = vgGetDescriptorLayoutFromCache( device.descriptorLayoutCache, ARRAY_COUNT(layoutBindings), layoutBindings );
-#endif
-
-    device.pipeline.descriptorLayout = layout;
-
-    std::vector<VkPushConstantRange> pushConstants;
-#if 1
-    // use reflection
-    // TODO(james): make this more efficient
-    pushConstants.insert(pushConstants.end(), vertexShader.pushConstants.begin(), vertexShader.pushConstants.end());
-    pushConstants.insert(pushConstants.end(), fragShader.pushConstants.begin(), fragShader.pushConstants.end());
-#else
-    VkPushConstantRange pushConstant;
-    pushConstant.offset = 0;
-    pushConstant.size = sizeof(m4);
-    pushConstant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
-    pushConstants.push_back(pushConstant);
-#endif
-
-    VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkInit_pipeline_layout_create_info();
-    pipelineLayoutInfo.setLayoutCount = 1; // TODO(james): see above TODO about multiple layout sets
-    pipelineLayoutInfo.pSetLayouts = &layout; // Optional
-    pipelineLayoutInfo.pushConstantRangeCount = (u32)pushConstants.size(); 
-    pipelineLayoutInfo.pPushConstantRanges = pushConstants.data(); // Optional
-
-    result = vkCreatePipelineLayout(device.handle, &pipelineLayoutInfo, nullptr, &device.pipeline.layout);
-    VERIFY_SUCCESS(result);
-
-    result = vgCreateRenderPass(device);
-    VERIFY_SUCCESS(result);
-
-    VkGraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.stageCount = 2;
-    pipelineInfo.pStages = shaderStages;
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState = &multisampling;
-    pipelineInfo.pDepthStencilState = &depthStencil; // Optional
-    pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDynamicState = nullptr; // Optional
-    pipelineInfo.layout = device.pipeline.layout;
-    pipelineInfo.renderPass = device.screenRenderpass;
-    pipelineInfo.subpass = 0;
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
-    pipelineInfo.basePipelineIndex = -1;
-
-    result = vkCreateGraphicsPipelines(device.handle, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &device.pipeline.handle);
-    VERIFY_SUCCESS(result);
-
-#undef VERIFY_SUCCESS
-    return VK_SUCCESS;
-}
-#endif
-
 internal
 VkResult vgCreateFramebuffers(vg_device& device)
 {
@@ -1557,214 +1198,6 @@ VkResult vgCreateFramebuffers(vg_device& device)
     return VK_SUCCESS;
 }
 
-#if 0
-internal
-void vgTempLoadModel(vg_device& device)
-{
-    tinyobj::attrib_t attrib;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
-    std::string warn, err;
-
-    bool bResult = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, MODEL_PATH);
-    ASSERT(bResult);
-
-    std::unordered_map<ps_vertex, u32> uniqueVertices{};
-
-    for(const auto& shape : shapes)
-    {
-        for(const auto& index : shape.mesh.indices)
-        {
-            ps_vertex vertex{};
-            vertex.pos = {
-                attrib.vertices[3 * index.vertex_index + 0],
-                attrib.vertices[3 * index.vertex_index + 1],
-                attrib.vertices[3 * index.vertex_index + 2]
-            };
-
-            vertex.texCoord = {
-                attrib.texcoords[2 * index.texcoord_index + 0],
-                1.0f - attrib.texcoords[2 * index.texcoord_index + 1]
-            };
-
-            vertex.color = {1.0f, 1.0f, 1.0f};
-
-#ifdef COMPUTE_MODEL_VERTEX_REUSE
-            if(uniqueVertices.count(vertex) == 0) {
-                uniqueVertices[vertex] = (u32)g_ModelVertices.size();
-                g_ModelVertices.push_back(vertex);
-            }
-
-            g_ModelIndices.push_back(uniqueVertices[vertex]);    // TODO(james): fix this awfulness
-#else
-            g_ModelVertices.push_back(vertex);
-            g_ModelIndices.push_back((u32)g_ModelIndices.size());
-#endif
-        }
-    }
-}
-
-internal
-VkResult vgTempCreateVertexBuffers(vg_device& device)
-{
-    //VkDeviceSize bufferSize = sizeof(g_Vertices[0]) * ARRAY_COUNT(g_Vertices);
-    VkDeviceSize bufferSize = sizeof(g_ModelVertices[0]) * g_ModelVertices.size();
-
-    // Create a staging buffer for upload to the GPU
-    vg_buffer stagingBuffer{};
-    VkResult result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
-    if(DIDFAIL(result))
-    {
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-        return result;
-    }
-
-    // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
-    void* data;
-    vkMapMemory(device.handle, stagingBuffer.memory, 0, bufferSize, 0, &data);
-        CopyArray(g_ModelVertices.size(), g_ModelVertices.data(), data);
-    vkUnmapMemory(device.handle, stagingBuffer.memory);
-
-    // Now create the actual device buffer in *FAST* GPU only memory
-    result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.vertex_buffer);
-    if(DIDFAIL(result))
-    {
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-        return result;
-    }
-
-    // Now we can copy the uploaded staging buffer data over to the faster buffer location
-    vgCopyBuffer(device, stagingBuffer.handle, device.vertex_buffer.handle, bufferSize);
-
-    vgDestroyBuffer(device.handle, stagingBuffer); // clean up the staging buffer
-
-    return VK_SUCCESS;
-}
-
-internal
-VkResult vgTempCreateIndexBuffers(vg_device& device)
-{
-    //VkDeviceSize bufferSize = sizeof(g_Indices[0]) * ARRAY_COUNT(g_Indices);
-    VkDeviceSize bufferSize = sizeof(g_ModelIndices[0]) * g_ModelIndices.size();
-
-    vg_buffer stagingBuffer{};
-    VkResult result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
-    if(DIDFAIL(result))
-    {
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-        return result;
-    }
-
-    // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
-    void* data;
-    vkMapMemory(device.handle, stagingBuffer.memory, 0, bufferSize, 0, &data);
-        CopyArray(g_ModelIndices.size(), g_ModelIndices.data(), data);
-    vkUnmapMemory(device.handle, stagingBuffer.memory);
-
-    // Now create the actual device buffer in *FAST* GPU only memory
-    result = vgCreateBuffer(device, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.index_buffer);
-    if(DIDFAIL(result))
-    {
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-        return result;
-    }
-
-    // Now we can copy the uploaded staging buffer data over to the faster buffer location
-    vgCopyBuffer(device, stagingBuffer.handle, device.index_buffer.handle, bufferSize);
-
-    vgDestroyBuffer(device.handle, stagingBuffer); // clean up the staging buffer
-
-    return VK_SUCCESS;
-}
-
-internal
-VkResult vgTempCreateUniformBuffers(vg_device& device)
-{
-    for (size_t i = 0; i < FRAME_OVERLAP; ++i)
-    {
-        VkResult result = vgCreateBuffer(device, sizeof(FrameObject), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &device.frames[i].frame_buffer);
-        ASSERT(result == VK_SUCCESS);
-
-    }
-
-    return VK_SUCCESS;
-}
-
-internal
-VkResult vgTempCreateTextureImages(vg_device& device)
-{
-    int texWidth, texHeight, texChannels;
-    stbi_uc *pixels = stbi_load(TEXTURE_PATH, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-    VkDeviceSize imageSize = texWidth * texHeight * 4; // use texChannels?
-
-    ASSERT(pixels);
-
-    vg_buffer stagingBuffer{};
-    VkResult result = vgCreateBuffer(device, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
-    if (DIDFAIL(result))
-    {
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-        return result;
-    }
-
-    // now we can map the vertex buffer memory to host memory, copy it, and then unmap it for copying to VRAM
-    void *data;
-    vkMapMemory(device.handle, stagingBuffer.memory, 0, imageSize, 0, &data);
-        Copy(imageSize, pixels, data);
-    vkUnmapMemory(device.handle, stagingBuffer.memory);
-
-    stbi_image_free(pixels);
-
-    vgCreateImage(device, texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.texture);
-
-    vgTransitionImageLayout(device, device.texture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    vgCopyBufferToImage(device, stagingBuffer, device.texture, (u32)texWidth, (u32)texHeight);
-    vgTransitionImageLayout(device, device.texture, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    vgDestroyBuffer(device.handle, stagingBuffer);
-
-    return VK_SUCCESS;
-}
-
-internal
-VkResult vgTempCreateTextureImageViews(vg_device& device)
-{
-    VkResult result = vgCreateImageView(device, device.texture.handle, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, &device.texture.view);
-
-    return result;
-}
-
-internal
-VkResult vgTempCreateTextureSamplers(vg_device& device)
-{
-    VkSamplerCreateInfo samplerInfo = vkInit_sampler_create_info(
-        VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT
-    );
-    samplerInfo.anisotropyEnable = VK_TRUE;
-    samplerInfo.maxAnisotropy = device.device_properties.limits.maxSamplerAnisotropy;
-    
-    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    samplerInfo.unnormalizedCoordinates = VK_FALSE;     // False = [0..1,0..1], [True = 0..Width, 0..Height]
-    
-    samplerInfo.compareEnable = VK_FALSE;
-    samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    samplerInfo.mipLodBias = 0.0f;
-    samplerInfo.minLod = 0.0f;
-    samplerInfo.maxLod = 0.0f;
-    
-    VkResult result = vkCreateSampler(device.handle, &samplerInfo, nullptr, &device.sampler.handle);
-    ASSERT(DIDSUCCEED(result));
-
-    return result;
-}
-#endif
 
 internal
 VkResult vgCreateDepthResources(vg_device& device)
@@ -1819,87 +1252,6 @@ VkResult vgCreateCommandPool(vg_device& device)
 
     return VK_SUCCESS;
 }
-
-#if 0
-internal
-void vgTempBuildRenderCommands(vg_device& device, u32 swapChainImageIndex)
-{
-    
-
-    VkDescriptorSet shaderDescriptor = vgCreateDescriptor(&device, device.pipeline.descriptorLayout);
-    // vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, device.pipeline.descriptorLayout, &shaderDescriptor);
-
-    VkDescriptorBufferInfo bufferInfo{};
-    bufferInfo.buffer = device.pCurFrame->frame_buffer.handle;
-    bufferInfo.offset = 0;
-    bufferInfo.range = sizeof(UniformBufferObject);
-
-    VkDescriptorImageInfo imageInfo{};
-    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    imageInfo.imageView = device.texture.view;
-    imageInfo.sampler = device.sampler.handle;
-
-    VkWriteDescriptorSet writes[] = {
-        vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &bufferInfo, 0),
-        vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 1)};
-
-    vgUpdateDescriptorSets(&device, ARRAY_COUNT(writes), writes);
-    // vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
-
-    // VkCommandBufferBeginInfo beginInfo = vkInit_command_buffer_begin_info(0);
-
-    VkCommandBuffer commandBuffer = device.pCurFrame->commandBuffer;
-    vgBeginRecordingCmds(commandBuffer);
-    // VkResult result = vkBeginCommandBuffer(commandBuffer, &beginInfo);
-    // if(DIDFAIL(result)) { 
-    //     LOG_ERROR("Vulkan Error: %X", (result));
-    //     ASSERT(false);
-    // }
-
-    // VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
-    //     device.screenRenderPass, device.extent, device.paFramebuffers[swapChainImageIndex]
-    // );
-
-    VkClearValue clearValues[2] = {};
-    clearValues[0].color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-    clearValues[1].depthStencil = {1.0f, 0};
-    vgBeginRenderPass(commandBuffer, device.screenRenderPass, 2, clearValues, device.extent, device.paFramebuffers[swapChainImageIndex]);
-    // renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
-    // renderPassInfo.pClearValues = clearValues;
-    // vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    vgBindPipeline(commandBuffer, device.pipeline.handle);
-    // vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.handle);
-
-    VkBuffer vertexBuffers[] = {device.vertex_buffer.handle};
-    VkDeviceSize offsets[] = {0};
-    // vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-    vgBindVertexBuffers(commandBuffer, 1, vertexBuffers, offsets);
-
-    vgBindIndexBuffer(commandBuffer, device.index_buffer.handle);
-    // vkCmdBindIndexBuffer(commandBuffer, device.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
-
-    vgBindDescriptorSets(commandBuffer, device.pipeline.layout, 1, &shaderDescriptor);
-    // vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.layout, 0, 1, &shaderDescriptor, 0, nullptr);
-    // and wait for it....
-    u32 count = (u32)g_ModelIndices.size();
-
-    vgDrawIndexed(commandBuffer, count, 1);
-
-    //vkCmdDrawIndexed(commandBuffer, count, 1, 0, 0, 0); // ta-da!!! we're finally drawing.. only 1000 lines of setup code required
-
-    vgEndRenderPass(commandBuffer);
-    // vkCmdEndRenderPass(commandBuffer);
-
-    vgEndRecordingCmds(commandBuffer);
-
-    // result = vkEndCommandBuffer(commandBuffer);
-    // if(DIDFAIL(result)) { 
-    //     LOG_ERROR("Vulkan Error: %X", (result));
-    //     ASSERT(false);
-    // }
-}
-#endif
 
 internal
 void vgDestroySwapChain(vg_device& device)
@@ -2474,53 +1826,11 @@ VulkanGraphicsBeginFrame(vg_backend* vb, render_commands* cmds)
     cmds->pushBufferBase = vb->pushBuffer;
     cmds->pushBufferDataAt = vb->pushBuffer;
     cmds->maxPushBufferSize = U16MAX;
-
-    // update the g_UBO with the latest matrices
-    // {
-    //     local_persist f32 accumlated_elapsedFrameTime = 0.0f;
-
-    //     //accumlated_elapsedFrameTime += clock.elapsedFrameTime;
-
-    //     UniformBufferObject ubo{};
-    //     // Rotates 90 degrees a second
-    //     ubo.model = Rotate(accumlated_elapsedFrameTime * 90.0f, Vec3(0.0f, 0.0f, 1.0f));
-    //     ubo.view = LookAt(Vec3(4.0f, 4.0f, 4.0f), Vec3(0.0f, 0.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f));
-    //     ubo.proj = Perspective(45.0f, (f32)device.extent.width, (f32)device.extent.height, 0.1f, 10.0f);
-    //     //ubo.proj.Elements[1][1] *= -1;
-
-    //     void* data;
-    //     vkMapMemory(device.handle, device.pCurFrame->frame_buffer.memory, 0, sizeof(ubo), 0, &data);
-    //         Copy(sizeof(ubo), &ubo, data);
-    //     vkUnmapMemory(device.handle, device.pCurFrame->frame_buffer.memory);
-    // }
 }
 
 internal
 void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
 {
-    // TODO(james): Turn this into an actual renderer, this is just to get some stuff on the screen
-
-    // prepare for recording...
-    // VkDescriptorSet shaderDescriptor = VK_NULL_HANDLE;
-    // vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, device.pipeline.descriptorLayout, &shaderDescriptor);
-
-    // VkDescriptorBufferInfo cameraBufferInfo{};
-    // cameraBufferInfo.buffer = device.pCurFrame->frame_buffer.handle;
-    // cameraBufferInfo.offset = 0;
-    // cameraBufferInfo.range = sizeof(FrameObject);
-
-    // VkDescriptorImageInfo imageInfo{};
-
-    // imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    // imageInfo.imageView = device.texture.view;
-    // imageInfo.sampler = device.sampler.handle;
-
-    // VkWriteDescriptorSet writes[] = {
-    //     vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, shaderDescriptor, &cameraBufferInfo, 0),
-    //     vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, shaderDescriptor, &imageInfo, 1)};
-
-    // vkUpdateDescriptorSets(device.handle, ARRAY_COUNT(writes), writes, 0, nullptr);
-
     VkCommandBufferBeginInfo beginInfo = vkInit_command_buffer_begin_info(0);
 
     VkCommandBuffer commandBuffer = device.pCurFrame->commandBuffer;
@@ -2531,19 +1841,15 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
     clearValues[1].depthStencil = {1.0f, 0};
 
     VkFramebuffer currentScreenFramebuffer = device.paFramebuffers[device.curSwapChainIndex];
-    
-    // VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
-    //     device.screenRenderPass, device.extent, device.paFramebuffers[device.curSwapChainIndex]
-    // );
-    // renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
-    // renderPassInfo.pClearValues = clearValues;
-    // vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-    //vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.handle);
-
-    //vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, device.pipeline.layout, 0, 1, &shaderDescriptor, 0, nullptr);
 
     // TODO(james): MAJOR PERFORMANCE BOTTLENECK!!! Need to sort objects into render pass bins first -OR- add a command to bind the material prior to drawing!
+
+    VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
+        device.screenRenderPass, device.extent, currentScreenFramebuffer
+    );
+    renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
+    renderPassInfo.pClearValues = clearValues;
+    vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
     //
     // Iterate through the render commands
@@ -2575,23 +1881,18 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                 instanceObject.mvp = cmd->mvp;
 
                 vg_material_resource& material = *vgGetPoolMaterialFromId(device.resource_pool, cmd->material_id);
-
-                VkRenderPass renderPass = device.screenRenderPass;
-                VkFramebuffer framebuffer = currentScreenFramebuffer;
-
-                if(material.renderPass != VK_NULL_HANDLE)
-                {
-                    renderPass = material.renderPass;
-                    framebuffer = material.framebuffer;
-                }
                 
-                VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
-                    renderPass, device.extent, framebuffer
-                );
-                renderPassInfo.clearValueCount = ARRAY_COUNT(clearValues);
-                renderPassInfo.pClearValues = clearValues;
-                vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+                // TODO(james): Support different render passes from a material
+                ASSERT(material.renderPass == VK_NULL_HANDLE);
+                // VkRenderPass renderPass = device.screenRenderPass;
+                // VkFramebuffer framebuffer = currentScreenFramebuffer;
 
+                // if(material.renderPass != VK_NULL_HANDLE)
+                // {
+                //     renderPass = material.renderPass;
+                //     framebuffer = material.framebuffer;
+                // }
+                
                 vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, material.pipeline);
 
                 vg_buffer& vertexBuffer = *vgGetPoolBufferFromId(device.resource_pool, cmd->vertexBuffer);
