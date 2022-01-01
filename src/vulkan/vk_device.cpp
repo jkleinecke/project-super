@@ -13,11 +13,7 @@
 #include <array>
 #include <unordered_map>
 
-// TODO(james): Remove this from the main graphics driver... just for testing
-//#define TINYOBJLOADER_IMPLEMENTATION
-#include "libs/tinyobjloader/tiny_obj_loader.h"
-
-#if defined(PROJECTSUPER_INTERNAL)
+#if defined(PROJECTSUPER_SLOW)
 #define GRAPHICS_DEBUG
 #endif
 

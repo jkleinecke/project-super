@@ -16,3 +16,6 @@
 [submodule "src/libs/SPIRV-Reflect"]
 	path = src/libs/SPIRV-Reflect
 	url = git@github.com:KhronosGroup/SPIRV-Reflect.git
+[submodule "src/libs/cgltf"]
+	path = src/libs/cgltf
+	url = git@github.com:jkuhlmann/cgltf.git

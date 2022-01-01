@@ -34,7 +34,7 @@ REM set CommonCompilerFlags=-diagnostics:column -WL -O2 -nologo -fp:fast -fp:exc
 
 REM -analyze
 set CompilerDefines=-DPROJECTSUPER_INTERNAL=1 -DPROJECTSUPER_SLOW=1 -DPROJECTSUPER_WIN32=1 
-REM set CompilerDefines=-DPROJECTSUPER_INTERNAL=0 -DPROJECTSUPER_SLOW=0 -DPROJECTSUPER_WIN32=1
+REM set CompilerDefines=-DPROJECTSUPER_INTERNAL=1 -DPROJECTSUPER_WIN32=1
 
 REM turn warning 4350 back on once the renderer backend is split from the host
 set CompilerFlags=%CompilerDefines% %DebugFlags% -WL -nologo /std:c++20 -fp:fast -fp:except- -GS- -GR- -EHa- -WX -W4 -wd4100 -wd4530 -wd4201 -wd4505 -wd4189 -FC -Zi 
@@ -65,7 +65,7 @@ set HostLinkerFlags=-STACK:0x100000,0x100000 %LinkerFlags% ole32.lib user32.lib 
 REM clang++ %CompilerDefines% -I..\src -Oi -Od -std=c++17 -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp  
 
 cl %GameCompilerFlags% -I%VulkanIncludeDir% ..\src\ps_game.cpp  ..\src\libs\tinyobjloader\tiny_obj_loader.cc -Fmps_game.map /link %GameLinkerFlags%
-cl %HostCompilerFlags% -I..\src -I..\src\libs -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp ..\src\libs\tinyobjloader\tiny_obj_loader.cc -Fmwin32_platform.map /link -LIBPATH:%VulkanLibDir% %HostLinkerFlags%
+cl %HostCompilerFlags% -I..\src -I..\src\libs -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp -Fmwin32_platform.map /link -LIBPATH:%VulkanLibDir% %HostLinkerFlags%
 set LastError=%ERRORLEVEL%
 
 REM pop build directory

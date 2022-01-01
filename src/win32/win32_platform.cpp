@@ -844,7 +844,7 @@ extern "C" int __stdcall WinMainCRTStartup()
             //     elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime);
             // }
             #if 1
-            LOG_INFO("Frame Time: %.2f ms, Total Time: %.2f ms", frameTime * 1000.0f, elapsedFrameTime * 1000.0f);
+            LOG_DEBUG("Frame Time: %.2f ms, Total Time: %.2f ms", frameTime * 1000.0f, elapsedFrameTime * 1000.0f);
             #endif
         }
         else
