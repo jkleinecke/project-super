@@ -1900,44 +1900,47 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                     vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, material.descriptorLayouts[i], &descriptors[i]);
                 }
 
-                std::vector<VkWriteDescriptorSet> writes(cmd->materialBindingCount);
-                for(u32 i = 0; i < cmd->materialBindingCount; ++i)
+                if(cmd->materialBindingCount)
                 {
-                    const render_material_binding& binding = cmd->materialBindings[i];
-                    ASSERT(binding.layoutIndex < (u32)descriptors.size());
-
-                    switch(binding.type)
+                    std::vector<VkWriteDescriptorSet> writes(cmd->materialBindingCount);
+                    for(u32 i = 0; i < cmd->materialBindingCount; ++i)
                     {
-                        case RenderMaterialBindingType::Buffer:
-                            {
-                                vg_buffer& buffer = *vgGetPoolBufferFromId(device.resource_pool, binding.buffer_id);
-                                VkDescriptorBufferInfo bufferInfo{};
-                                bufferInfo.buffer = buffer.handle;
-                                bufferInfo.offset = (VkDeviceSize)binding.buffer_offset;
-                                bufferInfo.range = (VkDeviceSize)binding.buffer_range;
-                                writes[i] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptors[binding.layoutIndex], &bufferInfo, binding.bindingIndex);
-                            }
-                            break;
-                        case RenderMaterialBindingType::Image:
-                            {
-                                vg_image& image = *vgGetPoolImageFromId(device.resource_pool, binding.image_id);
-                                ASSERT(binding.image_sampler_index < material.samplerCount);
-                                VkSampler sampler = material.samplers[binding.image_sampler_index];
+                        const render_material_binding& binding = cmd->materialBindings[i];
+                        ASSERT(binding.layoutIndex < (u32)descriptors.size());
 
-                                VkDescriptorImageInfo imageInfo{};
-                                imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                                imageInfo.imageView = image.view;
-                                imageInfo.sampler = sampler;
-                                writes[i] = vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptors[binding.layoutIndex], &imageInfo, binding.bindingIndex);
-                            }
-                            break;
-                        
-                        InvalidDefaultCase;
+                        switch(binding.type)
+                        {
+                            case RenderMaterialBindingType::Buffer:
+                                {
+                                    vg_buffer& buffer = *vgGetPoolBufferFromId(device.resource_pool, binding.buffer_id);
+                                    VkDescriptorBufferInfo bufferInfo{};
+                                    bufferInfo.buffer = buffer.handle;
+                                    bufferInfo.offset = (VkDeviceSize)binding.buffer_offset;
+                                    bufferInfo.range = (VkDeviceSize)binding.buffer_range;
+                                    writes[i] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptors[binding.layoutIndex], &bufferInfo, binding.bindingIndex);
+                                }
+                                break;
+                            case RenderMaterialBindingType::Image:
+                                {
+                                    vg_image& image = *vgGetPoolImageFromId(device.resource_pool, binding.image_id);
+                                    ASSERT(binding.image_sampler_index < material.samplerCount);
+                                    VkSampler sampler = material.samplers[binding.image_sampler_index];
+
+                                    VkDescriptorImageInfo imageInfo{};
+                                    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                                    imageInfo.imageView = image.view;
+                                    imageInfo.sampler = sampler;
+                                    writes[i] = vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptors[binding.layoutIndex], &imageInfo, binding.bindingIndex);
+                                }
+                                break;
+                            
+                            InvalidDefaultCase;
+                        }
                     }
-                }
 
-                vkUpdateDescriptorSets(device.handle, (u32)writes.size(), writes.data(), 0, nullptr);
-                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, material.layout, 0, (u32)descriptors.size(), descriptors.data(), 0, nullptr);
+                    vkUpdateDescriptorSets(device.handle, (u32)writes.size(), writes.data(), 0, nullptr);
+                    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, material.layout, 0, (u32)descriptors.size(), descriptors.data(), 0, nullptr);
+                }
 
                 VkDeviceSize offsets[] = {0};
                 vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer.handle, offsets);

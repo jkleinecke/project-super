@@ -237,6 +237,8 @@ typedef intptr_t imm;
 #define Align8(Value) (((Value) + 7) & ~7)
 #define Align16(Value) (((Value) + 15) & ~15)
 
+#define FOREACH(var, in_array, size) for(auto var = (in_array); var < ((in_array) + (size)); ++var)
+
 struct buffer
 {
     umm size;

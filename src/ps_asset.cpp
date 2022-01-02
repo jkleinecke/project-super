@@ -7,6 +7,11 @@
 #include <unordered_map>
 // ----------------------------------------------
 
+// TODO(james): Just for testing
+#define CGLTF_IMPLEMENTATION
+#include <cgltf/cgltf.h>
+// ----------------------------------------------
+
 internal
 inline void ps_hash_combine(size_t &seed, size_t hash)
 {
@@ -138,6 +143,7 @@ LoadModelAsset(game_assets& assets, const char* filename)
 
     asset->vertex_id = assets.nextBufferId++;
     asset->vertexCount = (u32)vertices.size();
+    asset->vertexSize = sizeof(render_mesh_vertex);
     asset->vertices = PushArray(assets.memory, asset->vertexCount, render_mesh_vertex);
     CopyArray(asset->vertexCount, vertices.data(), asset->vertices);
 
@@ -194,6 +200,137 @@ LoadMaterialAsset(game_assets& assets)
     return asset;
 }
 
+internal material_asset*
+LoadBoxMaterial(game_assets& assets)
+{
+    material_asset* asset = PushStruct(assets.memory, material_asset);
+    asset->id = assets.nextMaterialId++;
+
+    render_material_desc& material = asset->desc;
+    material.id = asset->id;
+    material.shaderCount = 2;
+    material.shaders[0] = (render_shader_id)assets.boxVS->id;
+    material.shaders[1] = (render_shader_id)assets.boxFS->id;
+
+    return asset;
+}
+
+struct vertex
+{
+    v3 position;
+    v3 normal;
+};
+
+internal void
+LoadCgltfAssets(game_assets& assets, const char* filename)
+{
+    memory_arena scratch = {};
+
+    platform_file file = Platform.OpenFile(FileLocation::Content, filename, FileUsage::Read);
+    void* bytes = PushSize(scratch, file.size); 
+    u64 bytesRead = Platform.ReadFile(file, bytes, file.size);
+    ASSERT(bytesRead == file.size);
+
+    cgltf_options options = {0};
+    cgltf_data* data = NULL;
+    cgltf_result result = cgltf_parse(&options, bytes, file.size, &data);
+
+    if(result == cgltf_result_success)
+    {
+        // file is parsed, now validate and read the contents
+        result = cgltf_validate(data);
+
+        // NOTE(james): This isn't the most efficient way to load these files.  It should
+        // be possible to directly load the buffer bytes and then just setup the interpretation
+        // properly.  We're not going to do that though because we're going to change the actual
+        // data types of some of the properties.  Like indexes from u16->u32...
+
+        if(result == cgltf_result_success)
+        {
+            // NOTE(james): we only really support the gltf binary files, so load buffers
+            // doesn't actually reach back out to the filesystem
+            result = cgltf_load_buffers(&options, data, 0);
+            ASSERT(result == cgltf_result_success);
+
+            // NOTE(james): We'll treat a single cgltf file as a single manifest...
+            //              no matter how many scenes it holds.
+
+            assets.numModels = (u32)data->meshes_count;
+            assets.models = PushArray(assets.memory, assets.numModels, model_asset);
+
+            model_asset* model = assets.models;
+            FOREACH(mesh, data->meshes, data->meshes_count)
+            {
+                const char* name = mesh->name;
+
+                FOREACH(primitive, mesh->primitives, mesh->primitives_count)
+                {
+                    cgltf_accessor* indices = primitive->indices;
+
+                    model->index_id = assets.nextBufferId++;
+                    model->indexCount = (u32)indices->count;
+                    model->indices = PushArray(assets.memory, model->indexCount, u32);
+
+                    // TODO(james): Change this logic to just setup the buffer views and directly load the buffer bytes
+
+                    cgltf_size i = 0;
+                    FOREACH(idx, model->indices, model->indexCount) {
+                        *idx = (u32)cgltf_accessor_read_index(indices, i++);
+                    }
+
+                    // NOTE(james): For now we're always going to load these as interleaved.
+                    // Since they will be interleaved, we need to loop through all the attributes
+                    // to figure out how big the vertex will be, and then we can read the data.
+                    // TODO(james): Support primitive types besides just a triangle list
+                    model->vertex_id = assets.nextBufferId++;
+                    model->vertexSize = 0;
+                    model->vertexCount = 0;
+                    
+                    FOREACH(attr, primitive->attributes, primitive->attributes_count)
+                    {
+                        cgltf_accessor* access = attr->data;
+                        model->vertexSize += cgltf_num_components(access->type) * sizeof(f32);
+                        ASSERT(!model->vertexCount || model->vertexCount == access->count);   // NOTE(james): verifies that all attributes have the same number of elements
+                        model->vertexCount = (u32)access->count;
+                    }
+
+                    model->vertices = PushSize(assets.memory, model->vertexSize * model->vertexCount);
+
+                    umm offset = 0;
+                    FOREACH(attr, primitive->attributes, primitive->attributes_count)
+                    {
+                        cgltf_accessor* access = attr->data;
+                        umm numComponents = cgltf_num_components(access->type);
+
+                        void* curVertex = OffsetPtr(model->vertices, offset);
+                        for(umm index = 0; index < model->vertexCount; ++index)
+                        {
+                            cgltf_accessor_read_float(access, index, (cgltf_float*)curVertex, numComponents);
+                            curVertex = OffsetPtr(curVertex, model->vertexSize);
+                        }
+                        offset += numComponents * sizeof(f32);
+                        //cgltf_accessor_unpack_floats(attr->data, (cgltf_float*)model.vertices, model.vertexCount * cgltf_num_components(attr->data->type));
+                    }
+
+                    model->material_id = assets.boxMaterial->id;
+                    model->texture_id = 0;
+                }
+
+                ++model;
+            }
+        }
+    }
+
+    if(data)
+    {
+        cgltf_free(data);
+    }
+
+    Platform.CloseFile(file);
+
+    Clear(scratch);
+}
+
 internal void
 AddModelToManifest(render_manifest* manifest, model_asset* model)
 {
@@ -209,7 +346,7 @@ AddModelToManifest(render_manifest* manifest, model_asset* model)
     manifest->buffers[index+1].id             = model->vertex_id;
     manifest->buffers[index+1].type           = RenderBufferType::Vertex;
     manifest->buffers[index+1].usage          = RenderUsage::Static;
-    manifest->buffers[index+1].sizeInBytes    = sizeof(render_mesh_vertex) * model->vertexCount;
+    manifest->buffers[index+1].sizeInBytes    = (u32)(model->vertexSize * model->vertexCount);
     manifest->buffers[index+1].bytes          = model->vertices;
 }
 
@@ -234,7 +371,7 @@ FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
 
     // shaders
     {
-        manifest->shaderCount = 2;
+        manifest->shaderCount = 4;
 
         manifest->shaders[0].id = assets.simpleVS->id;
         manifest->shaders[0].sizeInBytes = assets.simpleVS->sizeInBytes;
@@ -243,18 +380,34 @@ FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
         manifest->shaders[1].id = assets.simpleFS->id;
         manifest->shaders[1].sizeInBytes = assets.simpleFS->sizeInBytes;
         manifest->shaders[1].bytes = assets.simpleFS->bytes;
+
+        manifest->shaders[2].id = assets.boxVS->id;
+        manifest->shaders[2].sizeInBytes = assets.boxVS->sizeInBytes;
+        manifest->shaders[2].bytes = assets.boxVS->bytes;
+
+        manifest->shaders[3].id = assets.boxFS->id;
+        manifest->shaders[3].sizeInBytes = assets.boxFS->sizeInBytes;
+        manifest->shaders[3].bytes = assets.boxFS->bytes;
     }
     // materials
     {
-        manifest->materialCount = 1;
+        manifest->materialCount = 2;
 
-        Copy(sizeof(render_material_desc), &assets.basicTextureMaterial->desc, &manifest->materials[0]);
+        manifest->materials[0] = assets.basicTextureMaterial->desc;
         manifest->materials[0].id = assets.basicTextureMaterial->id;
+        
+        manifest->materials[1] = assets.boxMaterial->desc;
+        manifest->materials[1].id = assets.boxMaterial->id;
     }
     // buffers
     {
         AddModelToManifest(manifest, assets.vikingModel);
         AddModelToManifest(manifest, assets.skullModel);
+
+        FOREACH(model, assets.models, assets.numModels)
+        {
+            AddModelToManifest(manifest, model);
+        }
     }
     // images
     {
@@ -266,7 +419,7 @@ FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
 internal game_assets*
 AllocateGameAssets(game_state& gm_state, render_context& renderer)
 {
-    game_assets& assets = *BootstrapPushStruct(game_assets, memory, NonRestoredArena());
+    game_assets& assets = *BootstrapPushStructMember(game_assets, memory, NonRestoredArena());
     
     assets.frameArena = gm_state.frameArena;
     assets.resourceQueue = renderer.resourceQueue;
@@ -292,6 +445,11 @@ AllocateGameAssets(game_state& gm_state, render_context& renderer)
     assets.skullModel = LoadModelAsset(assets, "../data/skull.obj");
     assets.skullModel->texture_id = assets.skullTexture->id;
     assets.skullModel->material_id = assets.basicTextureMaterial->id;
+
+    assets.boxVS = LoadShaderAsset(assets, "box.vert.spv");
+    assets.boxFS = LoadShaderAsset(assets, "box.frag.spv");
+    assets.boxMaterial = LoadBoxMaterial(assets);
+    LoadCgltfAssets(assets, "box.glb");
 
     // TODO(james): Allow this part to be streamed in as part of a streaming assets system.  For now we'll just make one load at startup time
     render_manifest* manifest = PushStruct(*gm_state.frameArena, render_manifest);

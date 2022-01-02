@@ -42,7 +42,7 @@ set CompilerFlags=%CompilerDefines% %DebugFlags% -WL -nologo /std:c++20 -fp:fast
 REM add /FUNCTIONPADMIN for vs2022 hotpatching??
 set LinkerFlags=-incremental:no -opt:ref
 
-set GameCompilerFlags=-MTd %CompilerDefines% %CompilerFlags% /LD 
+set GameCompilerFlags=-MTd -D_CRT_SECURE_NO_WARNINGS %CompilerDefines% %CompilerFlags% /LD 
 set GameLinkerFlags=%LinkerFlags% -PDB:ps_game_%random%.pdb /DLL /EXPORT:GameUpdateAndRender -out:ps_game.dll
 
 REM TODO: Split renderer into a seperate DLL where we can have more than one API backend, like opengl32.lib
@@ -64,7 +64,7 @@ set HostLinkerFlags=-STACK:0x100000,0x100000 %LinkerFlags% ole32.lib user32.lib 
 
 REM clang++ %CompilerDefines% -I..\src -Oi -Od -std=c++17 -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp  
 
-cl %GameCompilerFlags% -I%VulkanIncludeDir% ..\src\ps_game.cpp  ..\src\libs\tinyobjloader\tiny_obj_loader.cc -Fmps_game.map /link %GameLinkerFlags%
+cl %GameCompilerFlags% -I%VulkanIncludeDir% -I..\src\libs ..\src\ps_game.cpp  ..\src\libs\tinyobjloader\tiny_obj_loader.cc -Fmps_game.map /link %GameLinkerFlags%
 cl %HostCompilerFlags% -I..\src -I..\src\libs -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp -Fmwin32_platform.map /link -LIBPATH:%VulkanLibDir% %HostLinkerFlags%
 set LastError=%ERRORLEVEL%
 

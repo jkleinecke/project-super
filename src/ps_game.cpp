@@ -312,7 +312,14 @@ RenderModel(render_commands& cmds, model_asset* model, m4& mvp)
     bindings[0].image_id            = model->texture_id;
     bindings[0].image_sampler_index = 0;    // TODO(james): This needs to be easier to figure out that just "knowing" which index to use
 
-    PushCmd_DrawObject(cmds, mesh, mvp, materialId, ARRAY_COUNT(bindings), bindings);
+    u32 bindingCount = 0;;
+
+    if(model->texture_id)
+    {
+        bindingCount = ARRAY_COUNT(bindings);
+    }
+
+    PushCmd_DrawObject(cmds, mesh, mvp, materialId, bindingCount, bindings);
 }
 
 internal
@@ -320,23 +327,33 @@ void BuildRenderCommands(game_state& state, render_commands& cmds)
 {
     BeginRenderCommands(cmds);
     
-    m4 view = LookAt(state.camera.position, state.camera.target, V3_Z_UP);
+    m4 view = LookAt(state.camera.position, state.camera.target, V3_Y_UP);
     //PushCmd_UpdateViewProjection(cmds, view, state.cameraProjection);
     
     m4 viewProj = state.cameraProjection * view;
 
-    {
-        m4 mvp = viewProj * M4_IDENTITY;
-        RenderModel(cmds, state.assets->vikingModel, mvp);
-    }
+    // {
+    //     m4 mvp = viewProj * M4_IDENTITY;
+    //     RenderModel(cmds, state.assets->vikingModel, mvp);
+    // }
+
+    // {
+    //     v3 scale = Vec3(state.skullScaleFactor,state.skullScaleFactor,state.skullScaleFactor);
+    //     // for each object need to compute the mvp
+    //     m4 model = Translate(state.skullPosition) * Rotate(state.skullRotationAngle, Vec3i(0,0,1)) * Scale(scale);//M4_IDENTITY;
+    //     m4 mvp = viewProj * model;
+
+    //     RenderModel(cmds, state.assets->skullModel, mvp);
+    // }
+
 
     {
         v3 scale = Vec3(state.skullScaleFactor,state.skullScaleFactor,state.skullScaleFactor);
         // for each object need to compute the mvp
-        m4 model = Translate(state.skullPosition) * Rotate(state.skullRotationAngle, Vec3i(0,0,1)) * Scale(scale);//M4_IDENTITY;
+        m4 model = Translate(state.skullPosition) * Rotate(state.skullRotationAngle, Vec3i(0,1,0)) * Scale(scale);//M4_IDENTITY;
         m4 mvp = viewProj * model;
 
-        RenderModel(cmds, state.assets->skullModel, mvp);
+        RenderModel(cmds, state.assets->models, mvp);
     }
 
     EndRenderCommands(cmds);
@@ -352,7 +369,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     if(!gameMemory.state)
     {
-        gameMemory.state = BootstrapPushStruct(game_state, totalArena);
+        gameMemory.state = BootstrapPushStructMember(game_state, totalArena);
         game_state& gameState = *gameMemory.state;
         gameState.frameArena = (memory_arena*)BootstrapPushSize_(DEBUG_MEMORY_NAME("FrameArena") sizeof(memory_arena), 0, NonRestoredArena());
         gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
@@ -360,13 +377,15 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.resourceQueue = render.resourceQueue;   
         gameState.assets = AllocateGameAssets(gameState, render);
      
-        gameState.camera.position = Vec3(4.0f, 4.0f, 4.0f);
+        gameState.camera.position = Vec3(0.0f, 4.0f, 4.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
         gameState.cameraProjection = Perspective(45.0f, render.renderDimensions.Width, render.renderDimensions.Height, 0.1f, 10.0f);
 
         // NOTE(james): Values taken from testing to setup a good starting point
-        gameState.skullPosition = Vec3(0.218433440f,0.126181871f,0.596520841f);
-        gameState.skullScaleFactor = 0.0172703639f;
+        //gameState.skullPosition = Vec3(0.218433440f,0.126181871f,0.596520841f);
+        // gameState.skullScaleFactor = 0.0172703639f;
+        gameState.skullPosition = Vec3i(0,0,0);
+        gameState.skullScaleFactor = 1.0f;
         gameState.skullRotationAngle = 120.188347f;
     }    
     
@@ -392,11 +411,14 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             {
                 v2 lstick = Vec2(controller.leftStick.x, controller.leftStick.y);
                 f32 magnitude = LengthVec2(lstick);                
-                v2 norm_lstick = NormalizeVec2(lstick);
 
-                
-                v3 skullOffset = Vec3(norm_lstick.X, norm_lstick.Y, 0.0f) * (magnitude * skullVelocity);
-                gameState.skullPosition -= skullOffset;
+                if(magnitude > 0)
+                {
+                    v2 norm_lstick = NormalizeVec2(lstick);
+                    
+                    v3 skullOffset = Vec3(norm_lstick.X, 0.0f, -norm_lstick.Y) * (magnitude * skullVelocity);
+                    gameState.skullPosition += skullOffset;
+                }
 
                 gameState.skullScaleFactor *= (1.0f - (skullScaleRate * controller.leftTrigger.value));
                 gameState.skullScaleFactor *= (1.0f + (skullScaleRate * controller.rightTrigger.value));
@@ -413,11 +435,11 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
             if(controller.y.pressed)
             {
-                gameState.skullPosition.Z += skullVelocity;
+                gameState.skullPosition.Y += skullVelocity;
             }
             if(controller.a.pressed)
             {
-                gameState.skullPosition.Z -= skullVelocity;
+                gameState.skullPosition.Y -= skullVelocity;
             }
 
             if(gameState.skullRotationAngle > 360.0f)

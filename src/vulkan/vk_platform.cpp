@@ -202,51 +202,6 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
     }
 
-    #if 0
-    ///////////////////////////////////
-    // Temporary Model Loading
-    vgTempLoadModel(vb.device);
-    ///////////////////////////////////
-
-
-    ///////////////////////////////////
-    // Temporary Vertex Buffer Creation
-    result = vgTempCreateVertexBuffers(vb.device);
-    ///////////////////////////////////
-
-    ///////////////////////////////////
-    // Temporarty Index Buffer Creation
-    result = vgTempCreateIndexBuffers(vb.device);
-    ///////////////////////////////////
-
-    ///////////////////////////////////
-    // Temporarty Uniform Buffer Creation
-    result = vgTempCreateUniformBuffers(vb.device);
-    ///////////////////////////////////
-
-    ///////////////////////////////////
-    // Temporary Image Creation
-    result = vgTempCreateTextureImages(vb.device);
-    ///////////////////////////////////
-
-    ///////////////////////////////////
-    // Temporary Image View Creation
-    result = vgTempCreateTextureImageViews(vb.device);
-    ///////////////////////////////////
-
-    ///////////////////////////////////
-    // Temporary Sampler Creation
-    result = vgTempCreateTextureSamplers(vb.device);
-    ///////////////////////////////////
-
-    //result = vgCreateDescriptorSets(vb.device);
-    if(DIDFAIL(result))
-    {
-        LOG_ERROR("Vulkan Error: %X", (result));
-        ASSERT(false);
-    }
-    #endif
-
     ps_graphics_backend backend = {};
     backend.instance = &g_VulkanBackend;
 

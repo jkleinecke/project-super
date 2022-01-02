@@ -140,7 +140,7 @@ NonRestoredArena(void)
 #define PushString(...) PushString_(DEBUG_MEMORY_NAME("PushString") __VA_ARGS__)
 #define PushBuffer(...) PushBuffer_(DEBUG_MEMORY_NAME("PushBuffer") __VA_ARGS__)
 #define PushAndNullTerminate(...) PushAndNullTerminate_(DEBUG_MEMORY_NAME("PushAndNullTerminate") __VA_ARGS__)
-#define BootstrapPushStruct(type, Member, ...) (type *)BootstrapPushSize_(DEBUG_MEMORY_NAME("BootstrapPushSize") sizeof(type), OffsetOf(type, Member), ## __VA_ARGS__)
+#define BootstrapPushStructMember(type, Member, ...) (type *)BootstrapPushSize_(DEBUG_MEMORY_NAME("BootstrapPushStructMember") sizeof(type), OffsetOf(type, Member), ## __VA_ARGS__)
 
 inline memory_index
 GetEffectiveSizeFor(const memory_arena& arena, memory_index sizeInit, arena_push_params params = DefaultArenaParams())

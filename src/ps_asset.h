@@ -20,9 +20,13 @@ struct image_asset
     // TODO(james): account for mip levels
 };
 
+
 struct model_asset
 {
     model_id id;
+
+    u32 bufferCount;
+    buffer* buffers;
 
     render_buffer_id    index_id;
     u32 indexCount;
@@ -30,7 +34,8 @@ struct model_asset
 
     render_buffer_id    vertex_id;
     u32 vertexCount;
-    render_mesh_vertex* vertices;
+    umm vertexSize;
+    void* vertices;
 
     render_image_id     texture_id;
     render_material_id  material_id;
@@ -66,4 +71,11 @@ struct game_assets
 
     image_asset*    skullTexture;
     model_asset*    skullModel;
+
+    shader_asset*   boxVS;
+    shader_asset*   boxFS;
+    material_asset* boxMaterial;
+
+    u32 numModels;
+    model_asset*    models;
 };

@@ -148,6 +148,14 @@ enum class RenderUsage
     Dynamic     // No staging buffer during upload, but slower GPU access
 };
 
+
+struct render_buffer_view
+{
+    umm offset;
+    umm count;
+    RenderBufferType type;
+};
+
 struct render_buffer_desc
 {
     render_buffer_id        id;
