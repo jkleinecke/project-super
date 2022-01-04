@@ -18,22 +18,33 @@ RendererInternalPushCmd_(render_commands& cmds, umm size)
 #define PushCmd(cmds, type) (type*)RendererInternalPushCmd_(cmds, sizeof(type))
 
 internal void
-PushCmd_UpdateViewProjection(render_commands& cmds, const m4& view, const m4& projection)
+PushCmd_UsePipeline(render_commands& cmds, render_pipeline_id id)
 {
-    render_cmd_update_viewprojection& cmd = *PushCmd(cmds, render_cmd_update_viewprojection);
-    cmd.header = { RenderCommandType::UpdateViewProjection, sizeof(cmd) };
+    render_cmd_use_pipeline& cmd = *PushCmd(cmds, render_cmd_use_pipeline);
+    cmd.header = { RenderCommandType::UsePipeline, sizeof(cmd) };
     
-    cmd.view = view;
-    cmd.projection = projection;
+    cmd.pipeline_id = id;
 }
 
 internal void
-PushCmd_DrawObject(render_commands& cmds, const render_geometry& geometry, const m4& modelTransform, render_material_id material, u32 bindingCount, render_material_binding* bindings)
+PushCmd_UpdateLight(render_commands& cmds, const v3& position, const v3& color)
+{
+    render_cmd_update_light& cmd = *PushCmd(cmds, render_cmd_update_light);
+    cmd.header = { RenderCommandType::UpdateLight, sizeof(cmd) };
+
+    cmd.color = color;
+    cmd.position = position;
+}
+
+internal void
+PushCmd_DrawObject(render_commands& cmds, const render_geometry& geometry, const m4& mvp, const m4& world, const m4& worldNormal, render_material_id material, u32 bindingCount = 0, render_material_binding* bindings = nullptr)
 {
     render_cmd_draw_object& cmd = *PushCmd(cmds, render_cmd_draw_object);
     cmd.header = { RenderCommandType::DrawObject, sizeof(cmd) };
 
-    cmd.mvp = modelTransform;
+    cmd.mvp = mvp;
+    cmd.world = world;
+    cmd.worldNormal = worldNormal;
     cmd.indexCount = geometry.indexCount;
     cmd.indexBuffer = geometry.indexBuffer;
     cmd.vertexBuffer = geometry.vertexBuffer;
@@ -43,10 +54,17 @@ PushCmd_DrawObject(render_commands& cmds, const render_geometry& geometry, const
 }
 
 internal void
-BeginRenderCommands(render_commands& cmds)
+BeginRenderCommands(render_commands& cmds, const BeginRenderInfo& renderInfo)
 {
-    // TODO(james): should I put a begin header here??
-    //cmds.pushBufferDataAt = cmds.pushBufferBase;
+    cmds.viewportPosition = renderInfo.viewportPosition;
+    cmds.viewportSize = renderInfo.viewportSize;
+
+    cmds.time = renderInfo.time;
+    cmds.timeDelta = renderInfo.timeDelta;
+
+    cmds.cameraPos = renderInfo.cameraPos;
+    cmds.cameraView = renderInfo.cameraView;
+    cmds.cameraProj = renderInfo.cameraProj;
 }
 
 internal void

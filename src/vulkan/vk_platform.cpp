@@ -202,6 +202,8 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
     }
 
+    vgCreateStandardBuffers(vb.device);
+
     ps_graphics_backend backend = {};
     backend.instance = &g_VulkanBackend;
 

@@ -37,14 +37,23 @@ struct model_asset
     umm vertexSize;
     void* vertices;
 
-    render_image_id     texture_id;
-    render_material_id  material_id;
+    render_image_id     texture_id; // TODO(james): Move this to an actual material
 };
 
-struct material_asset
+struct pipeline_asset
+{
+    render_pipeline_id      id;
+    render_pipeline_desc    desc;
+};
+
+struct material_asset   
 {
     render_material_id      id;
-    render_material_desc    desc;
+
+    v3                      ambient;
+    v3                      diffuse;
+    v3                      specular;
+    float                   shininess;   
 };
 
 struct game_assets
@@ -60,11 +69,12 @@ struct game_assets
     render_shader_id    nextShaderId;
     render_image_id     nextImageId;
     render_buffer_id    nextBufferId;
+    render_pipeline_id  nextPipelineId;
     render_material_id  nextMaterialId;
 
     shader_asset* simpleVS;
     shader_asset* simpleFS;
-    material_asset* basicTextureMaterial;
+    pipeline_asset* basicTexturePipeline;
 
     image_asset*    vikingTexture;
     model_asset*    vikingModel;
@@ -74,7 +84,12 @@ struct game_assets
 
     shader_asset*   boxVS;
     shader_asset*   boxFS;
+    pipeline_asset* boxPipeline;
+
     material_asset* boxMaterial;
+
+    shader_asset*   lightboxFS;
+    pipeline_asset* lightboxPipeline;
 
     u32 numModels;
     model_asset*    models;

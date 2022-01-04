@@ -42,6 +42,292 @@ struct InstanceObject
     alignas(16) m4 mvp;
 };
 
+struct Window
+{
+    ALIGNAS(4) f32 x;
+    ALIGNAS(4) f32 y;
+    ALIGNAS(4) f32 width;
+    ALIGNAS(4) f32 height;
+};
+
+struct SceneData
+{
+    Window window;
+};
+
+struct FrameData
+{
+    ALIGNAS(4) f32 time;
+    ALIGNAS(4) f32 timeDelta;
+};
+
+struct CameraData
+{
+    ALIGNAS(16) v3 pos;
+    ALIGNAS(16) m4 view;
+    ALIGNAS(16) m4 proj;
+    ALIGNAS(16) m4 viewProj;
+};
+
+struct LightData
+{
+    ALIGNAS(16) v3 pos;
+    ALIGNAS(16) v3 color;
+};  
+
+struct InstanceData
+{
+    ALIGNAS(16) m4 mvp;
+    ALIGNAS(16) m4 world;
+    ALIGNAS(16) m4 worldNormal;
+    ALIGNAS(4)  u32 materialIndex; 
+};
+
+struct MaterialData
+{
+    ALIGNAS(16) v3 ambient;
+    ALIGNAS(16) v3 diffuse;
+    ALIGNAS(16) v3 specular;
+    ALIGNAS(4) f32 shininess;
+};
+
+struct SceneBufferObject
+{
+    SceneData scene;
+    FrameData frame;
+    CameraData camera;
+};
+
+internal SpecialDescriptorBinding
+vgGetSpecialDescriptorBindingFromName(const std::string& name)
+{
+    if(name == "Camera")        return SpecialDescriptorBinding::Camera;
+    else if(name == "Instance") return SpecialDescriptorBinding::Instance;
+    else if(name == "Scene")    return SpecialDescriptorBinding::Scene;
+    else if(name == "Frame")    return SpecialDescriptorBinding::Frame;
+    else if(name == "Light")    return SpecialDescriptorBinding::Light;
+    else if(name == "Material") return SpecialDescriptorBinding::Material;
+
+    return SpecialDescriptorBinding::Undefined;
+}
+
+
+internal i32 vgFindMemoryType(vg_device& device, u32 typeFilter, VkMemoryPropertyFlags properties)
+{
+    VkPhysicalDeviceMemoryProperties& memProperties = device.device_memory_properties;
+
+    for(u32 i = 0; i < memProperties.memoryTypeCount; ++i)
+    {
+        b32x bValidMemoryType = typeFilter & (1 << i);
+        bValidMemoryType = bValidMemoryType && (memProperties.memoryTypes[i].propertyFlags & properties) == properties;
+        if(bValidMemoryType)
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+internal VkResult vgCreateBuffer(vg_device& device, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, vg_buffer* pBuffer)
+{
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    VkResult result = vkCreateBuffer(device.handle, &bufferInfo, nullptr, &pBuffer->handle);
+    if(DIDFAIL(result))
+    {
+        ASSERT(false);
+        return result;
+    }
+
+    VkMemoryRequirements memRequirements;
+    vkGetBufferMemoryRequirements(device.handle, pBuffer->handle, &memRequirements);
+
+    i32 memoryIndex = vgFindMemoryType(device, memRequirements.memoryTypeBits, properties);
+    if(memoryIndex < 0)
+    {
+        // failed
+        ASSERT(false);
+        return VK_ERROR_MEMORY_MAP_FAILED;  // seems like a decent fit for what happened
+    }
+    
+    // TODO(james): We should really allocate several large chunks and use a custom allocator for this
+    VkMemoryAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocInfo.allocationSize = memRequirements.size;
+    allocInfo.memoryTypeIndex = memoryIndex;
+
+    result = vkAllocateMemory(device.handle, &allocInfo, nullptr, &pBuffer->memory);
+    if(DIDFAIL(result))
+    {
+        ASSERT(false);
+        return result;
+    }
+
+    vkBindBufferMemory(device.handle, pBuffer->handle, pBuffer->memory, 0);
+
+    return VK_SUCCESS;
+}
+
+internal inline void
+vgMapBuffer(VkDevice device, vg_buffer& buffer, umm offset, umm size)
+{
+    vkMapMemory(device, buffer.memory, offset, size, 0, &buffer.mapped);  
+}
+
+internal inline void
+vgUnmapBuffer(VkDevice device, vg_buffer& buffer)
+{
+    if(buffer.mapped)
+    {
+        vkUnmapMemory(device, buffer.memory);
+        buffer.mapped = 0;
+    }
+}
+
+internal void
+vgDestroyBuffer(VkDevice device, vg_buffer& buffer)
+{
+    vgUnmapBuffer(device, buffer);
+    IFF(buffer.handle, vkDestroyBuffer(device, buffer.handle, nullptr));
+    IFF(buffer.memory, vkFreeMemory(device, buffer.memory, nullptr));
+}
+
+// ======================================
+// TRANSFER BUFFER
+// ======================================
+
+internal void
+vgCreateTransferBuffer(vg_device& device, vg_transfer_buffer* transfer)
+{
+    transfer->device = device.handle;
+    transfer->queue = device.q_graphics.handle;
+    transfer->stagingBufferSize = Megabytes(256);
+
+    VkCommandPoolCreateInfo poolInfo = vkInit_command_pool_create_info(device.q_graphics.queue_family_index, 0);
+    VkResult result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &transfer->cmdPool);
+    ASSERT(result == VK_SUCCESS);
+
+    VkCommandBufferAllocateInfo allocInfo = vkInit_command_buffer_allocate_info(transfer->cmdPool, 1, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+    vkAllocateCommandBuffers(device.handle, &allocInfo, &transfer->cmds);
+
+    VkFenceCreateInfo fenceInfo = vkInit_fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
+    vkCreateFence(device.handle, &fenceInfo, nullptr, &transfer->fence);
+
+    result = vgCreateBuffer(device, transfer->stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &transfer->staging_buffer);
+    ASSERT(result == VK_SUCCESS);
+
+    vgMapBuffer(device.handle, transfer->staging_buffer, 0, VK_WHOLE_SIZE);
+}
+
+internal void
+vgDestroyTransferBuffer(vg_transfer_buffer& transfer)
+{
+    vgDestroyBuffer(transfer.device, transfer.staging_buffer);
+    vkDestroyFence(transfer.device, transfer.fence, nullptr);
+    vkFreeCommandBuffers(transfer.device, transfer.cmdPool, 1, &transfer.cmds);
+    vkDestroyCommandPool(transfer.device, transfer.cmdPool, nullptr);
+}
+
+internal void
+vgBeginDataTransfer(vg_transfer_buffer& transfer)
+{
+    // must wait for any previous data transfers to finish
+    vkWaitForFences(transfer.device, 1, &transfer.fence, VK_TRUE, UINT64_MAX);
+    vkResetFences(transfer.device, 1, &transfer.fence);
+
+    transfer.lastWritePosition = 0;
+    vkResetCommandPool(transfer.device, transfer.cmdPool, 0);
+
+    VkCommandBufferBeginInfo beginInfo = vkInit_command_buffer_begin_info(0);
+    vkBeginCommandBuffer(transfer.cmds, &beginInfo);
+}
+
+internal b32
+vgTransferDataToBuffer(vg_transfer_buffer& transfer, umm size, void* srcdata, vg_buffer& target, umm offset = 0)
+{
+    ASSERT(size < transfer.stagingBufferSize); // NOTE(james): size of the request cannot exceed the size of the staging buffer!
+    b32 roomInStagingBuffer = transfer.lastWritePosition + size < transfer.stagingBufferSize;
+
+    if(roomInStagingBuffer)
+    {
+        // first copy to the staging buffer
+        void* dstptr = OffsetPtr(transfer.staging_buffer.mapped, transfer.lastWritePosition);
+        Copy(size, srcdata, dstptr);
+
+        VkBufferCopy copy{};
+        copy.srcOffset = transfer.lastWritePosition;
+        copy.dstOffset = offset;
+        copy.size = size;
+
+        vkCmdCopyBuffer(transfer.cmds, transfer.staging_buffer.handle, target.handle, 1, &copy);
+        transfer.lastWritePosition += size;
+    }
+
+    return roomInStagingBuffer;
+}
+
+internal b32
+vgTransferImageDataToBuffer(vg_transfer_buffer& transfer, f32 width, f32 height, VkFormat format, void* pixels, vg_image& target)
+{
+    umm pixelSizeInBytes = (umm)(width * height * vkInit_GetFormatSize(format));
+    b32 roomInStagingBuffer = transfer.lastWritePosition + pixelSizeInBytes < transfer.stagingBufferSize;
+    
+    if(roomInStagingBuffer)
+    {
+        void* dstptr = OffsetPtr(transfer.staging_buffer.mapped, transfer.lastWritePosition);
+        Copy(pixelSizeInBytes, pixels, dstptr);
+
+        // NOTE(james): Images are weird in that you have to transfer them to the proper format for each stage you use them
+        VkImageMemoryBarrier copyBarrier = vkInit_image_barrier(
+            target.handle, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
+        );
+
+        vkCmdPipelineBarrier(transfer.cmds, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &copyBarrier);
+
+        VkBufferImageCopy region{};
+        region.bufferOffset = transfer.lastWritePosition;
+        region.bufferRowLength = 0;
+        region.bufferImageHeight = 0;
+
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.mipLevel = 0;
+        region.imageSubresource.baseArrayLayer = 0;
+        region.imageSubresource.layerCount = 1;
+
+        region.imageOffset = {0,0,0};
+        region.imageExtent = { (u32)width, (u32)height, 1 };
+
+        vkCmdCopyBufferToImage(transfer.cmds, transfer.staging_buffer.handle, target.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        transfer.lastWritePosition += pixelSizeInBytes;
+
+        VkImageMemoryBarrier useBarrier = vkInit_image_barrier(
+            target.handle, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
+        );
+
+        vkCmdPipelineBarrier(transfer.cmds, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &useBarrier);
+    }
+
+    return roomInStagingBuffer;
+}
+
+internal void
+vgEndDataTransfer(vg_transfer_buffer& transfer)
+{
+    vkEndCommandBuffer(transfer.cmds);
+
+    VkSubmitInfo submitInfo = vkInit_submit_info(&transfer.cmds);
+    vkQueueSubmit(transfer.queue, 1, &submitInfo, transfer.fence);
+}
+
+// ======================================
+// ======================================
+
 internal
 VkSurfaceFormatKHR vgChooseSwapSurfaceFormat(const vg_device& device, VkFormat preferredFormat, VkColorSpaceKHR preferredColorSpace)
 {
@@ -91,13 +377,6 @@ VkExtent2D vgChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, u32 
 
         return actualExtent;
     }
-}
-
-internal
-void vgDestroyBuffer(VkDevice device, vg_buffer& buffer)
-{
-    IFF(buffer.handle, vkDestroyBuffer(device, buffer.handle, nullptr));
-    IFF(buffer.memory, vkFreeMemory(device, buffer.memory, nullptr));
 }
 
 internal
@@ -488,72 +767,63 @@ vgGetPhysicalDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR platformSur
     return nScore;
 }
 
-
-internal
-i32 vgFindMemoryType(vg_device& device, u32 typeFilter, VkMemoryPropertyFlags properties)
+internal void
+vgCreateStandardBuffers(vg_device& device)
 {
-    VkPhysicalDeviceMemoryProperties& memProperties = device.device_memory_properties;
+    vgCreateTransferBuffer(device, &device.transferBuffer);
 
-    for(u32 i = 0; i < memProperties.memoryTypeCount; ++i)
+    
+
+    for(u32 i = 0; i < FRAME_OVERLAP; i++)
     {
-        b32x bValidMemoryType = typeFilter & (1 << i);
-        bValidMemoryType = bValidMemoryType && (memProperties.memoryTypes[i].propertyFlags & properties) == properties;
-        if(bValidMemoryType)
         {
-            return i;
+            VkDeviceSize size = sizeof(SceneBufferObject);
+            VkResult result = vgCreateBuffer(device, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.frames[i].scene_buffer);
+            ASSERT(result == VK_SUCCESS);
+        }
+
+        {
+            // TODO(james): support multiple lights
+            VkResult result = vgCreateBuffer(device, sizeof(LightData), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.frames[i].lighting_buffer);
+            ASSERT(result == VK_SUCCESS);
+        }
+        
+        {
+            // TODO(james): support multiple instances
+            VkResult result = vgCreateBuffer(device, sizeof(InstanceData), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.frames[i].instance_buffer);
+            ASSERT(result == VK_SUCCESS);
         }
     }
-
-    return -1;
 }
 
-internal
-VkResult vgCreateBuffer(vg_device& device, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, vg_buffer* pBuffer)
+internal void
+vgTransferSceneBufferObject(vg_device& device, SceneBufferObject& sbo)
 {
-    VkBufferCreateInfo bufferInfo{};
-    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bufferInfo.size = size;
-    bufferInfo.usage = usage;
-    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-    VkResult result = vkCreateBuffer(device.handle, &bufferInfo, nullptr, &pBuffer->handle);
-    if(DIDFAIL(result))
-    {
-        ASSERT(false);
-        return result;
-    }
-
-    VkMemoryRequirements memRequirements;
-    vkGetBufferMemoryRequirements(device.handle, pBuffer->handle, &memRequirements);
-
-    i32 memoryIndex = vgFindMemoryType(device, memRequirements.memoryTypeBits, properties);
-    if(memoryIndex < 0)
-    {
-        // failed
-        ASSERT(false);
-        return VK_ERROR_MEMORY_MAP_FAILED;  // seems like a decent fit for what happened
-    }
-    
-    // TODO(james): We should really allocate several large chunks and use a custom allocator for this
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = memoryIndex;
-
-    result = vkAllocateMemory(device.handle, &allocInfo, nullptr, &pBuffer->memory);
-    if(DIDFAIL(result))
-    {
-        ASSERT(false);
-        return result;
-    }
-
-    vkBindBufferMemory(device.handle, pBuffer->handle, pBuffer->memory, 0);
-
-    return VK_SUCCESS;
+    // NOTE(james): Assumes that it will be updated during the frame
+    vgBeginDataTransfer(device.transferBuffer);
+    vgTransferDataToBuffer(device.transferBuffer, sizeof(sbo), &sbo, device.pCurFrame->scene_buffer, 0);
+    vgEndDataTransfer(device.transferBuffer);
 }
 
-internal
-void vgCopyBuffer(vg_device& device, VkBuffer src, VkBuffer dest, VkDeviceSize size)
+internal void
+vgTransferLightBufferObject(vg_device& device, LightData& lbo)
+{
+    vgBeginDataTransfer(device.transferBuffer);
+    vgTransferDataToBuffer(device.transferBuffer, sizeof(lbo), &lbo, device.pCurFrame->lighting_buffer, 0);
+    vgEndDataTransfer(device.transferBuffer);
+}
+
+internal void
+vgTransferInstanceBufferObject(vg_device& device, InstanceData& ibo)
+{
+    // TODO: Factor out doing this right smack in the middle of the render loop...
+    vgBeginDataTransfer(device.transferBuffer);
+    vgTransferDataToBuffer(device.transferBuffer, sizeof(ibo), &ibo, device.pCurFrame->instance_buffer, 0);
+    vgEndDataTransfer(device.transferBuffer);
+}
+
+internal void
+vgCopyBuffer(vg_device& device, VkBuffer src, VkBuffer dest, VkDeviceSize size)
 {
     VkCommandBuffer commandBuffer = vgBeginSingleTimeCommands(device);
 
@@ -564,8 +834,8 @@ void vgCopyBuffer(vg_device& device, VkBuffer src, VkBuffer dest, VkDeviceSize s
     vgEndSingleTimeCommands(device, commandBuffer);
 }
 
-internal
-VkResult vgCreateImage(vg_device& device, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, vg_image* pImage)
+internal VkResult
+vgCreateImage(vg_device& device, u32 width, u32 height, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, vg_image* pImage)
 {
     VkImageCreateInfo imageInfo = vkInit_image_create_info(
         format, usage, { width, height, 1 }
@@ -1021,6 +1291,11 @@ VkResult vgCreateShader(VkDevice device, buffer& bytes, vg_shader* shader)
                 {
                     const SpvReflectDescriptorBinding& refl_binding = *(reflSet.bindings[bindingIndex]);
                     VkDescriptorSetLayoutBinding& layout_binding = layoutdata.bindings[bindingIndex];
+                    SpecialDescriptorBinding specialValue = vgGetSpecialDescriptorBindingFromName(refl_binding.name);
+                    if(specialValue != SpecialDescriptorBinding::Undefined)
+                    {
+                        layoutdata.mapSpecialBindings[specialValue] = bindingIndex;
+                    }
 
                     layout_binding.binding = refl_binding.binding;
                     layout_binding.descriptorType = (VkDescriptorType)refl_binding.descriptor_type;
@@ -1262,7 +1537,9 @@ void vgDestroySwapChain(vg_device& device)
         vkDestroySemaphore(device.handle, frame.renderSemaphore, nullptr);
         vkDestroySemaphore(device.handle, frame.presentSemaphore, nullptr);
         vkDestroyFence(device.handle, frame.renderFence, nullptr);
-        vgDestroyBuffer(device.handle, frame.frame_buffer);
+        vgDestroyBuffer(device.handle, frame.scene_buffer);
+        vgDestroyBuffer(device.handle, frame.lighting_buffer);
+        vgDestroyBuffer(device.handle, frame.instance_buffer);
     }
 
     IFF(device.screenRenderPass, vkDestroyRenderPass(device.handle, device.screenRenderPass, nullptr));
@@ -1288,40 +1565,43 @@ vgCleanupResourcePool(vg_device& device)
 {
     vg_device_resource_pool& pool = device.resource_pool;
 
-    for(u32 i = 0; i < pool.materialCount; ++i)
+    FOREACH(renderPipeline, pool.pipelines, pool.pipelineCount)
     {
-        vkDestroyPipeline(device.handle, pool.materials[i].pipeline, nullptr);
-        vkDestroyPipelineLayout(device.handle, pool.materials[i].layout, nullptr);
+        vkDestroyPipeline(device.handle, renderPipeline->pipeline, nullptr);
+        vkDestroyPipelineLayout(device.handle, renderPipeline->layout, nullptr);
 
-        if(pool.materials[i].renderPass != VK_NULL_HANDLE)
+        if(renderPipeline->renderPass != VK_NULL_HANDLE)
         {
-            vkDestroyRenderPass(device.handle, pool.materials[i].renderPass, nullptr);
-            vkDestroyFramebuffer(device.handle, pool.materials[i].framebuffer, nullptr);
+            vkDestroyRenderPass(device.handle, renderPipeline->renderPass, nullptr);
+            vkDestroyFramebuffer(device.handle, renderPipeline->framebuffer, nullptr);
         }
 
-        for(u32 k = 0; k < pool.materials[i].samplerCount; ++k)
+        FOREACH(sampler, renderPipeline->samplers, renderPipeline->samplerCount)
         {
-            vkDestroySampler(device.handle, pool.materials[i].samplers[k], nullptr);
+            vkDestroySampler(device.handle, *sampler, nullptr);
         }
-        pool.materials[i].samplerCount = 0;
+        renderPipeline->samplerCount = 0;
     }
-
-    for(u32 i = 0; i < pool.imageCount; ++i)
+    
+    FOREACH(image, pool.images, pool.imageCount)
     {
-        vgDestroyImage(device.handle, pool.images[i]);
+        vgDestroyImage(device.handle, *image);
     }
 
-    for(u32 i = 0; i < pool.shaderCount; ++i)
+    FOREACH(shader, pool.shaders, pool.shaderCount)
     {
-        vgDestroyShader(device.handle, pool.shaders[i]);
+        vgDestroyShader(device.handle, *shader);
     }
 
-    for(u32 i = 0; i < pool.bufferCount; ++i)
+    FOREACH(buff, pool.buffers, pool.bufferCount)
     {
-        vgDestroyBuffer(device.handle, pool.buffers[i]);
+        vgDestroyBuffer(device.handle, *buff);
     }
 
-    pool.materialCount = 0;
+    vgDestroyBuffer(device.handle, pool.material_buffer);
+
+    pool.materialsCount = 0;
+    pool.pipelineCount = 0;
     pool.imageCount = 0;
     pool.shaderCount = 0;
     pool.bufferCount = 0;
@@ -1341,6 +1621,8 @@ void vgDestroy(vg_backend& vb)
         // TODO(james): Account for this in the window resize
         vgDestroyImage(device.handle, device.depth_image);
         
+        vgDestroyTransferBuffer(device.transferBuffer);
+
         vgCleanupDescriptorAllocator(device.descriptorAllocator);
         vgCleanupDescriptorLayoutCache(device.descriptorLayoutCache);
 
@@ -1405,20 +1687,27 @@ vgGetPoolBufferFromId(vg_device_resource_pool& pool, render_buffer_id id)
     return buffer;
 }
 
-inline vg_material_resource* 
-vgGetPoolMaterialFromId(vg_device_resource_pool& pool, render_material_id id)
+inline vg_render_pipeline* 
+vgGetPoolPipelineFromId(vg_device_resource_pool& pool, render_material_id id)
 {
-    vg_material_resource* material = 0;
+    vg_render_pipeline* pipe = 0;
 
-    for(u32 i = 0; i < pool.materialCount && !material; ++i)
+    for(u32 i = 0; i < pool.pipelineCount && !pipe; ++i)
     {
-        if(pool.materials[i].id == id)
+        if(pool.pipelines[i].id == id)
         {
-            material = &pool.materials[i];
+            pipe = &pool.pipelines[i];
         }
     }
 
-    return material;
+    return pipe;
+}
+
+inline umm
+vgGetMaterialBufferIndexFromId(vg_device_resource_pool& pool, render_material_id id)
+{
+    // TODO(james): Fully implement a translation so that we can support more than 1 render manifest
+    return id;
 }
 
 internal void
@@ -1426,17 +1715,7 @@ vgCreateManifestResources(vg_device& device, render_manifest* manifest)
 {
     VkResult result = VK_SUCCESS;
 
-    // TODO(james): Just create a single persistant staging buffer per device
-    VkDeviceSize stagingBufferSize = Megabytes(256);
-    vg_buffer stagingBuffer{};
-    result = vgCreateBuffer(device, stagingBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &stagingBuffer);
-    ASSERT(result == VK_SUCCESS);
-    void* mappedStagingData;    // NOTE(james): using persistant mapped staging memory here
-    umm lastStagingWriteOffset = 0;
-    vkMapMemory(device.handle, stagingBuffer.memory, 0, stagingBufferSize, 0, &mappedStagingData);
-
-    // TODO(james): allocate the command buffer from a thread specific command pool for background creation/transfer of resources
-    VkCommandBuffer cmds = vgBeginSingleTimeCommands(device);
+    vgBeginDataTransfer(device.transferBuffer);
 
     vg_device_resource_pool& pool = device.resource_pool;
 
@@ -1504,29 +1783,35 @@ vgCreateManifestResources(vg_device& device, render_manifest* manifest)
         // now upload the buffer data
         if(useStagingBuffer)
         {
-            // NOTE(james): If this asserts, we'll need to go ahead and flush the staging buffer before proceeding further...
-            ASSERT(lastStagingWriteOffset + bufferDesc.sizeInBytes <= Megabytes(256));
-            void* stagingOffsetPtr = OffsetPtr(mappedStagingData, lastStagingWriteOffset);
-            Copy(bufferDesc.sizeInBytes, bufferDesc.bytes, stagingOffsetPtr);
-
-            VkBufferCopy copyRegion{};
-            copyRegion.srcOffset = lastStagingWriteOffset;
-            copyRegion.size = bufferDesc.sizeInBytes;
-            copyRegion.dstOffset = 0;
-            vkCmdCopyBuffer(cmds, stagingBuffer.handle, buffer.handle, 1, &copyRegion);
-
-            lastStagingWriteOffset += bufferDesc.sizeInBytes;
+            vgTransferDataToBuffer(device.transferBuffer, bufferDesc.sizeInBytes, bufferDesc.bytes, buffer, 0);
         }
         else
         {
             // NOTE(james): dynamic buffers need to have a copy for each in-flight frame so that they can be updated
             // TODO(james): actually support this dynamic update per frame...
             NotImplemented;
-            void* data;
-            vkMapMemory(device.handle, buffer.memory, 0, bufferDesc.sizeInBytes, 0, &data);
-                Copy(bufferDesc.sizeInBytes, bufferDesc.bytes, data);
-            vkUnmapMemory(device.handle, buffer.memory);
         }
+    }
+
+    
+    if(manifest->materialCount)
+    {
+        vg_buffer& materialBuffer = pool.material_buffer;
+        result = vgCreateBuffer(device, sizeof(MaterialData) * manifest->materialCount, VK_BUFFER_USAGE_TRANSFER_DST_BIT|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &materialBuffer);
+        
+        u32 materialIndex = 0;
+        MaterialData materials[255] = {};
+        for(u32 i = 0; i < manifest->materialCount; ++i)
+        {
+            const render_material_desc& materialDesc = manifest->materials[i];
+            MaterialData& material = materials[materialIndex++];
+            material.ambient = materialDesc.ambient;
+            material.diffuse = materialDesc.diffuse;
+            material.specular = materialDesc.specular;
+            material.shininess = materialDesc.shininess;
+        }
+
+        vgTransferDataToBuffer(device.transferBuffer, sizeof(MaterialData) * materialIndex, materials, materialBuffer, 0);
     }
 
     for(u32 i = 0; i < manifest->imageCount; ++i)
@@ -1575,40 +1860,7 @@ vgCreateManifestResources(vg_device& device, render_manifest* manifest)
 
         if(useStagingBuffer)
         {
-            umm pixelSizeInBytes = (umm)(imageDesc.dimensions.Width * imageDesc.dimensions.Height * vkInit_GetFormatSize(format));
-            ASSERT(lastStagingWriteOffset + pixelSizeInBytes <= Megabytes(256));
-            void* stagingOffsetPtr = OffsetPtr(mappedStagingData, lastStagingWriteOffset);
-            Copy(pixelSizeInBytes, imageDesc.pixels, stagingOffsetPtr);
-
-            // NOTE(james): Images are weird in that you have to transfer them to the proper format for each stage you use them
-            VkImageMemoryBarrier copyBarrier = vkInit_image_barrier(
-                image.handle, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
-            );
-
-            vkCmdPipelineBarrier(cmds, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &copyBarrier);
-
-            VkBufferImageCopy region{};
-            region.bufferOffset = lastStagingWriteOffset;
-            region.bufferRowLength = 0;
-            region.bufferImageHeight = 0;
-
-            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            region.imageSubresource.mipLevel = 0;
-            region.imageSubresource.baseArrayLayer = 0;
-            region.imageSubresource.layerCount = 1;
-
-            region.imageOffset = {0,0,0};
-            region.imageExtent = { (u32)imageDesc.dimensions.Width, (u32)imageDesc.dimensions.Height, 1 };
-
-            vkCmdCopyBufferToImage(cmds, stagingBuffer.handle, image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-            lastStagingWriteOffset += pixelSizeInBytes;
-
-            VkImageMemoryBarrier useBarrier = vkInit_image_barrier(
-                image.handle, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
-            );
-
-            vkCmdPipelineBarrier(cmds, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &useBarrier);
+            vgTransferImageDataToBuffer(device.transferBuffer, imageDesc.dimensions.Width, imageDesc.dimensions.Height, format, imageDesc.pixels, image);
         }
         else
         {
@@ -1616,23 +1868,84 @@ vgCreateManifestResources(vg_device& device, render_manifest* manifest)
         }
     }
     
-    for(u32 i = 0; i < manifest->materialCount; ++i)
+    for(u32 i = 0; i < manifest->pipelineCount; ++i)
     {
-        const render_material_desc& materialDesc = manifest->materials[i];
-        vg_material_resource& material = pool.materials[pool.materialCount++];
-        material.id = materialDesc.id;
+        const render_pipeline_desc& pipelineDesc = manifest->pipelines[i];
+        vg_render_pipeline& pipeline = pool.pipelines[pool.pipelineCount++];
+        pipeline.id = pipelineDesc.id;
 
         // first gather the shader references
-        for(u32 k = 0; k < materialDesc.shaderCount; ++k)
+        for(u32 k = 0; k < pipelineDesc.shaderCount; ++k)
         {
-            material.shaderRefs[material.shaderCount++] = vgGetPoolShaderFromId(pool, materialDesc.shaders[k]);
+            u32 shaderIndex = pipeline.shaderCount++;
+            pipeline.shaderRefs[shaderIndex] = vgGetPoolShaderFromId(pool, pipelineDesc.shaders[k]);
+
+            for(auto& layout : pipeline.shaderRefs[shaderIndex]->set_layouts)
+            {
+                b32 merged = false;
+                // insert or merge with an existing layout
+                for(auto& existing_layout : pipeline.set_layouts)
+                {
+                    if(existing_layout.setNumber == layout.setNumber)
+                    {
+                        u32 bindingIndex = 0;
+                        for(auto& binding : layout.bindings)
+                        {
+                            b32 bindingExists = false;
+
+                            for(auto& existing_binding : existing_layout.bindings)
+                            {
+                                if(binding.binding == existing_binding.binding)
+                                {
+                                    existing_binding.stageFlags |= binding.stageFlags;
+                                    bindingExists = true; 
+                                    break;
+                                }
+                            }
+
+                            if(!bindingExists)
+                            {
+                                // need to move any special mappings that exist for the binding as well...
+                                for(auto& specials : layout.mapSpecialBindings)
+                                {
+                                    if(specials.second == bindingIndex)
+                                    {
+                                        // it's being pushed onto the back, so just set the index to the size...
+                                        existing_layout.mapSpecialBindings[specials.first] = (u32)existing_layout.bindings.size();
+                                        break;
+                                    }
+                                }
+                                existing_layout.bindings.push_back(binding);
+                            }
+                            ++bindingIndex;
+                        }                 
+
+                        merged = true;
+                        break;       
+                    }
+                }
+
+                if(!merged)
+                {
+                    pipeline.set_layouts.push_back(layout);
+                }
+            }
+        }
+
+        // sort the descriptor sets by the set number
+        std::sort(pipeline.set_layouts.begin(), pipeline.set_layouts.end(), [](const vg_shader_descriptorset_layoutdata& a, const vg_shader_descriptorset_layoutdata& b)
+            { return a.setNumber < b.setNumber; }
+        );
+
+        for(auto& layout : pipeline.set_layouts)
+        {
         }
 
         // now create the samplers
-        for(u32 k = 0; k < materialDesc.samplerCount; ++k)
+        for(u32 k = 0; k < pipelineDesc.samplerCount; ++k)
         {
-            const render_sampler_desc& samplerDesc = materialDesc.samplers[k];
-            VkSampler& sampler = material.samplers[material.samplerCount++];
+            const render_sampler_desc& samplerDesc = pipelineDesc.samplers[k];
+            VkSampler& sampler = pipeline.samplers[pipeline.samplerCount++];
 
             VkSamplerCreateInfo samplerInfo = vkInit_sampler_create_info(
                 VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT
@@ -1664,25 +1977,25 @@ vgCreateManifestResources(vg_device& device, render_manifest* manifest)
 
         // and finally it is time to slog through the render pass and pipeline creation, ugh...
 
-        // NOTE(james): A render pass of VK_NULL_HANDLE will indicate that the material will use the default screen render pass
+        // NOTE(james): A render pass of VK_NULL_HANDLE will indicate that the pipeline will use the default screen render pass
         // TODO(james): implement render target creation logic
-        material.renderPass = VK_NULL_HANDLE;
-        material.framebuffer = VK_NULL_HANDLE;
+        pipeline.renderPass = VK_NULL_HANDLE;
+        pipeline.framebuffer = VK_NULL_HANDLE;
 
         VkRenderPass pipelineRenderPass = device.screenRenderPass;
 
         VkVertexInputBindingDescription* vertexBindingDescription = 0;
         std::vector<VkVertexInputAttributeDescription>* vertexAttributeDescriptions = 0;
 
-        std::vector<VkPipelineShaderStageCreateInfo> shaderStages(material.shaderCount);
-        for(u32 k = 0; k < material.shaderCount; ++k)
+        std::vector<VkPipelineShaderStageCreateInfo> shaderStages(pipeline.shaderCount);
+        for(u32 k = 0; k < pipeline.shaderCount; ++k)
         {
-            shaderStages[k] = vkInit_pipeline_shader_stage_create_info((VkShaderStageFlagBits)material.shaderRefs[k]->shaderStageMask, material.shaderRefs[k]->shaderModule);
+            shaderStages[k] = vkInit_pipeline_shader_stage_create_info((VkShaderStageFlagBits)pipeline.shaderRefs[k]->shaderStageMask, pipeline.shaderRefs[k]->shaderModule);
 
-            if(material.shaderRefs[k]->shaderStageMask == VK_SHADER_STAGE_VERTEX_BIT)
+            if(pipeline.shaderRefs[k]->shaderStageMask == VK_SHADER_STAGE_VERTEX_BIT)
             {
-                vertexBindingDescription = &material.shaderRefs[k]->vertexBindingDesc;
-                vertexAttributeDescriptions = &material.shaderRefs[k]->vertexAttributes;
+                vertexBindingDescription = &pipeline.shaderRefs[k]->vertexBindingDesc;
+                vertexAttributeDescriptions = &pipeline.shaderRefs[k]->vertexAttributes;
             }
         }
         // NOTE(james): I'm assuming these have to be valid for now
@@ -1748,24 +2061,26 @@ vgCreateManifestResources(vg_device& device, render_manifest* manifest)
         );
 
         std::vector<VkPushConstantRange> pushConstants;
-        for(u32 k = 0; k < material.shaderCount; ++k)
+        for(u32 k = 0; k < pipeline.shaderCount; ++k)
         {
-            pushConstants.insert(pushConstants.end(), material.shaderRefs[k]->pushConstants.begin(), material.shaderRefs[k]->pushConstants.end());
+            // TODO: merge all the shader push constants into 1 list for the pipeline
+            pushConstants.insert(pushConstants.end(), pipeline.shaderRefs[k]->pushConstants.begin(), pipeline.shaderRefs[k]->pushConstants.end());
 
-            for(auto& layout : material.shaderRefs[k]->set_layouts)
-            {
-                ASSERT(material.descriptorSetLayoutCount < 20);
-                material.descriptorLayouts[material.descriptorSetLayoutCount++] = vgGetDescriptorLayoutFromCache( device.descriptorLayoutCache, (u32)layout.bindings.size(), layout.bindings.data());
-            }
+        }
+
+        for(auto& layout : pipeline.set_layouts)
+        {
+            ASSERT(pipeline.descriptorSetLayoutCount < 20);
+            pipeline.descriptorLayouts[pipeline.descriptorSetLayoutCount++] = vgGetDescriptorLayoutFromCache( device.descriptorLayoutCache, (u32)layout.bindings.size(), layout.bindings.data());
         }
 
         VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkInit_pipeline_layout_create_info();
-        pipelineLayoutInfo.setLayoutCount = material.descriptorSetLayoutCount; 
-        pipelineLayoutInfo.pSetLayouts = material.descriptorLayouts; 
+        pipelineLayoutInfo.setLayoutCount = pipeline.descriptorSetLayoutCount; 
+        pipelineLayoutInfo.pSetLayouts = pipeline.descriptorLayouts; 
         pipelineLayoutInfo.pushConstantRangeCount = (u32)pushConstants.size(); 
         pipelineLayoutInfo.pPushConstantRanges = pushConstants.data(); 
 
-        result = vkCreatePipelineLayout(device.handle, &pipelineLayoutInfo, nullptr, &material.layout);
+        result = vkCreatePipelineLayout(device.handle, &pipelineLayoutInfo, nullptr, &pipeline.layout);
         ASSERT(result == VK_SUCCESS);
 
         VkGraphicsPipelineCreateInfo pipelineInfo{};
@@ -1780,22 +2095,18 @@ vgCreateManifestResources(vg_device& device, render_manifest* manifest)
         pipelineInfo.pDepthStencilState = &depthStencil; // TODO(james): make this depend on the render target setup of the material
         pipelineInfo.pColorBlendState = &colorBlending;
         pipelineInfo.pDynamicState = nullptr; // Optional
-        pipelineInfo.layout = material.layout;
+        pipelineInfo.layout = pipeline.layout;
         pipelineInfo.renderPass = pipelineRenderPass;
         pipelineInfo.subpass = 0;
         // TODO(james): Figure out how to use the base pipeline definitions to make this simpler/easier
         pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
         pipelineInfo.basePipelineIndex = -1;
 
-        result = vkCreateGraphicsPipelines(device.handle, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &material.pipeline);
+        result = vkCreateGraphicsPipelines(device.handle, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline.pipeline);
         ASSERT(result == VK_SUCCESS);
-        
     }
 
-    vkUnmapMemory(device.handle, stagingBuffer.memory);
-
-    vgEndSingleTimeCommands(device, cmds);
-    vgDestroyBuffer(device.handle, stagingBuffer);
+    vgEndDataTransfer(device.transferBuffer);
 }
 
 internal void
@@ -1838,6 +2149,28 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
 
     VkFramebuffer currentScreenFramebuffer = device.paFramebuffers[device.curSwapChainIndex];
 
+    SceneBufferObject sbo {};
+    // TODO(james): Actually implement a dynamic viewport in the render pipelines
+    sbo.scene.window.x = commands->viewportPosition.X;
+    sbo.scene.window.y = commands->viewportPosition.Y;
+    sbo.scene.window.width = commands->viewportPosition.Width;
+    sbo.scene.window.height = commands->viewportPosition.Height;
+    sbo.frame.time = commands->time;
+    sbo.frame.timeDelta = commands->timeDelta;
+    sbo.camera.pos = commands->cameraPos;
+    sbo.camera.view = commands->cameraView;
+    sbo.camera.proj = commands->cameraProj;
+    sbo.camera.viewProj = commands->cameraProj * commands->cameraView;
+
+    vgTransferSceneBufferObject(device, sbo);
+
+    VkMemoryBarrier barrier = {};
+    barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+
     // TODO(james): MAJOR PERFORMANCE BOTTLENECK!!! Need to sort objects into render pass bins first -OR- add a command to bind the material prior to drawing!
 
     VkRenderPassBeginInfo renderPassInfo = vkInit_renderpass_begin_info(
@@ -1850,6 +2183,7 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
     //
     // Iterate through the render commands
     //
+    vg_render_pipeline* activePipeline = nullptr;
 
     render_cmd_header* header = (render_cmd_header*)commands->pushBufferBase;
 
@@ -1857,29 +2191,25 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
     {
         switch(header->type)
         {
-            case RenderCommandType::UpdateViewProjection:
+            // case RenderCommandType::UpdateViewProjection:
+            // {
+            //     render_cmd_update_viewprojection* cmd = (render_cmd_update_viewprojection*)header;
+
+            //     FrameObject frameObject;
+            //     frameObject.viewProj = cmd->projection * cmd->view;
+
+            //     void* data;
+            //     vkMapMemory(device.handle, device.pCurFrame->frame_buffer.memory, 0, sizeof(frameObject), 0, &data);
+            //         Copy(sizeof(frameObject), &frameObject, data);
+            //     vkUnmapMemory(device.handle, device.pCurFrame->frame_buffer.memory);
+            // } break;
+            case RenderCommandType::UsePipeline:
             {
-                render_cmd_update_viewprojection* cmd = (render_cmd_update_viewprojection*)header;
+                render_cmd_use_pipeline* cmd = (render_cmd_use_pipeline*)header;
 
-                FrameObject frameObject;
-                frameObject.viewProj = cmd->projection * cmd->view;
-
-                void* data;
-                vkMapMemory(device.handle, device.pCurFrame->frame_buffer.memory, 0, sizeof(frameObject), 0, &data);
-                    Copy(sizeof(frameObject), &frameObject, data);
-                vkUnmapMemory(device.handle, device.pCurFrame->frame_buffer.memory);
-            } break;
-            case RenderCommandType::DrawObject:
-            {
-                render_cmd_draw_object* cmd = (render_cmd_draw_object*)header;
-
-                InstanceObject instanceObject;
-                instanceObject.mvp = cmd->mvp;
-
-                vg_material_resource& material = *vgGetPoolMaterialFromId(device.resource_pool, cmd->material_id);
-                
+                activePipeline = vgGetPoolPipelineFromId(device.resource_pool, cmd->pipeline_id);
                 // TODO(james): Support different render passes from a material
-                ASSERT(material.renderPass == VK_NULL_HANDLE);
+                ASSERT(activePipeline->renderPass == VK_NULL_HANDLE);
                 // VkRenderPass renderPass = device.screenRenderPass;
                 // VkFramebuffer framebuffer = currentScreenFramebuffer;
 
@@ -1889,20 +2219,131 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                 //     framebuffer = material.framebuffer;
                 // }
                 
-                vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, material.pipeline);
+                vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, activePipeline->pipeline);
 
-                vg_buffer& vertexBuffer = *vgGetPoolBufferFromId(device.resource_pool, cmd->vertexBuffer);
-                vg_buffer& indexBuffer = *vgGetPoolBufferFromId(device.resource_pool, cmd->indexBuffer);
-
-                std::vector<VkDescriptorSet> descriptors(material.descriptorSetLayoutCount, VK_NULL_HANDLE);
-                for(u32 i = 0; i < material.descriptorSetLayoutCount; ++i)
+                std::vector<VkDescriptorSet> descriptors(activePipeline->descriptorSetLayoutCount, VK_NULL_HANDLE);
+                for(u32 i = 0; i < activePipeline->descriptorSetLayoutCount; ++i)
                 {
-                    vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, material.descriptorLayouts[i], &descriptors[i]);
+                    vgAllocateDescriptor(device.pCurFrame->dynamicDescriptorAllocator, activePipeline->descriptorLayouts[i], &descriptors[i]);
                 }
 
+                u32 numBindings = 0;
+                VkWriteDescriptorSet writes[20];    // NOTE(james): surely we won't have more than 20...
+
+                // auto bind any named descriptors that we recognize
+                for(u32 shaderIndex = 0; shaderIndex < activePipeline->shaderCount; ++shaderIndex)
+                {
+                    vg_shader* shader = activePipeline->shaderRefs[shaderIndex];
+                    for(auto& set : shader->set_layouts)
+                    {
+                        VkDescriptorSet& descriptor = descriptors[set.setNumber];
+                        for(auto& namedBinding : set.mapSpecialBindings)
+                        {
+                            u32 binding = set.bindings[namedBinding.second].binding;
+
+                            switch(namedBinding.first)
+                            {
+                                // case SpecialDescriptorBinding::Camera:
+                                //     {
+                                //         VkDescriptorBufferInfo bufferInfo;
+                                //         bufferInfo.buffer = device.pCurFrame->scene_buffer.handle;
+                                //         bufferInfo.offset = OffsetOf(SceneBufferObject, camera);
+                                //         bufferInfo.range = sizeof(CameraData);
+                                //         writes[numBindings++] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, &bufferInfo, binding);
+                                //     }
+                                //     break;
+                                case SpecialDescriptorBinding::Scene:
+                                    {
+                                        VkDescriptorBufferInfo bufferInfo;
+                                        bufferInfo.buffer = device.pCurFrame->scene_buffer.handle;
+                                        bufferInfo.offset = 0;
+                                        bufferInfo.range = sizeof(SceneBufferObject);
+                                        writes[numBindings++] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, &bufferInfo, binding);
+                                    }
+                                    break;
+                                // case SpecialDescriptorBinding::Frame:
+                                //     {
+                                //         VkDescriptorBufferInfo bufferInfo;
+                                //         bufferInfo.buffer = device.pCurFrame->scene_buffer.handle;
+                                //         bufferInfo.offset = OffsetOf(SceneBufferObject, frame);
+                                //         bufferInfo.range = sizeof(FrameData);
+                                //         writes[numBindings++] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, &bufferInfo, binding);
+                                //     }
+                                //     break;
+                                case SpecialDescriptorBinding::Light:
+                                    {
+                                        VkDescriptorBufferInfo bufferInfo;
+                                        bufferInfo.buffer = device.pCurFrame->lighting_buffer.handle;
+                                        bufferInfo.offset = 0;
+                                        bufferInfo.range = sizeof(LightData);
+                                        writes[numBindings++] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, &bufferInfo, binding);
+                                    }
+                                    break;
+                                case SpecialDescriptorBinding::Material:
+                                    {
+                                        VkDescriptorBufferInfo bufferInfo;
+                                        bufferInfo.buffer = device.resource_pool.material_buffer.handle;
+                                        bufferInfo.offset = 0;//sizeof(MaterialData) * cmd->material_id;    // TODO(james): translate material_id into an array index of the pool
+                                        bufferInfo.range = sizeof(MaterialData);
+                                        writes[numBindings++] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, &bufferInfo, binding);
+                                    }
+                                    break;
+                                case SpecialDescriptorBinding::Instance:
+                                    {
+                                        VkDescriptorBufferInfo bufferInfo;
+                                        bufferInfo.buffer = device.pCurFrame->instance_buffer.handle;
+                                        bufferInfo.offset = 0;
+                                        bufferInfo.range = sizeof(InstanceData);
+                                        writes[numBindings++] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, &bufferInfo, binding);
+                                    }
+                                    break;
+                            }                            
+                        }
+                    }
+                }
+
+                vkUpdateDescriptorSets(device.handle, numBindings, writes, 0, nullptr);
+                vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, activePipeline->layout, 0, (u32)descriptors.size(), descriptors.data(), 0, nullptr);
+
+            } break;
+            case RenderCommandType::UpdateLight:
+            {
+                render_cmd_update_light* cmd = (render_cmd_update_light*)header;
+
+                LightData light{};
+                light.color = cmd->color;
+                light.pos = cmd->position;
+
+                vgTransferLightBufferObject(device, light);
+                // VkMemoryBarrier membarrier = {};
+                // membarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+                // membarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                // membarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                // vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 1, &membarrier, 0, nullptr, 0, nullptr);
+            } break;
+            case RenderCommandType::DrawObject:
+            {
+                render_cmd_draw_object* cmd = (render_cmd_draw_object*)header;
+                ASSERT(activePipeline);
+
+                InstanceData instanceObject;
+                instanceObject.mvp = cmd->mvp;
+                instanceObject.world = cmd->world;
+                instanceObject.worldNormal = cmd->worldNormal;
+                instanceObject.materialIndex = (u32)cmd->material_id;
+
+                // TODO(james): bulk copy all the objects at once prior to any rendering
+                vgTransferInstanceBufferObject(device, instanceObject);
+                // vkCmdUpdateBuffer(commandBuffer, device.pCurFrame->instance_buffer.handle, 0, sizeof(instanceObject), &instanceObject);
+                //Copy(sizeof(InstanceObject), &instanceObject, device.pCurFrame->instance_buffer.mapped);
+
+                #if 0
+                vg_render_pipeline& pipe = *vgGetPoolPipelineFromId(device.resource_pool, cmd->material_id);
+                
                 if(cmd->materialBindingCount)
                 {
-                    std::vector<VkWriteDescriptorSet> writes(cmd->materialBindingCount);
+                    u32 numBindings = 0;
+                    VkWriteDescriptorSet writes[20];    // NOTE(james): surely we won't have more than 20...
                     for(u32 i = 0; i < cmd->materialBindingCount; ++i)
                     {
                         const render_material_binding& binding = cmd->materialBindings[i];
@@ -1917,20 +2358,20 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                                     bufferInfo.buffer = buffer.handle;
                                     bufferInfo.offset = (VkDeviceSize)binding.buffer_offset;
                                     bufferInfo.range = (VkDeviceSize)binding.buffer_range;
-                                    writes[i] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptors[binding.layoutIndex], &bufferInfo, binding.bindingIndex);
+                                    writes[numBindings++] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptors[binding.layoutIndex], &bufferInfo, binding.bindingIndex);
                                 }
                                 break;
                             case RenderMaterialBindingType::Image:
                                 {
                                     vg_image& image = *vgGetPoolImageFromId(device.resource_pool, binding.image_id);
-                                    ASSERT(binding.image_sampler_index < material.samplerCount);
-                                    VkSampler sampler = material.samplers[binding.image_sampler_index];
+                                    ASSERT(binding.image_sampler_index < pipe.samplerCount);
+                                    VkSampler sampler = pipe.samplers[binding.image_sampler_index];
 
                                     VkDescriptorImageInfo imageInfo{};
                                     imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                                     imageInfo.imageView = image.view;
                                     imageInfo.sampler = sampler;
-                                    writes[i] = vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptors[binding.layoutIndex], &imageInfo, binding.bindingIndex);
+                                    writes[numBindings++] = vkInit_write_descriptor_image(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descriptors[binding.layoutIndex], &imageInfo, binding.bindingIndex);
                                 }
                                 break;
                             
@@ -1938,15 +2379,18 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                         }
                     }
 
-                    vkUpdateDescriptorSets(device.handle, (u32)writes.size(), writes.data(), 0, nullptr);
-                    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, material.layout, 0, (u32)descriptors.size(), descriptors.data(), 0, nullptr);
+                    
                 }
+                #endif
+                
+                vg_buffer& vertexBuffer = *vgGetPoolBufferFromId(device.resource_pool, cmd->vertexBuffer);
+                vg_buffer& indexBuffer = *vgGetPoolBufferFromId(device.resource_pool, cmd->indexBuffer);
 
                 VkDeviceSize offsets[] = {0};
                 vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBuffer.handle, offsets);
                 vkCmdBindIndexBuffer(commandBuffer, indexBuffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
-                vkCmdPushConstants(commandBuffer, material.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(instanceObject.mvp), &instanceObject.mvp);
+                vkCmdPushConstants(commandBuffer, activePipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(instanceObject.mvp), &instanceObject.mvp);
                 vkCmdDrawIndexed(commandBuffer, (u32)cmd->indexCount, 1, 0, 0, 0);                
             } break;
             default:

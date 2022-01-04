@@ -25,8 +25,8 @@ void vgCleanupDescriptorLayoutCache(vg_descriptorlayout_cache& cache)
     ZeroStruct(cache);
 }
 
-internal
-VkDescriptorSetLayout vgGetDescriptorLayoutFromCache(vg_descriptorlayout_cache& cache, u32 numBindings, VkDescriptorSetLayoutBinding* pBindings)
+internal VkDescriptorSetLayout
+vgGetDescriptorLayoutFromCache(vg_descriptorlayout_cache& cache, u32 numBindings, VkDescriptorSetLayoutBinding* pBindings)
 {
     // compute the hash key
     u64 hash = 0;

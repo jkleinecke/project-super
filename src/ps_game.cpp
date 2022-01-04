@@ -296,41 +296,50 @@ void RenderScene(GraphicsContext& graphics, GameTestState& gameState, FrameConte
 #endif
 
 internal void
-RenderModel(render_commands& cmds, model_asset* model, m4& mvp)
+RenderModel(render_commands& cmds, model_asset* model, u32 materialId, m4& viewProj, m4& world, m4& scale)
 {
+    m4 worldNormal = world;
+    m4 scaled = world * scale;
+    m4 mvp = viewProj * scaled;
+
     render_geometry mesh;
     mesh.indexCount = model->indexCount;
     mesh.indexBuffer = model->index_id;
     mesh.vertexBuffer = model->vertex_id;
 
-    render_material_id materialId = model->material_id;
+    // render_material_binding bindings[1];
+    // bindings[0].type                = RenderMaterialBindingType::Image;
+    // bindings[0].layoutIndex         = 0;        // TODO(james): perhaps change this to a "named" layout?
+    // bindings[0].bindingIndex        = 0;
+    // bindings[0].image_id            = model->texture_id;
+    // bindings[0].image_sampler_index = 0;    // TODO(james): This needs to be easier to figure out that just "knowing" which index to use
 
-    render_material_binding bindings[1];
-    bindings[0].type                = RenderMaterialBindingType::Image;
-    bindings[0].layoutIndex         = 0;        // TODO(james): perhaps change this to a "named" layout?
-    bindings[0].bindingIndex        = 0;
-    bindings[0].image_id            = model->texture_id;
-    bindings[0].image_sampler_index = 0;    // TODO(james): This needs to be easier to figure out that just "knowing" which index to use
+    // u32 bindingCount = 0;;
 
-    u32 bindingCount = 0;;
+    // if(model->texture_id)
+    // {
+    //     bindingCount = ARRAY_COUNT(bindings);
+    // }
 
-    if(model->texture_id)
-    {
-        bindingCount = ARRAY_COUNT(bindings);
-    }
-
-    PushCmd_DrawObject(cmds, mesh, mvp, materialId, bindingCount, bindings);
+    PushCmd_DrawObject(cmds, mesh, scaled, scaled, worldNormal, materialId);
 }
 
 internal
-void BuildRenderCommands(game_state& state, render_commands& cmds)
+void BuildRenderCommands(game_state& state, render_context& render, const GameClock& clock)
 {
-    BeginRenderCommands(cmds);
+    render_commands& cmds = render.commands;
+
+    BeginRenderInfo renderInfo{};
+    renderInfo.viewportPosition = Vec2i(0,0);
+    renderInfo.viewportSize = render.renderDimensions;
+    renderInfo.time = clock.totalTime;
+    renderInfo.timeDelta = clock.elapsedFrameTime;
+    renderInfo.cameraPos = state.camera.position;
+    renderInfo.cameraView = LookAt(state.camera.position, state.camera.target, V3_Y_UP);
+    renderInfo.cameraProj = state.cameraProjection;
+    BeginRenderCommands(cmds, renderInfo);
     
-    m4 view = LookAt(state.camera.position, state.camera.target, V3_Y_UP);
-    //PushCmd_UpdateViewProjection(cmds, view, state.cameraProjection);
-    
-    m4 viewProj = state.cameraProjection * view;
+    m4 viewProj = state.cameraProjection * renderInfo.cameraView;
 
     // {
     //     m4 mvp = viewProj * M4_IDENTITY;
@@ -346,14 +355,22 @@ void BuildRenderCommands(game_state& state, render_commands& cmds)
     //     RenderModel(cmds, state.assets->skullModel, mvp);
     // }
 
+    PushCmd_UpdateLight(cmds, state.lightPosition, Vec3(1.0f, 1.0f, 1.0f));
+
+    PushCmd_UsePipeline(cmds, state.assets->boxPipeline->id);
 
     {
-        v3 scale = Vec3(state.skullScaleFactor,state.skullScaleFactor,state.skullScaleFactor);
-        // for each object need to compute the mvp
-        m4 model = Translate(state.skullPosition) * Rotate(state.skullRotationAngle, Vec3i(0,1,0)) * Scale(scale);//M4_IDENTITY;
-        m4 mvp = viewProj * model;
+        m4 scale = Scale(Vec3(state.scaleFactor,state.scaleFactor,state.scaleFactor));
+        m4 model = Translate(state.position) * Rotate(state.rotationAngle, Vec3i(0,1,0)) ;
+        RenderModel(cmds, state.assets->models, state.assets->boxMaterial->id, viewProj, model, scale);
+    }
 
-        RenderModel(cmds, state.assets->models, mvp);
+    PushCmd_UsePipeline(cmds, state.assets->lightboxPipeline->id);
+
+    {
+        m4 scale = Scale(Vec3(state.lightScale, state.lightScale, state.lightScale));
+        m4 model = Translate(state.lightPosition);
+        RenderModel(cmds, state.assets->models, state.assets->boxMaterial->id, viewProj, model, scale);
     }
 
     EndRenderCommands(cmds);
@@ -377,16 +394,21 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.resourceQueue = render.resourceQueue;   
         gameState.assets = AllocateGameAssets(gameState, render);
      
-        gameState.camera.position = Vec3(0.0f, 4.0f, 4.0f);
+        gameState.camera.position = Vec3(1.0f, 2.0f, 5.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
-        gameState.cameraProjection = Perspective(45.0f, render.renderDimensions.Width, render.renderDimensions.Height, 0.1f, 10.0f);
+        gameState.cameraProjection = Perspective(45.0f, render.renderDimensions.Width, render.renderDimensions.Height, 0.1f, 100.0f);
 
         // NOTE(james): Values taken from testing to setup a good starting point
-        //gameState.skullPosition = Vec3(0.218433440f,0.126181871f,0.596520841f);
-        // gameState.skullScaleFactor = 0.0172703639f;
-        gameState.skullPosition = Vec3i(0,0,0);
-        gameState.skullScaleFactor = 1.0f;
-        gameState.skullRotationAngle = 120.188347f;
+        //gameState.position = Vec3(0.218433440f,0.126181871f,0.596520841f);
+        // gameState.scaleFactor = 0.0172703639f;
+        // gameState.rotationAngle = 120.188347f;
+        gameState.lightPosition = Vec3(1.2f, 1.0f, 2.0f);
+        gameState.lightScale = 0.2f;
+
+
+        gameState.position = Vec3i(0,0,0);
+        gameState.scaleFactor = 0.5f;
+        //gameState.rotationAngle = 120.188347f;
     }    
     
     game_state& gameState = *gameMemory.state;
@@ -398,9 +420,9 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // simple rotation update
     GameClock& clock = input.clock;
     //gameState.skullRotationAngle += clock.elapsedFrameTime * 90.0f;
-    const f32 skullVelocity = 1.5f * clock.elapsedFrameTime;
-    const f32 skullScaleRate = 0.4f * clock.elapsedFrameTime;
-    const f32 skullRotRate = 360.0f * clock.elapsedFrameTime;
+    const f32 velocity = 1.5f * clock.elapsedFrameTime;
+    const f32 scaleRate = 0.4f * clock.elapsedFrameTime;
+    const f32 rotRate = 360.0f * clock.elapsedFrameTime;
     
     for(int controllerIndex = 0; controllerIndex < 5; ++controllerIndex)
     {
@@ -416,44 +438,44 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 {
                     v2 norm_lstick = NormalizeVec2(lstick);
                     
-                    v3 skullOffset = Vec3(norm_lstick.X, 0.0f, -norm_lstick.Y) * (magnitude * skullVelocity);
-                    gameState.skullPosition += skullOffset;
+                    v3 offset = Vec3(norm_lstick.X, 0.0f, -norm_lstick.Y) * (magnitude * velocity);
+                    gameState.position += offset;
                 }
 
-                gameState.skullScaleFactor *= (1.0f - (skullScaleRate * controller.leftTrigger.value));
-                gameState.skullScaleFactor *= (1.0f + (skullScaleRate * controller.rightTrigger.value));
+                gameState.scaleFactor *= (1.0f - (scaleRate * controller.leftTrigger.value));
+                gameState.scaleFactor *= (1.0f + (scaleRate * controller.rightTrigger.value));
             }
 
             if(controller.leftShoulder.pressed)
             {
-                gameState.skullRotationAngle += skullRotRate;
+                gameState.rotationAngle += rotRate;
             }
             if(controller.rightShoulder.pressed)
             {
-                gameState.skullRotationAngle -= skullRotRate;
+                gameState.rotationAngle -= rotRate;
             }
 
             if(controller.y.pressed)
             {
-                gameState.skullPosition.Y += skullVelocity;
+                gameState.position.Y += velocity;
             }
             if(controller.a.pressed)
             {
-                gameState.skullPosition.Y -= skullVelocity;
+                gameState.position.Y -= velocity;
             }
 
-            if(gameState.skullRotationAngle > 360.0f)
+            if(gameState.rotationAngle > 360.0f)
             {
-                gameState.skullRotationAngle -= 360.0f;
+                gameState.rotationAngle -= 360.0f;
             }
-            else if(gameState.skullRotationAngle < 0.0f)
+            else if(gameState.rotationAngle < 0.0f)
             {
-                gameState.skullRotationAngle += 360.0f;
+                gameState.rotationAngle += 360.0f;
             }
         }
     }
     
-    BuildRenderCommands(gameState, render.commands);
+    BuildRenderCommands(gameState, render, input.clock);
     
 #if 0
     // TODO(james): needs a better allocation scheme 

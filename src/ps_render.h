@@ -42,6 +42,7 @@
 
 typedef u32 render_manifest_id;
 typedef u32 render_material_id;
+typedef u32 render_pipeline_id;
 typedef u32 render_buffer_id;
 typedef u32 render_image_id;
 typedef u32 render_shader_id;
@@ -122,9 +123,9 @@ struct render_sampler_desc
     f32                 maxLod;
 };
 
-struct render_material_desc
+struct render_pipeline_desc
 {
-    render_material_id id;
+    render_pipeline_id id;
 
     u32 shaderCount;
     render_shader_id shaders[10]; // TODO(james): Tune this
@@ -133,6 +134,15 @@ struct render_material_desc
     u32 samplerCount;
     render_sampler_desc samplers[16]; // TODO(james): Tune this
     // etc...
+};
+
+struct render_material_desc
+{
+    render_material_id id;
+    v3 ambient;
+    v3 diffuse;
+    v3 specular;
+    float shininess;
 };
 
 enum class RenderBufferType
@@ -192,20 +202,36 @@ struct render_manifest
 
     u32 shaderCount;
     render_shader_desc shaders[255];        // TODO(james): Tune this
-    u32 materialCount;
-    render_material_desc materials[255];    // TODO(james): Tune this
+    u32 pipelineCount;
+    render_pipeline_desc pipelines[255];    // TODO(james): Tune this
     u32 bufferCount;
     render_buffer_desc buffers[255];        // TODO(james): Tune this
     u32 imageCount;
     render_image_desc images[255];          // TODO(james): Tune this
+    u32 materialCount;
+    render_material_desc materials[255];    // TODO(james): Tune this
 };
 
 // Rendering Commands
 
+struct BeginRenderInfo
+{
+    v2 viewportPosition;
+    v2 viewportSize;
+
+    f32 time;
+    f32 timeDelta;
+
+    v3 cameraPos;
+    m4 cameraView;
+    m4 cameraProj;
+};
+
 enum class RenderCommandType
 {
     Unknown,
-    UpdateViewProjection,
+    UsePipeline,
+    UpdateLight,
     DrawObject,
     Done
 };
@@ -216,12 +242,19 @@ struct render_cmd_header
     memory_index        size;
 };
 
-struct render_cmd_update_viewprojection
+struct render_cmd_use_pipeline
 {
     render_cmd_header header;
-    
-    m4 view;
-    m4 projection;
+
+    render_pipeline_id pipeline_id;
+};
+
+struct render_cmd_update_light
+{
+    render_cmd_header header;
+
+    v3 color;
+    v3 position;
 };
 
 enum class RenderMaterialBindingType
@@ -229,6 +262,8 @@ enum class RenderMaterialBindingType
     Buffer,
     Image
 };
+
+// TODO(james): Setup commands for updating lighting, setting the active pipeline, etc..
 
 struct render_material_binding
 {
@@ -260,10 +295,14 @@ struct render_cmd_draw_object
     render_cmd_header header;
 
     m4 mvp;
+    m4 world;
+    m4 worldNormal;
+    render_material_id material_id;
+
     u32 indexCount;
     render_buffer_id indexBuffer;
     render_buffer_id vertexBuffer;
-    render_material_id material_id;
+    
     u32 materialBindingCount;
     render_material_binding materialBindings[20];   // TODO(james): tune this
 };

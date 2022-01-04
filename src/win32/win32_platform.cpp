@@ -630,7 +630,7 @@ extern "C" int __stdcall WinMainCRTStartup()
     hr = audio.pClient->Start();
 
     InputContext input = {};
-     
+    
     Win32Clock frameCounterTime = Win32GetWallClock();
     Win32Clock lastFrameStartTime = Win32GetWallClock();
 
@@ -828,6 +828,7 @@ extern "C" int __stdcall WinMainCRTStartup()
         Win32Clock gameSimTime = Win32GetWallClock();
         real32 elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime, gameSimTime);
 
+        input.clock.totalTime += elapsedFrameTime;
         input.clock.elapsedFrameTime = elapsedFrameTime;
 
         if(elapsedFrameTime < targetFrameRateSeconds)

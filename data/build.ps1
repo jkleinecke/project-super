@@ -29,7 +29,7 @@ Get-ChildItem -Name -Include *glsl.vert,*glsl.frag | Foreach-Object {
     if($shouldRebuild)
     {
         Write-Host "Compiling modified shader file $_ ..."
-        glslc.exe $_ -o $output
+        glslc.exe --target-env=vulkan1.2 -I./ $_ -o $output  
 
         # Verify that it was successfull
         if($LASTEXITCODE -eq 0)

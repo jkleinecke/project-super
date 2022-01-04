@@ -23,7 +23,7 @@
 			"type": "shell",
 			"label": "BuildShaders",
 			"windows":{
-				"command": "${workspaceFolder}/data/build.bat"
+				"command": "${workspaceFolder}/data/build.ps1"
 			},
 			"osx": {
 				"command": "${workspaceFolder}/data/build.sh"

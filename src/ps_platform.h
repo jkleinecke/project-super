@@ -100,6 +100,7 @@ extern platform_api Platform;
 struct GameClock
 {
     uint64 frameCounter;
+    real32 totalTime;
     real32 elapsedFrameTime;  // seconds since the last frame
 };
 
@@ -184,6 +185,16 @@ struct InputContext
 
 struct render_commands
 {
+    v2 viewportPosition;
+    v2 viewportSize;
+
+    f32 time;
+    f32 timeDelta;
+
+    v3 cameraPos;
+    m4 cameraView;
+    m4 cameraProj;
+
     u8* pushBufferBase;
     u8* pushBufferDataAt;
     umm maxPushBufferSize;
