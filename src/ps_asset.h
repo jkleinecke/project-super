@@ -50,10 +50,7 @@ struct material_asset
 {
     render_material_id      id;
 
-    v3                      ambient;
-    v3                      diffuse;
-    v3                      specular;
-    float                   shininess;   
+    render_material         data;     
 };
 
 struct game_assets

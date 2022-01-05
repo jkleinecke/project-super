@@ -27,13 +27,15 @@ PushCmd_UsePipeline(render_commands& cmds, render_pipeline_id id)
 }
 
 internal void
-PushCmd_UpdateLight(render_commands& cmds, const v3& position, const v3& color)
+PushCmd_UpdateLight(render_commands& cmds, const v3& position, const v3& ambient, const v3& diffuse, const v3& specular)
 {
     render_cmd_update_light& cmd = *PushCmd(cmds, render_cmd_update_light);
     cmd.header = { RenderCommandType::UpdateLight, sizeof(cmd) };
 
-    cmd.color = color;
     cmd.position = position;
+    cmd.ambient = ambient;
+    cmd.diffuse = diffuse;
+    cmd.specular = specular;
 }
 
 internal void

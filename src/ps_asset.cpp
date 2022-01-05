@@ -237,10 +237,10 @@ LoadBoxMaterial(game_assets& assets)
     material_asset* asset = PushStruct(assets.memory, material_asset);
     asset->id = assets.nextMaterialId++;
 
-    asset->ambient = Vec3(1.0f, 0.5f, 0.31f);
-    asset->diffuse = Vec3(1.0f, 0.5f, 0.31f);
-    asset->specular = Vec3(0.5f, 0.5f, 0.5f);
-    asset->shininess = 32.0f;
+    asset->data.ambient = Vec3(1.0f, 0.5f, 0.31f);
+    asset->data.diffuse = Vec3(1.0f, 0.5f, 0.31f);
+    asset->data.specular = Vec3(0.5f, 0.5f, 0.5f);
+    asset->data.shininess = 32.0f;
 
     return asset;
 }
@@ -462,11 +462,8 @@ FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
     {
         manifest->materialCount = 1;
 
-        manifest->materials[0].id       = assets.boxMaterial->id;
-        manifest->materials[0].ambient  = assets.boxMaterial->ambient;
-        manifest->materials[0].diffuse  = assets.boxMaterial->diffuse;
-        manifest->materials[0].specular  = assets.boxMaterial->specular;
-        manifest->materials[0].shininess  = assets.boxMaterial->shininess;
+        manifest->materials[0].id = assets.boxMaterial->id;
+        manifest->materials[0].data = assets.boxMaterial->data;
     }
 }
 

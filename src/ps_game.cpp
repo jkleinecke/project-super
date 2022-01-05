@@ -355,7 +355,13 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
     //     RenderModel(cmds, state.assets->skullModel, mvp);
     // }
 
-    PushCmd_UpdateLight(cmds, state.lightPosition, Vec3(1.0f, 1.0f, 1.0f));
+    // v3 lite_ambient = Vec3(0.2f, 0.2f, 0.2f);
+    v3 lite_ambient = Vec3(0.1f, 0.1f, 0.1f);
+    // v3 lite_diffuse = Vec3(0.5f, 0.5f, 0.5f);
+    v3 lite_diffuse = Vec3(0.3f, 0.3f, 0.3f);
+    v3 lite_spec = Vec3(1.0f, 1.0f, 1.0f);
+
+    PushCmd_UpdateLight(cmds, state.lightPosition, lite_ambient, lite_diffuse, lite_spec);
 
     PushCmd_UsePipeline(cmds, state.assets->boxPipeline->id);
 
@@ -394,7 +400,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.resourceQueue = render.resourceQueue;   
         gameState.assets = AllocateGameAssets(gameState, render);
      
-        gameState.camera.position = Vec3(1.0f, 2.0f, 5.0f);
+        gameState.camera.position = Vec3(1.0f, 5.0f, 5.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
         gameState.cameraProjection = Perspective(45.0f, render.renderDimensions.Width, render.renderDimensions.Height, 0.1f, 100.0f);
 
@@ -402,12 +408,12 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //gameState.position = Vec3(0.218433440f,0.126181871f,0.596520841f);
         // gameState.scaleFactor = 0.0172703639f;
         // gameState.rotationAngle = 120.188347f;
-        gameState.lightPosition = Vec3(1.2f, 1.0f, 2.0f);
+        gameState.lightPosition = Vec3(1.2f, 3.0f, 2.0f);
         gameState.lightScale = 0.2f;
 
 
         gameState.position = Vec3i(0,0,0);
-        gameState.scaleFactor = 0.5f;
+        gameState.scaleFactor = 1.0f;
         //gameState.rotationAngle = 120.188347f;
     }    
     
@@ -442,8 +448,34 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                     gameState.position += offset;
                 }
 
+                v2 rstick = Vec2(controller.rightStick.x, controller.rightStick.y);
+                magnitude = LengthVec2(rstick);
+
+                if(magnitude > 0)
+                {
+                    v2 norm_rstick = NormalizeVec2(rstick);
+
+                    v3 offset = Vec3(norm_rstick.X, 0.0f, -norm_rstick.Y) * (magnitude * velocity);
+                    gameState.camera.position += offset;
+                }
+
                 gameState.scaleFactor *= (1.0f - (scaleRate * controller.leftTrigger.value));
                 gameState.scaleFactor *= (1.0f + (scaleRate * controller.rightTrigger.value));
+            }
+
+            if(controller.up.pressed)
+            {
+                gameState.camera.position.Y += velocity;
+            }
+
+            if(controller.down.pressed)
+            {
+                gameState.camera.position.Y -= velocity;
+            }
+
+            if(controller.rightStickButton.pressed)
+            {
+                gameState.camera.position = Vec3(1.0f, 5.0f, 5.0f);
             }
 
             if(controller.leftShoulder.pressed)

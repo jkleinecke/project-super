@@ -49,6 +49,63 @@ typedef u32 render_shader_id;
 
 // Rendering Objects
 
+struct Window
+{
+    ALIGNAS(4) f32 x;
+    ALIGNAS(4) f32 y;
+    ALIGNAS(4) f32 width;
+    ALIGNAS(4) f32 height;
+};
+
+struct SceneData
+{
+    ALIGNAS(16) Window window;
+};
+
+struct FrameData
+{
+    ALIGNAS(4) f32 time;
+    ALIGNAS(4) f32 timeDelta;
+};
+
+struct CameraData
+{
+    ALIGNAS(16) v3 pos;
+    ALIGNAS(16) m4 view;
+    ALIGNAS(16) m4 proj;
+    ALIGNAS(16) m4 viewProj;
+};
+
+struct LightData
+{
+    ALIGNAS(16) v3 pos;
+    ALIGNAS(16) v3 ambient;
+    ALIGNAS(16) v3 diffuse;
+    ALIGNAS(16) v3 specular;
+};  
+
+struct InstanceData
+{
+    ALIGNAS(16) m4 mvp;
+    ALIGNAS(16) m4 world;
+    ALIGNAS(16) m4 worldNormal;
+    ALIGNAS(4)  u32 materialIndex; 
+};
+
+struct SceneBufferObject
+{
+    ALIGNAS(16) SceneData scene;
+    ALIGNAS(16) FrameData frame;
+    ALIGNAS(16) CameraData camera;
+};
+struct render_material
+{
+    ALIGNAS(16) v3 ambient;
+    ALIGNAS(16) v3 diffuse;
+    ALIGNAS(16) v3 specular;
+    ALIGNAS(4) f32 shininess;
+};
+
 struct camera
 {
     v3  position;
@@ -139,10 +196,7 @@ struct render_pipeline_desc
 struct render_material_desc
 {
     render_material_id id;
-    v3 ambient;
-    v3 diffuse;
-    v3 specular;
-    float shininess;
+    render_material data;
 };
 
 enum class RenderBufferType
@@ -253,8 +307,10 @@ struct render_cmd_update_light
 {
     render_cmd_header header;
 
-    v3 color;
     v3 position;
+    v3 ambient;
+    v3 diffuse;
+    v3 specular;
 };
 
 enum class RenderMaterialBindingType

@@ -42,61 +42,7 @@ struct InstanceObject
     alignas(16) m4 mvp;
 };
 
-struct Window
-{
-    ALIGNAS(4) f32 x;
-    ALIGNAS(4) f32 y;
-    ALIGNAS(4) f32 width;
-    ALIGNAS(4) f32 height;
-};
 
-struct SceneData
-{
-    Window window;
-};
-
-struct FrameData
-{
-    ALIGNAS(4) f32 time;
-    ALIGNAS(4) f32 timeDelta;
-};
-
-struct CameraData
-{
-    ALIGNAS(16) v3 pos;
-    ALIGNAS(16) m4 view;
-    ALIGNAS(16) m4 proj;
-    ALIGNAS(16) m4 viewProj;
-};
-
-struct LightData
-{
-    ALIGNAS(16) v3 pos;
-    ALIGNAS(16) v3 color;
-};  
-
-struct InstanceData
-{
-    ALIGNAS(16) m4 mvp;
-    ALIGNAS(16) m4 world;
-    ALIGNAS(16) m4 worldNormal;
-    ALIGNAS(4)  u32 materialIndex; 
-};
-
-struct MaterialData
-{
-    ALIGNAS(16) v3 ambient;
-    ALIGNAS(16) v3 diffuse;
-    ALIGNAS(16) v3 specular;
-    ALIGNAS(4) f32 shininess;
-};
-
-struct SceneBufferObject
-{
-    SceneData scene;
-    FrameData frame;
-    CameraData camera;
-};
 
 internal SpecialDescriptorBinding
 vgGetSpecialDescriptorBindingFromName(const std::string& name)
@@ -319,6 +265,19 @@ vgTransferImageDataToBuffer(vg_transfer_buffer& transfer, f32 width, f32 height,
 internal void
 vgEndDataTransfer(vg_transfer_buffer& transfer)
 {
+    VkBufferMemoryBarrier barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+    barrier.buffer = transfer.staging_buffer.handle;
+    barrier.offset = 0;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.size = transfer.lastWritePosition;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT;
+
+    // VK_PIPELINE_STAGE_TRANSFER_BIT
+    // VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
+    vkCmdPipelineBarrier(transfer.cmds, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0, 0, NULL, 1, &barrier, 0, NULL);
+
     vkEndCommandBuffer(transfer.cmds);
 
     VkSubmitInfo submitInfo = vkInit_submit_info(&transfer.cmds);
@@ -791,7 +750,10 @@ vgCreateStandardBuffers(vg_device& device)
         {
             // TODO(james): support multiple instances
             VkResult result = vgCreateBuffer(device, sizeof(InstanceData), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &device.frames[i].instance_buffer);
+            // VkResult result = vgCreateBuffer(device, sizeof(InstanceData), VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, &device.frames[i].instance_buffer);
             ASSERT(result == VK_SUCCESS);
+
+            //vgMapBuffer(device.handle, device.frames[i].instance_buffer, 0, VK_WHOLE_SIZE);
         }
     }
 }
@@ -1797,21 +1759,17 @@ vgCreateManifestResources(vg_device& device, render_manifest* manifest)
     if(manifest->materialCount)
     {
         vg_buffer& materialBuffer = pool.material_buffer;
-        result = vgCreateBuffer(device, sizeof(MaterialData) * manifest->materialCount, VK_BUFFER_USAGE_TRANSFER_DST_BIT|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &materialBuffer);
+        result = vgCreateBuffer(device, sizeof(render_material) * manifest->materialCount, VK_BUFFER_USAGE_TRANSFER_DST_BIT|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &materialBuffer);
         
         u32 materialIndex = 0;
-        MaterialData materials[255] = {};
+        render_material materials[255] = {};
         for(u32 i = 0; i < manifest->materialCount; ++i)
         {
             const render_material_desc& materialDesc = manifest->materials[i];
-            MaterialData& material = materials[materialIndex++];
-            material.ambient = materialDesc.ambient;
-            material.diffuse = materialDesc.diffuse;
-            material.specular = materialDesc.specular;
-            material.shininess = materialDesc.shininess;
+            materials[materialIndex++] = materialDesc.data;
         }
 
-        vgTransferDataToBuffer(device.transferBuffer, sizeof(MaterialData) * materialIndex, materials, materialBuffer, 0);
+        vgTransferDataToBuffer(device.transferBuffer, sizeof(render_material) * materialIndex, materials, materialBuffer, 0);
     }
 
     for(u32 i = 0; i < manifest->imageCount; ++i)
@@ -2284,7 +2242,7 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                                         VkDescriptorBufferInfo bufferInfo;
                                         bufferInfo.buffer = device.resource_pool.material_buffer.handle;
                                         bufferInfo.offset = 0;//sizeof(MaterialData) * cmd->material_id;    // TODO(james): translate material_id into an array index of the pool
-                                        bufferInfo.range = sizeof(MaterialData);
+                                        bufferInfo.range = sizeof(render_material);
                                         writes[numBindings++] = vkInit_write_descriptor_buffer(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descriptor, &bufferInfo, binding);
                                     }
                                     break;
@@ -2311,8 +2269,10 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
                 render_cmd_update_light* cmd = (render_cmd_update_light*)header;
 
                 LightData light{};
-                light.color = cmd->color;
                 light.pos = cmd->position;
+                light.ambient = cmd->ambient;
+                light.diffuse = cmd->diffuse;
+                light.specular = cmd->specular;
 
                 vgTransferLightBufferObject(device, light);
                 // VkMemoryBarrier membarrier = {};
@@ -2334,10 +2294,10 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
 
                 // TODO(james): bulk copy all the objects at once prior to any rendering
                 vgTransferInstanceBufferObject(device, instanceObject);
+                
                 // vkCmdUpdateBuffer(commandBuffer, device.pCurFrame->instance_buffer.handle, 0, sizeof(instanceObject), &instanceObject);
-                //Copy(sizeof(InstanceObject), &instanceObject, device.pCurFrame->instance_buffer.mapped);
-
-                #if 0
+                // Copy(sizeof(InstanceObject), &instanceObject, device.pCurFrame->instance_buffer.mapped);
+                                #if 0
                 vg_render_pipeline& pipe = *vgGetPoolPipelineFromId(device.resource_pool, cmd->material_id);
                 
                 if(cmd->materialBindingCount)
