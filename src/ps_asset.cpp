@@ -483,6 +483,9 @@ AllocateGameAssets(game_state& gm_state, render_context& renderer)
     assets.nextPipelineId = 1;
     assets.nextMaterialId = 1;
 
+    // TODO(james): Use the hashes to tag the assets for fast lookup, could also use them for shader variables too
+    u32 shaderVert = C_HASH("shader.vert.spv");
+
     assets.simpleVS = LoadShaderAsset(assets, "shader.vert.spv");
     assets.simpleFS = LoadShaderAsset(assets, "shader.frag.spv");
     assets.basicTexturePipeline = LoadPipelineAsset(assets);

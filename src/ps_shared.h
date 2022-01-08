@@ -376,3 +376,37 @@ u64 MurmurHash64(const void * key, u32 len, u64 seed)
 
     return h;
 }
+
+internal inline constexpr u32
+fnv1a_32(const char *s, umm count)
+{
+    return count ? (fnv1a_32(s, count - 1) ^ s[count - 1]) * 16777619u : 2166136261u;
+}
+
+internal inline constexpr u64
+fnv1a_64(const char* s, umm count)
+{
+    return count ? (fnv1a_64(s, count - 1) ^ s[count -1]) * 1099511628211u : 14695981039346656037u;
+}
+
+template< umm N >
+constexpr u32 Hash32_T( const char (&s)[N] )
+{   
+    // NOTE(james): -1 because we don't want to hash the '/0' 
+    return fnv1a_32( s, N - 1);
+}
+
+template< umm N >
+constexpr u64 Hash64_T( const char (&s)[N] )
+{   
+    // NOTE(james): -1 because we don't want to hash the '/0' 
+    return fnv1a_64( s, N - 1);
+}
+
+template<u32 HASH>
+struct HashString32 { enum : u32 { hash = HASH }; };
+template<u64 HASH>
+struct HashString64 { enum : u64 { hash = HASH }; };
+
+#define C_HASH(name) HashString32< Hash32_T( #name ) >::hash
+#define C_HASH64(name) HashString64< Hash64_T( #name ) >::hash
