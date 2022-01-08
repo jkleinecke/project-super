@@ -1,5 +1,15 @@
 
-#ifdef PROJECTSUPER_SLOW
+#if !defined(PROJECTSUPER_WIN32)
+#define PROJECTSUPER_WIN32 0
+#endif
+
+#if !defined(PROJECTSUPER_MACOS)
+#define PROJECTSUPER_MACOS 0
+#define COMPILER_LLVM 1
+#define COMPILER_MSVC 0
+#endif
+
+#if PROJECTSUPER_SLOW
 // define NDEBUG so that assert.h will compile out assert(..)
 #define NDEBUG 1
 #endif
@@ -124,14 +134,17 @@ typedef intptr_t imm;
 #define Pi32 3.14159265359f
 
 // Call Conventions
-#if defined(COMPILER_MSVC)
+#if COMPILER_MSVC
+#error Somehow COMPILER_MSVC is getting defined somewhere
     #define PS_API 
     #define PS_APICALL __stdcall
     #define ALIGNAS(x) __declspec( align( x ) ) 
-#elif defined(__clang__)
-    #define PSAPI
+#elif COMPILER_LLVM
+    #define PS_API
     #define ALIGNAS(x) __attribute__ ((aligned( x )))
-    #define PSAPI_CALL
+    #define PS_APICALL
+#else
+    NotImplemented
 #endif
 
 
@@ -144,7 +157,7 @@ typedef intptr_t imm;
 #ifdef ASSERT
     #undef ASSERT
 #endif
-#ifdef PROJECTSUPER_SLOW
+#if PROJECTSUPER_SLOW
 // #ifdef COMPILER_MSVC
 //     _ACRTIMP void __cdecl _wassert(
 //         _In_z_ wchar_t const* _Message,

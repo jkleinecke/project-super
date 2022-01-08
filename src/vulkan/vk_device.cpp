@@ -816,7 +816,7 @@ vgCreateImage(vg_device& device, u32 width, u32 height, VkFormat format, VkImage
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
     allocInfo.memoryTypeIndex = vgFindMemoryType(device, memRequirements.memoryTypeBits, properties);
-    ASSERT(allocInfo.memoryTypeIndex > 0);
+    ASSERT(allocInfo.memoryTypeIndex >= 0);
 
     vkAllocateMemory(device.handle, &allocInfo, nullptr, &pImage->memory);
 
@@ -982,6 +982,21 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
 
         device.physicalDevice = chosenPhysicalDevice;
         device.platform_surface = platformSurface;
+
+        // vulkan spec states that VK_KHR_portability_subset extension has to be included if it comes back as supported
+        // TODO(james): look into what this extension truly means, partial API support??
+        std::vector<VkExtensionProperties> extensions;
+        vgGetAvailableExtensions(device.physicalDevice, extensions);
+
+        std::string portability = "VK_KHR_portability_subset";
+        for(auto& ext : extensions)
+        {
+            if(portability == ext.extensionName)
+            {
+                deviceExtensions.push_back("VK_KHR_portability_subset");
+                break;
+            }
+        }
 
         vkGetPhysicalDeviceProperties(device.physicalDevice, &device.device_properties);
         vkGetPhysicalDeviceMemoryProperties(device.physicalDevice, &device.device_memory_properties);
@@ -2145,7 +2160,7 @@ void vgTranslateRenderCommands(vg_device& device, render_commands* commands)
 
     render_cmd_header* header = (render_cmd_header*)commands->pushBufferBase;
 
-    while(header->type != RenderCommandType::Done)
+    while((u8*)header < commands->pushBufferDataAt && header->type != RenderCommandType::Done)
     {
         switch(header->type)
         {

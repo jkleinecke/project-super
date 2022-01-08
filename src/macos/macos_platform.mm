@@ -9,14 +9,77 @@
 
 #include "macos_platform.h"
 
-#define LOG_ERROR
-#define LOG_WARN
-#define LOG_INFO
-#include "macos_vulkan.cpp"
+
+#if PROJECTSUPER_INTERNAL
+#define LOG(level, msg, ...) Platform.DEBUG_Log(level, __FILE__, __LINE__, msg, ## __VA_ARGS__)
+#define LOG_DEBUG(msg, ...) LOG(LogLevel::Debug, msg, ## __VA_ARGS__)
+#define LOG_INFO(msg, ...) LOG(LogLevel::Info, msg, ## __VA_ARGS__)
+#define LOG_ERROR(msg, ...) LOG(LogLevel::Error, msg, ## __VA_ARGS__)
+#else
+#define LOG(level, msg, ...) Platform.Log(level, msg, ## __VA_ARGS__)
+#define LOG_DEBUG(msg, ...) 
+#define LOG_INFO(msg, ...) LOG(LogLevel::Info, msg, ## __VA_ARGS__)
+#define LOG_ERROR(msg, ...) LOG(LogLevel::Error, msg, ##  __VA_ARGS__)
+#endif
+
+#include "../vulkan/vk_platform.cpp"   
 
 #include <stdio.h>
 
 global_variable bool32 GlobalRunning = true;
+platform_api Platform;
+
+internal void 
+MacosLog(LogLevel level, const char* format, ...)
+{
+	va_list args;
+    va_start(args, format);
+
+	char szMessage[4096];
+    int n = FormatStringV(szMessage, format, args);
+    va_end(args);
+    
+	char *szLevel = 0;
+	switch(level)
+    {
+    case LogLevel::Debug:
+		szLevel = "DBG";
+        break;
+    case LogLevel::Info:
+		szLevel = "INF";
+        break;
+    case LogLevel::Error:
+		szLevel = "ERR";
+        break;
+    }
+	NSLog(@"%s | %s", szLevel, szMessage);
+}
+
+internal void
+MacosDebugLog(LogLevel level, const char* file, int lineno, const char* format, ...)
+{
+	va_list args;
+    va_start(args, format);
+
+	char szMessage[4096];
+    int n = FormatStringV(szMessage, format, args);
+    va_end(args);
+
+	char *szLevel = 0;
+	switch(level)
+    {
+    case LogLevel::Debug:
+		szLevel = "DBG";
+        break;
+    case LogLevel::Info:
+		szLevel = "INF";
+        break;
+    case LogLevel::Error:
+		szLevel = "ERR";
+        break;
+    }
+	NSLog(@"%s | %s(%d) | %s", szLevel, file, lineno, szMessage);
+}
 
 void MacosProcessMessages(macos_state& state)
 {
@@ -131,6 +194,12 @@ int main(int argc, const char* argv[])
 {
     @autoreleasepool
     {
+		Platform.Log = &MacosLog;
+
+#if PROJECTSUPER_INTERNAL
+		Platform.DEBUG_Log = &MacosDebugLog;
+#endif
+
         macos_state state = {};
 		state.appName = @"Project Super";
 
@@ -181,15 +250,43 @@ int main(int argc, const char* argv[])
         [CV setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
         [CV setAutoresizesSubviews:YES];
 
+		// TODO(james): load this more gracefully
+		NSBundle* bundle = [NSBundle bundleWithPath:@"/System/Library/Frameworks/QuartzCore.framework"];
+        ASSERT(bundle);
+
+		// NOTE: Create the layer here as makeBackingLayer should not return nil
+        CAMetalLayer* layer = (CAMetalLayer*)[[bundle classNamed:@"CAMetalLayer"] layer];
+		ASSERT(layer)
+
+		// TODO(james): only required for a retina display
+		[layer setContentsScale:[Window backingScaleFactor]];
+
+		[CV setLayer: (CALayer*)layer];
+		[CV setWantsLayer: YES];
+
         [Window setMinSize:NSMakeSize(160, 90)];
         [Window setTitle:state.appName];
         [Window makeKeyAndOrderFront:nil];
 
-		MacosLoadGraphicsBackend();
+		render_context gameRender = {};
+		gameRender.renderDimensions.Width = windowWidth;
+		gameRender.renderDimensions.Height = windowHeight;
+		ps_graphics_backend graphicsDriver = platform_load_graphics_backend(layer, windowWidth, windowHeight);
+		ps_graphics_backend_api graphicsApi = graphicsDriver.api; 
+		gameRender.resourceQueue = &graphicsDriver.resourceQueue;
+		gameRender.AddResourceOperation = graphicsApi.AddResourceOperation;
+		gameRender.IsResourceOperationComplete = graphicsApi.IsResourceOperationComplete;
 
         while(GlobalRunning)
         {
             MacosProcessMessages(state);
+
+			graphicsApi.BeginFrame(graphicsDriver.instance, &gameRender.commands);
+
+			// TODO(james): actually invoke the game loop here..
+
+			graphicsApi.EndFrame(graphicsDriver.instance, &gameRender.commands);
+
         }
     }
 

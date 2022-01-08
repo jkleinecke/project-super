@@ -89,7 +89,8 @@
         "xlocinfo": "cpp",
         "xlocmes": "cpp",
         "xlocmon": "cpp",
-        "xloctime": "cpp"
+        "xloctime": "cpp",
+        "*.mm": "cpp"
     },
     "editor.suggestOnTriggerCharacters": false,
     "C_Cpp.workspaceParsingPriority": "low"

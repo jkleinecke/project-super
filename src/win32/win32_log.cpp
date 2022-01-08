@@ -1,7 +1,7 @@
 
 // TODO(james): support multiple log levels
 
-#if defined(PROJECTSUPER_INTERNAL)
+#if PROJECTSUPER_INTERNAL
 #define LOG(level, msg, ...) Win32DebugLog(level, __FILE__, __LINE__, msg, __VA_ARGS__)
 #define LOG_DEBUG(msg, ...) LOG(LogLevel::Debug, msg, __VA_ARGS__)
 #define LOG_INFO(msg, ...) LOG(LogLevel::Info, msg, __VA_ARGS__)

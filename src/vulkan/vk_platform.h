@@ -32,7 +32,7 @@ struct render_resource_queue
 
     u32 volatile readIndex;
     u32 volatile writeIndex;
-    HANDLE semaphore;
+    //HANDLE semaphore;
 
     render_resource_op resourceOps[256];
 };
@@ -45,8 +45,14 @@ struct ps_graphics_backend
     render_resource_queue resourceQueue;
 };
 
+#if PROJECTSUPER_WIN32
+    #define LOAD_GRAPHICS_BACKEND(name) ps_graphics_backend name(HINSTANCE hInstance, HWND hWnd)
+#elif PROJECTSUPER_MACOS
+    #define LOAD_GRAPHICS_BACKEND(name) ps_graphics_backend name(CAMetalLayer* pMetalLayer, f32 windowWidth, f32 windowHeight)
+#else
+    NotImplemented
+#endif
 
-#define LOAD_GRAPHICS_BACKEND(name) ps_graphics_backend name(HINSTANCE hInstance, HWND hWnd)
 typedef LOAD_GRAPHICS_BACKEND(load_graphics_backend);
 
 #define UNLOAD_GRAPHICS_BACKEND(name) void name(ps_graphics_backend* backend)

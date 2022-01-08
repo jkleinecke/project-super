@@ -28,7 +28,7 @@ struct platform_file
     void* platform;
 };
 
-enum class PlatformMemoryFlags
+enum class PlatformMemoryFlags : u64
 {
     NotRestored     = 0x01,
     UnderflowCheck  = 0x02,
@@ -53,7 +53,7 @@ enum class LogLevel
     Error
 };
 
-#if defined(PROJECTSUPER_INTERNAL)
+#if PROJECTSUPER_INTERNAL
 struct debug_platform_memory_stats
 {
     u64 totalSize;
@@ -88,7 +88,7 @@ struct platform_api
     // TODO(james): Add list files API
     // TODO(james): Add window creation APIs? (Editor??)
     
-#ifdef PROJECTSUPER_INTERNAL
+#if PROJECTSUPER_INTERNAL
     API_FUNCTION(debug_platform_memory_stats, DEBUG_GetMemoryStats);
     API_FUNCTION(void, DEBUG_Log, LogLevel level, const char* file, int lineno, const char* format, ...);
 #endif

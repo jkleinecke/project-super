@@ -1,5 +1,14 @@
 
-#define VK_USE_PLATFORM_WIN32_KHR
+#if PROJECTSUPER_WIN32
+    #define VK_USE_PLATFORM_WIN32_KHR
+    #define VG_PLATFORM_SURFACE_EXT_NAME VK_KHR_WIN32_SURFACE_EXTENSION_NAME
+#elif PROJECTSUPER_MACOS
+    #define VK_USE_PLATFORM_METAL_EXT
+    #define VG_PLATFORM_SURFACE_EXT_NAME VK_EXT_METAL_SURFACE_EXTENSION_NAME
+#else
+    NotImplemented
+#endif
+
 #include <vulkan/vulkan.h>
 #include <SPIRV-Reflect/spirv_reflect.h>
 
@@ -38,7 +47,6 @@
 ********************************************************************************/
 
 global vg_backend g_VulkanBackend = {};
-global const int WIN32_MAX_FRAMES_IN_FLIGHT = 2;
 
 internal render_sync_token
 PlatformAddResourceOperation(render_resource_queue* queue, RenderResourceOpType operationType, render_manifest* manifest)
@@ -51,14 +59,14 @@ PlatformAddResourceOperation(render_resource_queue* queue, RenderResourceOpType 
         u32 nextWriteIndex = (queue->writeIndex + 1) % ARRAY_COUNT(queue->resourceOps);
         ASSERT(nextWriteIndex != queue->readIndex);
 
-        u32 index = InterlockedCompareExchange(&queue->writeIndex, nextWriteIndex, writeIndex);
+        u32 index = AtomicCompareExchangeUInt32(&queue->writeIndex, nextWriteIndex, writeIndex);
         if(index == writeIndex)
         {
             render_resource_op* op = queue->resourceOps + index;
             op->type = operationType;
             op->manifest = manifest;
 
-            syncToken = InterlockedIncrement(&queue->requestedSyncToken);
+            syncToken = AtomicIncrementU64(&queue->requestedSyncToken);
         }
         else
         {   
@@ -75,13 +83,13 @@ PlatformAddResourceOperation(render_resource_queue* queue, RenderResourceOpType 
         u32 nextReadIndex = (readIndex + 1) % ARRAY_COUNT(queue->resourceOps);
         if(readIndex != queue->writeIndex)
         {
-            u32 index = InterlockedCompareExchange(&queue->readIndex, nextReadIndex, readIndex);
+            u32 index = AtomicCompareExchangeUInt32(&queue->readIndex, nextReadIndex, readIndex);
 
             if(index == readIndex)
             {
                 render_resource_op& operation = queue->resourceOps[index];
                 vgPerformResourceOperation(g_VulkanBackend.device, operation.type, operation.manifest);
-                InterlockedIncrement(&queue->currentSyncToken);
+                AtomicIncrementU64(&queue->currentSyncToken);
             }
         }
     }
@@ -99,16 +107,10 @@ PlatformIsResourceOperationComplete(render_resource_queue* queue, render_sync_to
 extern "C"
 LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
 {
-    ASSERT(hInstance);
-    ASSERT(hWnd);
-
     std::vector<const char*> platform_extensions = {
-        VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+        VG_PLATFORM_SURFACE_EXT_NAME,
         VK_KHR_SURFACE_EXTENSION_NAME
     } ;
-
-    ASSERT(hInstance);
-    ASSERT(hWnd);
 
     vg_backend& vb = g_VulkanBackend;
     VkResult result = vgInitialize(vb, &platform_extensions);
@@ -121,6 +123,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     // Go ahead and create a window surface buffer      
     {  
         VkSurfaceKHR surface = nullptr;
+#if PROJECTSUPER_WIN32
         
         VkWin32SurfaceCreateInfoKHR createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
@@ -134,7 +137,16 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
             ASSERT(false);
             vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
         }
+#elif PROJECTSUPER_MACOS
+        
+        VkMetalSurfaceCreateInfoEXT createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
+        createInfo.pLayer = pMetalLayer; // CAMetalLayer
 
+        result = vkCreateMetalSurfaceEXT(vb.instance, &createInfo, nullptr, &surface);
+#else
+        NotImplemented
+#endif
 
         std::vector<const char*> platformDeviceExtensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME
@@ -153,14 +165,23 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     // now setup the swap chain
     // TODO(james): Should ALL of this be done in the platform agnostic backend??
     {
+
+#if PROJECTSUPER_WIN32
         RECT rc;
         GetClientRect(hWnd, &rc);
 
         u32 width = rc.right - rc.left;
         u32 height = rc.bottom - rc.top;
+#elif PROJECTSUPER_MACOS
+        // TODO(james): pull these dynamically
+        u32 width = (u32)windowWidth;
+        u32 height = (u32)windowHeight;
+#else
+        NotImplemented
+#endif
 
         VkPresentModeKHR presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
-#if defined(PROJECTSUPER_SLOW)
+#if PROJECTSUPER_SLOW
         presentMode = VK_PRESENT_MODE_FIFO_RELAXED_KHR;
 #endif
         vgCreateSwapChain(vb.device, VK_FORMAT_B8G8R8A8_SRGB, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR, presentMode, width, height);
@@ -209,7 +230,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
 
     // WINDOWS SPECIFIC
     // TODO(james): Setup resource operation thread
-    backend.resourceQueue.semaphore = CreateSemaphore(0, 0, 1, 0);    // Only 1 resource operation thread will be active
+    //backend.resourceQueue.semaphore = CreateSemaphore(0, 0, 1, 0);    // Only 1 resource operation thread will be active
     // ----------------
 
     backend.api.BeginFrame = &VulkanGraphicsBeginFrame;

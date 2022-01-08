@@ -228,6 +228,21 @@ inline u64 AtomicAddU64(u64 volatile *Value, u64 Addend)
     
     return(Result);
 }
+
+inline u32 AtomicIncrementU32(u32 volatile *Value)
+{
+    u32 Result = _InterlockedIncrement32((__int32 volatile *)Value);
+
+    return (Result);
+}
+
+inline u32 AtomicIncrementU64(u64 volatile *Value)
+{
+    u32 Result = _InterlockedIncrement64((__int64 volatile *)Value);
+
+    return (Result);
+}
+
 inline u32 GetThreadID(void)
 {
     u8 *ThreadLocalStorage = (u8 *)__readgsqword(0x30);
@@ -261,6 +276,21 @@ inline u64 AtomicAddU64(u64 volatile *Value, u64 Addend)
     
     return(Result);
 }
+
+inline u64 AtomicIncrementU64(u64 volatile *Value)
+{
+    u64 Result = __sync_fetch_and_add(Value, 1);
+    
+    return(Result);
+}
+
+inline u32 AtomicIncrementU32(u32 volatile *Value)
+{
+    u32 Result = __sync_fetch_and_add(Value, 1);
+
+    return (Result);
+}
+
 inline u32 GetThreadID(void)
 {
     u32 ThreadID;

@@ -261,7 +261,7 @@ LoadCgltfAssets(game_assets& assets, const char* filename)
     u64 bytesRead = Platform.ReadFile(file, bytes, file.size);
     ASSERT(bytesRead == file.size);
 
-    cgltf_options options = {0};
+    cgltf_options options = {};
     cgltf_data* data = NULL;
     cgltf_result result = cgltf_parse(&options, bytes, file.size, &data);
 
