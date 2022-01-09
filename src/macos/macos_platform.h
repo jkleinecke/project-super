@@ -1,4 +1,9 @@
 
+struct macos_file_location 
+{
+    FileLocation location;
+    char folder[FILENAME_MAX];
+};
 
 struct macos_loaded_code
 {
@@ -6,7 +11,7 @@ struct macos_loaded_code
 	u32 nTempDLNumber;
 
 	const char* pszTransientDLName;
-	const char* pszDLFullPath;
+    char szDLFullPath[FILENAME_MAX];
 	// const char* LockFullPath;
 
 	void* DL;
@@ -58,6 +63,10 @@ struct macos_state
 {
     ticket_mutex memoryMutex;
     macos_memory_block memorySentinal;
+
+    char appFilename[FILENAME_MAX];
+    char appFolder[FILENAME_MAX];
+    macos_file_location fileLocationsTable[(u32)FileLocation::LocationsCount];
 
     // TODO(james): setup app delegate
     NSWindow* window;

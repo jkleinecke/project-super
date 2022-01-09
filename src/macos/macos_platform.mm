@@ -25,7 +25,15 @@
 #include "../vulkan/vk_platform.cpp"   
 
 #include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #include <stdio.h>
+#include <copyfile.h>
+#include <libproc.h>
+#include <time.h>
+#include <dlfcn.h>
 
 global_variable bool32 GlobalRunning = true;
 global_variable macos_state GlobalMacosState;
@@ -98,7 +106,7 @@ MacosGetMemoryStats()
 {
     debug_platform_memory_stats stats = {};
 
-    BeginTicketMutex(&GlobalWin32State.memoryMutex);
+    BeginTicketMutex(&GlobalMacosState.memoryMutex);
     macos_memory_block* sentinal = &GlobalMacosState.memorySentinal;
     for(macos_memory_block* block = sentinal->next; block != sentinal; block = block->next)
     {
@@ -108,7 +116,7 @@ MacosGetMemoryStats()
         stats.totalSize += block->block.size;
         stats.totalUsed += block->block.used;
     } 
-    EndTicketMutex(&GlobalWin32State.memoryMutex);
+    EndTicketMutex(&GlobalMacosState.memoryMutex);
 
     return stats;
 }
@@ -144,7 +152,7 @@ MacosAllocateMemoryBlock(memory_index size, PlatformMemoryFlags flags)
 		umm sizeRoundedUp = AlignPow2(size, pageSize);
 		totalSize = sizeRoundedUp + 2*pageSize;
 		baseOffset = pageSize + sizeRoundedUp - size;
-		protectedOffset = pageSize + sizeRoundedUp;
+		protectOffset = pageSize + sizeRoundedUp;
 	}
 
 	macos_memory_block *block = (macos_memory_block*)mmap(0, totalSize,
@@ -200,7 +208,7 @@ MacosFreeMemoryBlock(macos_memory_block *block)
 	BeginTicketMutex(&GlobalMacosState.memoryMutex);
 	block->prev->next = block->next;
 	block->next->prev = block->prev;
-	EndTicketMutex(&GlobalWin32State.memoryMutex);
+	EndTicketMutex(&GlobalMacosState.memoryMutex);
 
 	// NOTE(james): For porting to other platforms that need the size to unmap
     // pages, you can get it from Block->Block.Size!
@@ -212,14 +220,14 @@ MacosFreeMemoryBlock(macos_memory_block *block)
 }
 
 internal void
-Win32DeallocatedMemoryBlock(platform_memory_block* block)
+MacosDeallocatedMemoryBlock(platform_memory_block* block)
 {
 	if(block)
 	{
 		macos_memory_block *macBlock ((macos_memory_block*)block);
 		if(MacosIsInLoop(GlobalMacosState) && IS_FLAG_BIT_NOT_SET(macBlock->block.flags, PlatformMemoryFlags::NotRestored))
 		{
-			macosBlock->loopingFlags = MemoryLoopingFlags::Deallocated;
+			macBlock->loopingFlags = MemoryLoopingFlags::Deallocated;
 		}
 		else
 		{
@@ -233,7 +241,7 @@ MacosClearMemoryBlocksByMask(macos_state& state, MemoryLoopingFlags mask)
 {
 	BeginTicketMutex(&state.memoryMutex);
 	macos_memory_block* sentinal = &state.memorySentinal;
-	for(macos_memory_block* block_iter = sentinal->next; block_iterm != sentinal; )
+	for(macos_memory_block* block_iter = sentinal->next; block_iter != sentinal; )
 	{
 		macos_memory_block* block = block_iter;
 		block_iter = block->next;
@@ -254,28 +262,232 @@ MacosClearMemoryBlocksByMask(macos_state& state, MemoryLoopingFlags mask)
 //---- FILE I/O
 //------------------------
 
+internal void
+MacosSetupFileLocationsTable(macos_state &state)
+{
+	// TODO(james): Put user folder somewhere in the users home folder..
+
+	state.fileLocationsTable[(u32)FileLocation::Content].location = FileLocation::Content;
+	FormatString(state.fileLocationsTable[(u32)FileLocation::Content].folder, FILENAME_MAX, "%s../data/", state.appFolder);
+
+	state.fileLocationsTable[(u32)FileLocation::User].location = FileLocation::User;
+	FormatString(state.fileLocationsTable[(u32)FileLocation::User].folder, FILENAME_MAX, "%s", state.appFolder);
+
+	state.fileLocationsTable[(u32)FileLocation::Diagnostic].location = FileLocation::Diagnostic;
+	FormatString(state.fileLocationsTable[(u32)FileLocation::Diagnostic].folder, FILENAME_MAX, "%s", state.appFolder);
+}
+
+internal void
+MacosGetAppFilename(macos_state &state)
+{
+	pid_t PID = getpid();
+	int r = proc_pidpath(PID, state.appFilename, sizeof(state.appFilename));
+
+	if (r <= 0)
+	{
+		LOG_ERROR("Error getting process path: pid %d: %s\n", (int)PID, strerror(errno));
+	}
+	else
+	{
+		LOG_INFO("process pid: %d   path: %s\n", PID, state.appFilename);
+	}
+
+    char* onePastLastAppFilenameSlash = state.appFilename;
+    for(char *scan = state.appFilename;
+        *scan;
+        ++scan)
+    {
+        if(*scan == '/')
+        {
+            onePastLastAppFilenameSlash = scan + 1;
+        }
+    }
+
+	Copy(PtrToUMM(onePastLastAppFilenameSlash) - PtrToUMM(state.appFilename), state.appFilename, state.appFolder);
+}
+
 internal platform_file
 MacosOpenFile(FileLocation location, const char* filename, FileUsage usage)
 {
-	return platform_file{};
+	platform_file result{};
+	int flags = 0;
+
+	if ((usage & FileUsage::ReadWrite) == FileUsage::ReadWrite)
+	{
+		flags |= O_RDWR;
+	}
+
+	if((usage & FileUsage::Write) == FileUsage::Write)
+	{
+		// will be true for read/write as well
+		flags |= O_CREAT;
+	}
+	else if(usage == FileUsage::Read)
+	{
+		// it's read-only here
+		flags |= O_RDONLY;
+	}
+
+	char filepath[FILENAME_MAX];
+	FormatString(filepath, FILENAME_MAX, "%s%s", GlobalMacosState.fileLocationsTable[(u32)location].folder, filename);
+
+	struct stat fileStats;
+	if(stat(filepath, &fileStats) == 0)
+	{
+		result.size = fileStats.st_size;
+	}
+
+	int fd = open(filepath, flags, 0600);
+	result.error = (fd == -1);
+	*(int*)&result.platform = fd;
+
+	if(fd == -1)
+	{
+		LOG_ERROR("Error opening file |%s|: %d\n", filepath, errno);
+		perror(NULL);
+	}
+
+	return result;
 }
 
 internal u64
 MacosReadFile(platform_file& file, void* buffer, u64 size)
 {
-	return 0;
+	if(file.error)
+	{
+		ASSERT(false);
+		return 0;
+	}
+
+	int handle = *(int*)&file.platform;
+
+	// TODO(james): consider using mmap for an overlapped i/o like file read
+	u64 bytes = read(handle, buffer, size);
+
+	return bytes;
 }
 
 internal u64
 MacosWriteFile(platform_file& file, const void* buffer, u64 size)
 {
-	return 0;
+	if(file.error)
+	{
+		ASSERT(false);
+		return 0;
+	}
+
+	int handle = *(int*)&file.platform;
+
+	u64 bytes = write(handle, buffer, size);
+
+	return bytes;
 }
 
 internal void
 MacosCloseFile(platform_file& file)
 {
-	
+	int handle = *(int*)&file.platform;
+	if(handle != -1)
+	{
+		close(handle);
+	}
+}
+
+internal time_t
+MacosGetLastWriteTime(const char* filename)
+{
+	time_t lastWriteTime = 0;
+
+	struct stat fileTime;
+	if(stat(filename, &fileTime) == 0)
+	{
+		lastWriteTime = fileTime.st_mtimespec.tv_sec;
+	}
+
+	return lastWriteTime;
+}
+
+//------------------------
+//---- CODE LOADING
+//------------------------
+
+internal void
+MacosUnloadCode(macos_loaded_code& code)
+{
+	if(code.DL)
+	{
+		// NOTE(james): may start having trouble unloading
+		// code that we have pointers into, (like strings?)
+		// in that case just never unload the code.  Will
+		// only be an issue during development...
+		dlclose(code.DL);
+
+		code.DL = 0;
+	}
+
+	code.isValid = false;
+	ZeroArray(code.nFunctionCount, code.ppFunctions);
+}
+
+internal void
+MacosLoadCode(macos_state& state, macos_loaded_code& code)
+{
+	// TODO(james): generate a truly unique temp path name here...
+	char szTempPath[FILENAME_MAX];
+	FormatString(szTempPath, FILENAME_MAX, "%s%s", state.appFolder, code.pszTransientDLName);
+
+	code.DLLastWriteTime = MacosGetLastWriteTime(code.szDLFullPath);
+	int result = copyfile(code.szDLFullPath, szTempPath, 0, COPYFILE_ALL);
+	ASSERT(result == 0);
+
+	code.DL = dlopen(code.szDLFullPath, RTLD_LAZY|RTLD_GLOBAL);
+	// code.DL = dlopen(szTempPath, RTLD_LAZY|RTLD_GLOBAL);
+
+	if(code.DL)
+	{
+		LOG_INFO("Successful load of %s", code.szDLFullPath);
+
+		code.isValid = true;
+
+		for(u32 functionIndex = 0; functionIndex < code.nFunctionCount; functionIndex++)
+		{
+			void* function = dlsym(code.DL, code.ppszFunctionNames[functionIndex]);
+			if(function)
+			{
+				code.ppFunctions[functionIndex] = function;
+			}
+			else
+			{
+				code.isValid = false;
+			}
+		}
+	}
+	else
+	{
+		code.isValid = false;
+		LOG_ERROR("Error loading of %s", code.szDLFullPath);
+	}
+
+	if(!code.isValid)
+	{
+		MacosUnloadCode(code);
+	}
+}
+
+internal b32x
+MacosCheckForCodeChange(macos_loaded_code& code)
+{
+	time_t lastWriteTime = MacosGetLastWriteTime(code.szDLFullPath);
+	return lastWriteTime != code.DLLastWriteTime;
+}
+
+internal void
+MacosReloadCode(macos_state& state, macos_loaded_code& code)
+{
+	// TODO(james): make this work
+	// MacosUnloadCode(code);
+
+	// MacosLoadCode(state, code);
 }
 
 //------------------------
@@ -410,19 +622,34 @@ void MacosProcessMessages(macos_state& state)
 
 int main(int argc, const char* argv[])
 {
+	SetDefaultFPBehavior();
+
     @autoreleasepool
     {
 		Platform.Log = &MacosLog;
 
 		Platform.AllocateMemoryBlock = &MacosAllocateMemoryBlock;
-		Platform.DeallocateMemoryBlock = &Win32DeallocatedMemoryBlock;
+		Platform.DeallocateMemoryBlock = &MacosDeallocatedMemoryBlock;
+
+		Platform.OpenFile = &MacosOpenFile;
+		Platform.ReadFile = &MacosReadFile;
+		Platform.WriteFile = &MacosWriteFile;
+		Platform.CloseFile = &MacosCloseFile;
 
 #if PROJECTSUPER_INTERNAL
 		Platform.DEBUG_Log = &MacosDebugLog;
+		Platform.DEBUG_GetMemoryStats = &MacosGetMemoryStats;
 #endif
 
         macos_state& state = GlobalMacosState;
 		state.appName = @"Project Super";
+		// NOTE(james): memory sentinal needs to point back to itself to establish the memory ring
+		macos_memory_block* sentinal = &state.memorySentinal;
+		sentinal->next = sentinal;
+		sentinal->prev = sentinal;
+
+		MacosGetAppFilename(state);
+		MacosSetupFileLocationsTable(state);
 
         f32 windowWidth = 1280.0f;
         f32 windowHeight = 720.0f;
@@ -489,7 +716,13 @@ int main(int argc, const char* argv[])
         [Window setTitle:state.appName];
         [Window makeKeyAndOrderFront:nil];
 
+		game_memory gameMemory = {};
 		render_context gameRender = {};
+		InputContext input = {};
+		AudioContext audio = {};
+
+		gameMemory.platformApi = Platform;
+
 		gameRender.renderDimensions.Width = windowWidth;
 		gameRender.renderDimensions.Height = windowHeight;
 		ps_graphics_backend graphicsDriver = platform_load_graphics_backend(layer, windowWidth, windowHeight);
@@ -498,17 +731,55 @@ int main(int argc, const char* argv[])
 		gameRender.AddResourceOperation = graphicsApi.AddResourceOperation;
 		gameRender.IsResourceOperationComplete = graphicsApi.IsResourceOperationComplete;
 
+
+		macos_game_function_table gameFunctions = {};
+		macos_loaded_code gameCode = {};
+		FormatString(gameCode.szDLFullPath,sizeof(gameCode.szDLFullPath), "%s%s", state.appFolder, "ps_game.dylib");
+		gameCode.pszTransientDLName = "temp_ps_game.dylib";
+		gameCode.nFunctionCount = ARRAY_COUNT(MacosGameFunctionTableNames);
+		gameCode.ppFunctions = (void**)&gameFunctions;
+		gameCode.ppszFunctionNames = (char**)&MacosGameFunctionTableNames;
+
+		MacosLoadCode(GlobalMacosState, gameCode);
+		ASSERT(gameCode.isValid);
+
+		u64 CurrentTime = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+		u64 lastFrameStartTime = CurrentTime;
+
         while(GlobalRunning)
         {
+			if(MacosCheckForCodeChange(gameCode))
+			{
+				MacosReloadCode(GlobalMacosState, gameCode);
+			}
+
             MacosProcessMessages(state);
 
 			graphicsApi.BeginFrame(graphicsDriver.instance, &gameRender.commands);
 
-			// TODO(james): actually invoke the game loop here..
+			if(gameFunctions.UpdateAndRender)
+			{
+				gameFunctions.UpdateAndRender(gameMemory, gameRender, input, audio);
+			}
+
+			u64 gameSimTime = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+			f32 elapsedFrameTime = (f32)(gameSimTime - lastFrameStartTime) / 1000000000.0f ;
+			lastFrameStartTime = gameSimTime;
+
+			input.clock.totalTime += elapsedFrameTime;
+			input.clock.elapsedFrameTime = elapsedFrameTime;
+
+			// TODO(james): Sleep if we are running faster than the target framerate??
+
+			LOG_DEBUG("Frame Time: %.2f ms, Total Time: %.2f ms", elapsedFrameTime * 1000.0f, elapsedFrameTime * 1000.0f);
 
 			graphicsApi.EndFrame(graphicsDriver.instance, &gameRender.commands);
 
+			++input.clock.frameCounter;
         }
+
+		// TODO(james): verify that we can unload the graphics resources properly
+		platform_unload_graphics_backend(&graphicsDriver);
     }
 
     return 0;

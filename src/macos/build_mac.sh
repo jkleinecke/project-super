@@ -10,7 +10,7 @@ if [ ! -d "./build/" ]; then
 fi
 
 pushd build
-clang++ $CompilerFlags $CompilerDefines -I../src -I../src/libs -lstdc++ -dynamiclib ../src/ps_game.cpp ../src/libs/tinyobjloader/tiny_obj_loader.cc -o project_super.A.dylib
+clang++ $CompilerFlags $CompilerDefines -I../src -I../src/libs -lstdc++ -dynamiclib ../src/ps_game.cpp ../src/libs/tinyobjloader/tiny_obj_loader.cc -o ps_game.dylib
 clang++ $CompilerFlags $CompilerDefines $LinkerFlags -lvulkan -I../src -I../src/libs ../src/macos/macos_platform.mm -o project_super 
 popd
 
