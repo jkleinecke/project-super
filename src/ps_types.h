@@ -5,8 +5,6 @@
 
 #if !defined(PROJECTSUPER_MACOS)
 #define PROJECTSUPER_MACOS 0
-#define COMPILER_LLVM 1
-#define COMPILER_MSVC 0
 #endif
 
 #if PROJECTSUPER_SLOW
@@ -135,7 +133,6 @@ typedef intptr_t imm;
 
 // Call Conventions
 #if COMPILER_MSVC
-#error Somehow COMPILER_MSVC is getting defined somewhere
     #define PS_API 
     #define PS_APICALL __stdcall
     #define ALIGNAS(x) __declspec( align( x ) ) 

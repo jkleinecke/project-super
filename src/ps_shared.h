@@ -231,14 +231,14 @@ inline u64 AtomicAddU64(u64 volatile *Value, u64 Addend)
 
 inline u32 AtomicIncrementU32(u32 volatile *Value)
 {
-    u32 Result = _InterlockedIncrement32((__int32 volatile *)Value);
+    u32 Result = _InterlockedIncrement((long volatile *)Value);
 
     return (Result);
 }
 
-inline u32 AtomicIncrementU64(u64 volatile *Value)
+inline u64 AtomicIncrementU64(u64 volatile *Value)
 {
-    u32 Result = _InterlockedIncrement64((__int64 volatile *)Value);
+    u64 Result = _InterlockedIncrement64((__int64 volatile *)Value);
 
     return (Result);
 }
