@@ -34,7 +34,6 @@ global const int FIXED_RENDER_HEIGHT = 1080;
 /*******************************************************************************
 
     Things to do:
-    * Threading + Work Queue
     * File API
        - Streaming API
     * WM_ACTIVEAPP
@@ -267,7 +266,7 @@ Win32ProcessKeyboardButton(InputButton& newState, bool pressed)
     newState.transitions = 1; 
 }
 
-#if defined(PROJECTSUPER_INTERNAL)
+#if PROJECTSUPER_INTERNAL
 internal debug_platform_memory_stats
 Win32GetMemoryStats()
 {

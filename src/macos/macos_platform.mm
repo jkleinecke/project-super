@@ -24,10 +24,16 @@
 
 #include "../vulkan/vk_platform.cpp"   
 
+#include <sys/mman.h>
 #include <stdio.h>
 
 global_variable bool32 GlobalRunning = true;
+global_variable macos_state GlobalMacosState;
 platform_api Platform;
+
+//------------------------
+//---- LOGGING
+//------------------------
 
 internal void 
 MacosLog(LogLevel level, const char* format, ...)
@@ -80,6 +86,213 @@ MacosDebugLog(LogLevel level, const char* file, int lineno, const char* format, 
     }
 	NSLog(@"%s | %s(%d) | %s", szLevel, file, lineno, szMessage);
 }
+
+
+//------------------------
+//---- MEMORY
+//------------------------
+
+#if PROJECTSUPER_INTERNAL
+internal debug_platform_memory_stats
+MacosGetMemoryStats()
+{
+    debug_platform_memory_stats stats = {};
+
+    BeginTicketMutex(&GlobalWin32State.memoryMutex);
+    macos_memory_block* sentinal = &GlobalMacosState.memorySentinal;
+    for(macos_memory_block* block = sentinal->next; block != sentinal; block = block->next)
+    {
+        // make sure we don't have any obviously bad allocations
+        ASSERT(block->block.size <= U32MAX);
+
+        stats.totalSize += block->block.size;
+        stats.totalUsed += block->block.used;
+    } 
+    EndTicketMutex(&GlobalWin32State.memoryMutex);
+
+    return stats;
+}
+#endif
+
+inline bool32
+MacosIsInLoop(macos_state& state)
+{
+    //return state.runMode == RunLoopMode::Playback;
+	return false;
+}
+
+internal platform_memory_block*
+MacosAllocateMemoryBlock(memory_index size, PlatformMemoryFlags flags)
+{
+	// NOTE(james): We require memory block headers not to change the cache
+    // line alignment of an allocation
+    CompileAssert(sizeof(macos_memory_block) == 128);
+
+	const umm pageSize = 4096; // TODO(james): Query from system?
+    umm totalSize = size + sizeof(macos_memory_block);
+    umm baseOffset = sizeof(macos_memory_block);
+    umm protectOffset = 0;
+
+	if(IS_FLAG_BIT_SET(flags, PlatformMemoryFlags::UnderflowCheck))
+	{
+		totalSize = size + 2*pageSize;
+		baseOffset = 2*pageSize;
+		protectOffset = pageSize;
+	}
+	else if(IS_FLAG_BIT_SET(flags, PlatformMemoryFlags::OverflowCheck))
+	{
+		umm sizeRoundedUp = AlignPow2(size, pageSize);
+		totalSize = sizeRoundedUp + 2*pageSize;
+		baseOffset = pageSize + sizeRoundedUp - size;
+		protectedOffset = pageSize + sizeRoundedUp;
+	}
+
+	macos_memory_block *block = (macos_memory_block*)mmap(0, totalSize,
+									PROT_READ | PROT_WRITE,
+									MAP_PRIVATE | MAP_ANON,
+									-1, 0);
+	if(block == MAP_FAILED)
+	{
+		LOG_ERROR("OSXAllocateMemory: mmap error: %d  %s", errno, strerror(errno));
+		ASSERT(false);
+	}
+	block->totalAllocatedSize = totalSize;
+	block->block.base = (u8 *)block + baseOffset;
+	ASSERT(block->block.used == 0);
+	ASSERT(block->block.prev_block == 0);
+
+	if(IS_FLAG_BIT_SET(flags, PlatformMemoryFlags::OverflowCheck) || IS_FLAG_BIT_SET(flags,PlatformMemoryFlags::UnderflowCheck))
+	{
+		int result = mprotect((u8*)block + protectOffset, pageSize, PROT_NONE);
+		if (result != 0)
+		{
+		}
+		else
+		{
+			LOG_ERROR("OSXAllocateMemory: Underflow mprotect error: %d  %s", errno, strerror(errno));
+			ASSERT(false);
+		}
+	}
+
+	macos_memory_block *sentinal = &GlobalMacosState.memorySentinal;
+	block->next = sentinal;
+	block->block.size = size;
+	block->block.flags = flags;
+	block->loopingFlags = MemoryLoopingFlags::None;
+	if(MacosIsInLoop(GlobalMacosState) && IS_FLAG_BIT_NOT_SET(flags, PlatformMemoryFlags::NotRestored))
+	{
+		block->loopingFlags = MemoryLoopingFlags::Allocated;
+	}
+
+	BeginTicketMutex(&GlobalMacosState.memoryMutex);
+	block->prev = sentinal->prev;
+	block->prev->next = block;
+	block->next->prev = block;
+	EndTicketMutex(&GlobalMacosState.memoryMutex);
+	
+	platform_memory_block* platformBlock = &block->block;
+	return platformBlock;
+}
+
+internal void
+MacosFreeMemoryBlock(macos_memory_block *block)
+{
+	BeginTicketMutex(&GlobalMacosState.memoryMutex);
+	block->prev->next = block->next;
+	block->next->prev = block->prev;
+	EndTicketMutex(&GlobalWin32State.memoryMutex);
+
+	// NOTE(james): For porting to other platforms that need the size to unmap
+    // pages, you can get it from Block->Block.Size!
+	if (munmap(block, block->totalAllocatedSize) != 0)
+	{
+		LOG_ERROR("OSXFreeMemoryBlock: munmap error: %d  %s", errno, strerror(errno));
+		ASSERT(false);
+	}
+}
+
+internal void
+Win32DeallocatedMemoryBlock(platform_memory_block* block)
+{
+	if(block)
+	{
+		macos_memory_block *macBlock ((macos_memory_block*)block);
+		if(MacosIsInLoop(GlobalMacosState) && IS_FLAG_BIT_NOT_SET(macBlock->block.flags, PlatformMemoryFlags::NotRestored))
+		{
+			macosBlock->loopingFlags = MemoryLoopingFlags::Deallocated;
+		}
+		else
+		{
+			MacosFreeMemoryBlock(macBlock);
+		}
+	}
+}
+
+internal void
+MacosClearMemoryBlocksByMask(macos_state& state, MemoryLoopingFlags mask)
+{
+	BeginTicketMutex(&state.memoryMutex);
+	macos_memory_block* sentinal = &state.memorySentinal;
+	for(macos_memory_block* block_iter = sentinal->next; block_iterm != sentinal; )
+	{
+		macos_memory_block* block = block_iter;
+		block_iter = block->next;
+
+		if((block->loopingFlags & mask) == mask)
+		{
+			MacosFreeMemoryBlock(block);
+		}
+		else
+		{
+			block->loopingFlags = MemoryLoopingFlags::None;
+		}
+	}
+	EndTicketMutex(&state.memoryMutex);
+}
+
+//------------------------
+//---- FILE I/O
+//------------------------
+
+internal platform_file
+MacosOpenFile(FileLocation location, const char* filename, FileUsage usage)
+{
+	return platform_file{};
+}
+
+internal u64
+MacosReadFile(platform_file& file, void* buffer, u64 size)
+{
+	return 0;
+}
+
+internal u64
+MacosWriteFile(platform_file& file, const void* buffer, u64 size)
+{
+	return 0;
+}
+
+internal void
+MacosCloseFile(platform_file& file)
+{
+	
+}
+
+//------------------------
+//---- WORK QUEUE
+//------------------------
+
+
+
+//------------------------
+//---- AUDIO
+//------------------------
+
+
+
+//------------------------
+//---- OS MESSAGES
+//------------------------
 
 void MacosProcessMessages(macos_state& state)
 {
@@ -190,17 +403,25 @@ void MacosProcessMessages(macos_state& state)
 
 }
 
+
+//------------------------
+//---- MAIN LOOP
+//------------------------
+
 int main(int argc, const char* argv[])
 {
     @autoreleasepool
     {
 		Platform.Log = &MacosLog;
 
+		Platform.AllocateMemoryBlock = &MacosAllocateMemoryBlock;
+		Platform.DeallocateMemoryBlock = &Win32DeallocatedMemoryBlock;
+
 #if PROJECTSUPER_INTERNAL
 		Platform.DEBUG_Log = &MacosDebugLog;
 #endif
 
-        macos_state state = {};
+        macos_state& state = GlobalMacosState;
 		state.appName = @"Project Super";
 
         f32 windowWidth = 1280.0f;
