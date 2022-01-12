@@ -6,6 +6,7 @@
 #include "ps_intrinsics.h"
 #include "ps_math.h"
 #include "ps_memory.h"
+#include "ps_collections.h"
 
 #include "macos_platform.h"
 

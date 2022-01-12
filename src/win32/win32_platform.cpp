@@ -5,6 +5,7 @@
 #include "ps_intrinsics.h"
 #include "ps_math.h"
 #include "ps_memory.h"
+#include "ps_collections.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -599,6 +600,13 @@ extern "C" int __stdcall WinMainCRTStartup()
 #endif
 
     Platform = gameMemory.platformApi;
+
+#if TEST_COLLECTIONS
+    {
+        b32 passed = TestCollections();
+        ASSERT(passed);
+    }
+#endif
     
     // NOTE(james): Set the windows scheduler granularity to 1ms so that our sleep can be more granular
     bool32 bSleepIsMs = timeBeginPeriod(1) == TIMERR_NOERROR;

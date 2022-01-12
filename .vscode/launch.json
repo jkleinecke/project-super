@@ -20,7 +20,8 @@
             "environment": [],
             "console": "internalConsole",
             "internalConsoleOptions": "openOnSessionStart",
-            "preLaunchTask": "BuildMainPlatform"
+            "preLaunchTask": "BuildMainPlatform",
+            "visualizerFile": "${workspaceRoot}/CustomTypes.natvis"
         }
     ]
 }
