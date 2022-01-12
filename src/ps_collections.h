@@ -234,13 +234,13 @@ namespace sort
         quickSort(collection.to_span(), comparer<T>::lessthan);
     }
 
-    template<typename T>
-    void _heapify(typename array<T>::span span, i32 root, bool (*compare)(const T& a, const T& b))
+    template<typename T, typename FNCOMPARE>
+    void _heapify(span<T> span, u32 root, FNCOMPARE compare)
     {
         // find the largest root, left child and right child
-        i32 largest = root;
-        i32 left = 2 * root + 1;
-        i32 right = 2 * root + 2;
+        u32 largest = root;
+        u32 left = 2 * root + 1;
+        u32 right = 2 * root + 2;
 
         if(left < span.size() && compare(span[largest], span[left]))
         {
@@ -256,27 +256,33 @@ namespace sort
         {
             // swap and recursively heapify if the root is not the largest
             span.swap(largest, root);
-            heapify(span, largest, compare);
+            _heapify(span, largest, compare);
         }
     }
 
-    template<typename T>
-    void heapSort(array<T>& collection, bool (*compare)(const T& a, const T& b) = &default_comparer<T>)
+    template<typename T, typename FNCOMPARE>
+    void heapSort(array<T>& collection, FNCOMPARE compare)
     {
         // build max heap
         for(i32 i = collection.size() / 2 - 1; i >= 0; --i)
         {
-            heapify(collection, i, compare);
+            _heapify(collection.to_span(), i, compare);
         }
 
         // actually sort
-        for(i32 i = collection.size(); i > 0; --i)
+        for(i32 i = collection.size()-1; i > 0; --i)
         {
-            collection.swap(0, i-1);
+            collection.swap(0, i);
 
             // heapify the root to get the next largest item
-            heapify(collection.span_leftof(i), 0, compare);
+            _heapify(collection.span_leftof(i), 0, compare);
         }
+    }
+
+    template<typename T>
+    void heapSort(array<T>& collection)
+    {
+        heapSort(collection, comparer<T>::lessthan);
     }
 };
 
@@ -375,7 +381,7 @@ b32 TestSort()
     }
 
     // should reverse it..
-    sort::quickSort(arr2);
+    sort::heapSort(arr2);
 
     prevItem = arr2[0];
     for(auto& it : arr2)
