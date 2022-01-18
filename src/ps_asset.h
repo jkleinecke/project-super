@@ -1,6 +1,63 @@
 
 typedef u64 model_id;
 
+enum class AssetType
+{
+    Shader,
+    Image,
+    Model_OBJ,
+    Model_GLTF
+};
+
+#define ASSET_MAP(XX)                           \
+    XX(AssetType::Shader, "shader.vert.spv", shader_vert_spv)      \
+    XX(AssetType::Shader, "shader.frag.spv", shader_frag_spv)      \
+    XX(AssetType::Image, "viking_room.png", viking_room_png)      \
+    XX(AssetType::Model_OBJ, "viking_room.obj", viking_room_obj)      \
+    XX(AssetType::Image, "skull.jpg", skull_jpg)                  \
+    XX(AssetType::Model_OBJ, "skull.obj", skull_obj)                  \
+    XX(AssetType::Shader, "box.vert.spv", box_vert_spv)            \
+    XX(AssetType::Shader, "box.frag.spv", box_frag_spv)            \
+    XX(AssetType::Model_GLTF, "box.glb", box_glb)                      \
+    XX(AssetType::Shader, "lightbox.frag.spv", lightbox_frag_spv)  
+
+enum assetid : u32
+{
+#define XX(type, filename, name)  name = C_HASH(name),
+    ASSET_MAP(XX)
+#undef XX
+};
+
+struct asset_desc
+{
+    AssetType type;
+    assetid id;
+    const char* filename;
+};
+
+#define XX(type, filename, name) {type, name, filename},
+global asset_desc asset_descriptions[] = {
+    ASSET_MAP(XX)
+};
+#undef XX
+
+// NOTE(james): This function serves 2 purposes.
+//  1. Translates the asset id into it's filename
+//  2. Compile checks for collisions on the asset id name
+const char* getAssetFilename(assetid id)
+{
+#define XX(type, filename, name) case C_HASH(name): return filename;
+    switch(id)
+    {
+        ASSET_MAP(XX)
+        InvalidDefaultCase;
+    }
+#undef XX
+
+    ASSERT(false);
+    return "";
+}
+
 struct shader_asset
 {
     render_shader_id    id;
@@ -52,6 +109,8 @@ struct material_asset
 
     render_material         data;     
 };
+
+typedef hashtable<shader_asset*, 1024> shadertable;
 
 struct game_assets
 {
