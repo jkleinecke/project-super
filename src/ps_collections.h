@@ -1,6 +1,6 @@
 
 // define TEST_COLLECTIONS to include the testing routines
-#define TEST_COLLECTIONS 1
+// #define TEST_COLLECTIONS 1
 
 // NOTE(james): intended to be used as a POD container.  Not suitable as a replacement for std::vector<>!!
 // Does not automatically grow!
@@ -9,25 +9,25 @@
 // erase() moves the element at the end of the array to the slot being erased
 
 template<typename T>
-struct span
+struct slice
 {
     T* _data;
     u32 _size;
 
-    span span_leftof(u32 last)
+    slice slice_leftof(u32 last)
     {
-        return sub_span(0, last);
+        return sub_slice(0, last);
     }
 
-    span sub_span(u32 first, u32 size)
+    slice sub_slice(u32 first, u32 size)
     {
         ASSERT((first + size) <= _size); 
-        return span { ._data = _data + first, ._size = size }; 
+        return slice { ._data = _data + first, ._size = size }; 
     }
 
-    span span_rightof(u32 first)
+    slice slice_rightof(u32 first)
     {
-        return sub_span(first, _size - first);
+        return sub_slice(first, _size - first);
     }
 
     T* data() { return _data; }
@@ -63,7 +63,7 @@ struct span
 template<typename T>
 struct array
 {
-    typedef span<T> span;
+    typedef slice<T> slice;
 
     // TODO(james): Should I add buffer overrun/underrun bounds checking?
 
@@ -92,23 +92,23 @@ struct array
         return arr;
     }
 
-    span span_leftof(u32 last)
+    slice slice_leftof(u32 last)
     {
-        return sub_span(0, last);
+        return sub_slice(0, last);
     }
 
-    span sub_span(u32 first, u32 size)
+    slice sub_slice(u32 first, u32 size)
     {
         ASSERT((first + size) <= _size); 
-        return span { ._data = _data + first, ._size = size }; 
+        return slice { ._data = _data + first, ._size = size }; 
     }
 
-    span span_rightof(u32 first)
+    slice slice_rightof(u32 first)
     {
-        return sub_span(first, _size - first);
+        return sub_slice(first, _size - first);
     }
 
-    span to_span() { return span { ._data = _data, ._size = _size }; }
+    slice to_slice() { return slice { ._data = _data, ._size = _size }; }
 
     T* data() { return _data; }
     const T* data() const { return _data; }
@@ -143,7 +143,7 @@ struct array
     void push_back(const T& val) { ASSERT(_size+1 <= _capacity); _data[_size++] = val; }
     T pop_back() { ASSERT(_size > 0); return _data[_size--]; }
 
-    void clear() { size = 0; }
+    void clear() { _size = 0; }
 
     T* insert(u32 beforeIndex, const T& val) 
     {
@@ -185,9 +185,208 @@ struct array
         u32 index = (u32)((PtrToUMM(ptr) - PtrToUMM(_data))/sizeof(T));
         return erase(index);
     }
-
-    operator span&() { return (span&)*this; }
 };
+
+template<typename T, u32 SIZE>
+struct hashtable
+{
+    enum : u32 { 
+        capacity = SIZE, 
+        end_pos = U32MAX
+    };
+
+    struct entry
+    {
+        u64 key;
+        u32 next_idx;
+        T value;
+    };
+
+    struct find_result
+    {
+        u32 hash_index;
+        u32 entry_index;
+        u32 prev_entry_index;
+    };
+
+    T default_value;
+    u32 _keys[SIZE];
+    array<entry> _entries;
+
+    static hashtable<T, SIZE>* create(memory_arena& arena)
+    {
+        hashtable<T,SIZE>* ht = (hashtable<T,SIZE>*)PushSize_(DEBUG_MEMORY_NAME("PushStruct") arena, sizeof(hashtable<T,SIZE>));
+        for(umm i = 0; i < SIZE; ++i)
+            ht->_keys[i] = end_pos; 
+        ht->_entries = *array<entry>::create(arena, SIZE);
+        return ht;
+    }
+
+    u32 _hash_idx(u64 key) const { return key % SIZE; }
+
+    u32 _add_entry(u64 key)
+    {
+        entry e = {};
+        e.key = key;
+        e.next_idx = end_pos;
+        u32 index = _entries.size();
+        _entries.push_back(e);
+        return index;
+    }
+
+    find_result _find(u64 key) const
+    {
+        find_result fr = {};
+        fr.hash_index = _hash_idx(key);
+        fr.prev_entry_index = end_pos;
+        fr.entry_index = _keys[fr.hash_index];
+
+        while(fr.entry_index != end_pos)
+        {
+            if(_entries[fr.entry_index].key == key)
+            {
+                return fr;
+            }
+            fr.prev_entry_index = fr.entry_index;
+            fr.entry_index = _entries[fr.entry_index].next_idx;
+        }
+
+        return fr;
+    }
+
+    void _erase(const find_result& fr)
+    {
+        if(fr.prev_entry_index == end_pos)
+            _keys[fr.hash_index] = _entries[fr.entry_index].next_idx;
+        else
+            _entries[fr.prev_entry_index].next_idx = _entries[fr.entry_index].next_idx;
+
+        _entries.erase(&_entries.back());
+        const find_result last = _find(_entries.back().key);
+
+        if(last.prev_entry_index != end_pos)
+            _entries[last.prev_entry_index].next_idx = last.entry_index;
+        else
+            _keys[last.hash_index] = last.entry_index;
+    }
+
+    u32 _find_or_fail(u64 key) const
+    {
+        return _find(key).entry_index;
+    }
+
+    u32 _make(u64 key)
+    {
+        const find_result fr = _find(key);
+        u32 index = _add_entry(key);
+
+        if(fr.prev_entry_index == end_pos)
+        {
+            _keys[fr.hash_index] = index;
+        }
+        else
+        {
+            _entries[fr.prev_entry_index].next_idx = index;
+        }
+
+        _entries[index].next = fr.entry_index;  // NOTE(james): this should be end_pos
+        return index;
+    }
+
+    u32 _find_or_make(u64 key)
+    {
+        const find_result fr = _find(key);
+        if(fr.entry_index != end_pos)
+            return fr.entry_index;
+
+        u32 index = _add_entry(key);
+
+        if(fr.prev_entry_index == end_pos)
+        {
+            _keys[fr.hash_index] = index;
+        }
+        else
+        {
+            _entries[fr.prev_entry_index].next_idx = index;
+        }
+
+        return index;
+    }
+
+    void _find_and_erase(u64 key)
+    {
+        const find_result fr = _find(key);
+        if(fr.entry_index != end_pos)
+        {
+            _erase(fr);
+        }
+    }
+    
+    b32 contains(u64 key)
+    {
+        return _find_or_fail(key) != end_pos;
+    }
+
+    const T& get(u64 key) const
+    {
+        u32 index = _find_or_fail(key);
+        ASSERT(index != end_pos);
+        return index == end_pos ? default_value : _entries[index].value;
+    }
+
+    b32 try_get(u64 key, T* value)
+    {
+        u32 index = _find_or_fail(key);
+        if(index != end_pos)
+        {
+            *value = _entries[index].value;
+            return true;
+        }
+
+        return false;
+    }
+    
+    void set(u64 key, const T& value)
+    {
+        u32 index = _find_or_make(key);
+        _entries[index].value = value;
+    }
+
+    void erase(u64 key)
+    {
+        _find_and_erase(key);
+    }
+
+    void clear() 
+    {
+        for(u32 i = 0; i < SIZE; ++i) 
+            _keys[i] = end_pos;
+        _entries.clear(); 
+    }
+
+    entry* begin() { return _entries; }
+    entry* end() { return _entries + SIZE; }
+
+    u32 size() { return _entries.size(); }
+
+    // NOTE(james): I'm intentionally leaving these out of the struct...
+    //  I want the user to be aware whenever the hash table will add
+    //  a new entry.  That said, this is the correct implementation
+    #if 0
+    T& operator[](u64 key)
+    {
+        u32 index = _find_or_make(key);
+        return _entries[index].value;
+    }
+    
+    const T& operator[](u64 key) const
+    {
+        return get(key);
+    }
+    #endif
+};
+
+
 
 namespace sort
 {
@@ -196,58 +395,57 @@ namespace sort
     };
 
     template<typename T, typename FNCOMPARE>
-    void quickSort(span<T> span, FNCOMPARE compare)
+    void quickSort(slice<T> slice, FNCOMPARE compare)
     {
         // {5, 7, 3, 1, 0, 9, 2, 4, 8, 6}
-        if(span.size() > 1)
+        if(slice.size() > 1)
         {
             // get the pivot item
-            T& pivot = span.back();
+            T& pivot = slice.back();
 
             u32 indexSmaller = 0;
-            for(u32 j = 0; j < span.size()-1; ++j)
+            for(u32 j = 0; j < slice.size()-1; ++j)
             {
-                if(compare(span[j], pivot))
+                if(compare(slice[j], pivot))
                 {
-                    span.swap(indexSmaller++, j);
+                    slice.swap(indexSmaller++, j);
                 }
             }
 
             u32 pivotIndex = indexSmaller;
-            span.swap(pivotIndex, span.size()-1);
+            slice.swap(pivotIndex, slice.size()-1);
 
-            quickSort(span.span_leftof(pivotIndex), compare);
-            quickSort(span.span_rightof(pivotIndex + 1), compare);
+            quickSort(slice.slice_leftof(pivotIndex), compare);
+            quickSort(slice.slice_rightof(pivotIndex + 1), compare);
         }
     }
 
     template<typename T, typename FNCOMPARE>
-    // void quickSort(array<T>& collection, bool (*compare)(const T& a, const T& b) = &comparer<T>::lessthan)
     void quickSort(array<T>& collection, FNCOMPARE compare)
     {
-        quickSort(collection.to_span(), compare);
+        quickSort(collection.to_slice(), compare);
     }
 
     template<typename T>
     void quickSort(array<T>& collection)
     {
-        quickSort(collection.to_span(), comparer<T>::lessthan);
+        quickSort(collection.to_slice(), comparer<T>::lessthan);
     }
 
     template<typename T, typename FNCOMPARE>
-    void _heapify(span<T> span, u32 root, FNCOMPARE compare)
+    void _heapify(slice<T> slice, u32 root, FNCOMPARE compare)
     {
         // find the largest root, left child and right child
         u32 largest = root;
         u32 left = 2 * root + 1;
         u32 right = 2 * root + 2;
 
-        if(left < span.size() && compare(span[largest], span[left]))
+        if(left < slice.size() && compare(slice[largest], slice[left]))
         {
             largest = left;
         }
 
-        if(right < span.size() && compare(span[largest], span[right]))
+        if(right < slice.size() && compare(slice[largest], slice[right]))
         {
             largest = right;
         }
@@ -255,8 +453,8 @@ namespace sort
         if(largest != root)
         {
             // swap and recursively heapify if the root is not the largest
-            span.swap(largest, root);
-            _heapify(span, largest, compare);
+            slice.swap(largest, root);
+            _heapify(slice, largest, compare);
         }
     }
 
@@ -266,7 +464,7 @@ namespace sort
         // build max heap
         for(i32 i = collection.size() / 2 - 1; i >= 0; --i)
         {
-            _heapify(collection.to_span(), i, compare);
+            _heapify(collection.to_slice(), i, compare);
         }
 
         // actually sort
@@ -275,7 +473,7 @@ namespace sort
             collection.swap(0, i);
 
             // heapify the root to get the next largest item
-            _heapify(collection.span_leftof(i), 0, compare);
+            _heapify(collection.slice_leftof(i), 0, compare);
         }
     }
 
@@ -285,6 +483,7 @@ namespace sort
         heapSort(collection, comparer<T>::lessthan);
     }
 };
+
 
 #if TEST_COLLECTIONS
 #define EXPECT(cond) ASSERT(cond); if(!(cond)) return false
@@ -394,11 +593,40 @@ b32 TestSort()
     return true;
 }
 
+b32 TestHashTable()
+{
+    memory_arena scratch = {};
+
+    auto& ht = *hashtable<u64, 1024>::create(scratch);
+    for(u64 i = 0; i < 1024; ++i)
+    {
+        ht.set(i, i);
+    }
+
+    for(u64 i = 0; i < 1024; ++i)
+    {
+        u64 v = ht.get(i);
+        EXPECT(v == i);
+    }
+    EXPECT(ht.contains(40));
+    ht.erase(40);
+    EXPECT(!ht.contains(40));
+    EXPECT(ht.contains(68));
+    EXPECT(ht.contains(81));
+
+    ht.clear();
+    EXPECT(ht.size() == 0);
+
+    Clear(scratch);
+    return true;
+}
+
 b32 TestCollections()
 {
     b32 passed = true;
     passed &= TestArray();
     passed &= TestSort();
+    passed &= TestHashTable();
 
     return passed;
 }

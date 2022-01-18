@@ -424,14 +424,14 @@ strhash64(const char* s, umm count)
 }
 
 template< umm N >
-constexpr u32 Hash32_T( const char (&s)[N] )
+constexpr u32 StrHash32_T( const char (&s)[N] )
 {   
     // NOTE(james): -1 because we don't want to hash the '/0' 
     return strhash32( s, N - 1);
 }
 
 template< umm N >
-constexpr u64 Hash64_T( const char (&s)[N] )
+constexpr u64 StrHash64_T( const char (&s)[N] )
 {   
     // NOTE(james): -1 because we don't want to hash the '/0' 
     return strhash64( s, N - 1);
@@ -442,7 +442,43 @@ struct _ConstHashString32 { enum : u32 { hash = HASH }; };
 template<u64 HASH>
 struct _ConstHashString64 { enum : u64 { hash = HASH }; };
 
-#define C_HASH(name) _ConstHashString32< Hash32_T( #name ) >::hash
-#define C_HASH64(name) _ConstHashString64< Hash64_T( #name ) >::hash
+#define C_HASH(name) _ConstHashString32< StrHash32_T( #name ) >::hash
+#define C_HASH64(name) _ConstHashString64< StrHash64_T( #name ) >::hash
 
+inline
+u32 wang_hash32(u32 val)
+{
+    val += ~(val << 15);
+    val ^= val >> 10;
+    val += val << 3;
+    val ^= val >> 6;
+    val += ~(val << 11);
+    val ^= val >> 16;
+    return val;
+}
 
+inline
+u64 wang_hash64(u64 val)
+{
+    val = ~val + (val << 21);
+    val = val ^ (val >> 24);
+    val = (val + (val << 3)) + (val << 8);
+    val = val ^ (val >> 14);
+    val = (val + (val << 2)) + (val << 4);
+    val = val ^ (val >> 28);
+    val = val + (val << 31);
+    return val;
+}
+
+inline
+u64 split_hash64(u64 val)
+{
+    val ^= val >> 30;
+    val *= 0xbf58476d1ce4e5b9;
+    val ^= val >> 27;
+    val *= 0x94d049bb133111eb;
+    val ^= val >> 31;
+    return val;
+}
+
+#define HASH(val) split_hash64(val)
