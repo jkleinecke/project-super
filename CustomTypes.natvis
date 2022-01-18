@@ -11,7 +11,7 @@
             </ArrayItems>
         </Expand>
     </Type>
-    <Type Name="span&lt;*&gt;">
+    <Type Name="slice&lt;*&gt;">
         <DisplayString>{{ size={_size} }}</DisplayString>
         <Expand>
             <Item Name="[size]" ExcludeView="simple">_size</Item>
@@ -21,4 +21,6 @@
             </ArrayItems>
         </Expand>
     </Type>
+
+    
 </AutoVisualizer>

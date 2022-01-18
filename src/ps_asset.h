@@ -6,24 +6,30 @@ enum class AssetType
     Shader,
     Image,
     Model_OBJ,
-    Model_GLTF
+    Model_GLTF,
+    Material,
+    Pipeline
 };
 
 #define ASSET_MAP(XX)                           \
     XX(AssetType::Shader, "shader.vert.spv", shader_vert_spv)      \
     XX(AssetType::Shader, "shader.frag.spv", shader_frag_spv)      \
     XX(AssetType::Image, "viking_room.png", viking_room_png)      \
-    XX(AssetType::Model_OBJ, "viking_room.obj", viking_room_obj)      \
+    XX(AssetType::Model_OBJ, "../data/viking_room.obj", viking_room_obj)      \
     XX(AssetType::Image, "skull.jpg", skull_jpg)                  \
-    XX(AssetType::Model_OBJ, "skull.obj", skull_obj)                  \
+    XX(AssetType::Model_OBJ, "../data/skull.obj", skull_obj)                  \
     XX(AssetType::Shader, "box.vert.spv", box_vert_spv)            \
     XX(AssetType::Shader, "box.frag.spv", box_frag_spv)            \
     XX(AssetType::Model_GLTF, "box.glb", box_glb)                      \
-    XX(AssetType::Shader, "lightbox.frag.spv", lightbox_frag_spv)  
+    XX(AssetType::Shader, "lightbox.frag.spv", lightbox_frag_spv)  \
+    XX(AssetType::Material, "box.mat", mat_box) \
+    XX(AssetType::Pipeline, "pl_basic", pl_basic)   \
+    XX(AssetType::Pipeline, "pl_box", pl_box)   \
+    XX(AssetType::Pipeline, "pl_lightbox", pl_lightbox)
 
-enum assetid : u32
+enum assetid : u64
 {
-#define XX(type, filename, name)  name = C_HASH(name),
+#define XX(type, filename, name)  name = C_HASH64(name),
     ASSET_MAP(XX)
 #undef XX
 };
@@ -46,7 +52,7 @@ global asset_desc asset_descriptions[] = {
 //  2. Compile checks for collisions on the asset id name
 const char* getAssetFilename(assetid id)
 {
-#define XX(type, filename, name) case C_HASH(name): return filename;
+#define XX(type, filename, name) case C_HASH64(name): return filename;
     switch(id)
     {
         ASSET_MAP(XX)
@@ -110,7 +116,11 @@ struct material_asset
     render_material         data;     
 };
 
-typedef hashtable<shader_asset*, 1024> shadertable;
+typedef hashtable<shader_asset*, 1024> shader_table;
+typedef hashtable<image_asset*, 1024> image_table;
+typedef hashtable<model_asset*, 1024> model_table;
+typedef hashtable<pipeline_asset*, 1024> pipeline_table;
+typedef hashtable<material_asset*, 1024> material_table;
 
 struct game_assets
 {
@@ -128,24 +138,11 @@ struct game_assets
     render_pipeline_id  nextPipelineId;
     render_material_id  nextMaterialId;
 
-    shader_asset* simpleVS;
-    shader_asset* simpleFS;
-    pipeline_asset* basicTexturePipeline;
-
-    image_asset*    vikingTexture;
-    model_asset*    vikingModel;
-
-    image_asset*    skullTexture;
-    model_asset*    skullModel;
-
-    shader_asset*   boxVS;
-    shader_asset*   boxFS;
-    pipeline_asset* boxPipeline;
-
-    material_asset* boxMaterial;
-
-    shader_asset*   lightboxFS;
-    pipeline_asset* lightboxPipeline;
+    shader_table* mapShaders;
+    image_table* mapImages;
+    model_table* mapModels;
+    pipeline_table* mapPipelines;
+    material_table* mapMaterials;
 
     u32 numModels;
     model_asset*    models;

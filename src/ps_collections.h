@@ -364,8 +364,8 @@ struct hashtable
         _entries.clear(); 
     }
 
-    entry* begin() { return _entries; }
-    entry* end() { return _entries + SIZE; }
+    entry* begin() { return _entries.begin(); }
+    entry* end() { return _entries.end(); }
 
     u32 size() { return _entries.size(); }
 

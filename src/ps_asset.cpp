@@ -181,8 +181,8 @@ LoadPipelineAsset(game_assets& assets)
     render_pipeline_desc& pipeline = asset->desc;
     pipeline.id = asset->id;
     pipeline.shaderCount = 2;
-    pipeline.shaders[0] = (render_shader_id)assets.simpleVS->id;
-    pipeline.shaders[1] = (render_shader_id)assets.simpleFS->id;
+    pipeline.shaders[0] = (render_shader_id)assets.mapShaders->get(shader_vert_spv)->id;
+    pipeline.shaders[1] = (render_shader_id)assets.mapShaders->get(shader_frag_spv)->id;
     
     pipeline.samplerCount = 1;
     render_sampler_desc& sampler = pipeline.samplers[0];
@@ -209,8 +209,8 @@ LoadBoxPipeline(game_assets& assets)
     render_pipeline_desc& pipeline = asset->desc;
     pipeline.id = asset->id;
     pipeline.shaderCount = 2;
-    pipeline.shaders[0] = (render_shader_id)assets.boxVS->id;
-    pipeline.shaders[1] = (render_shader_id)assets.boxFS->id;
+    pipeline.shaders[0] = (render_shader_id)assets.mapShaders->get(box_vert_spv)->id;
+    pipeline.shaders[1] = (render_shader_id)assets.mapShaders->get(box_frag_spv)->id;
 
     return asset;
 }
@@ -225,8 +225,8 @@ LoadLightboxPipeline(game_assets& assets)
     render_pipeline_desc& pipeline = asset->desc;
     pipeline.id = asset->id;
     pipeline.shaderCount = 2;
-    pipeline.shaders[0] = (render_shader_id)assets.boxVS->id;
-    pipeline.shaders[1] = (render_shader_id)assets.lightboxFS->id;
+    pipeline.shaders[0] = (render_shader_id)assets.mapShaders->get(box_vert_spv)->id;
+    pipeline.shaders[1] = (render_shader_id)assets.mapShaders->get(lightbox_frag_spv)->id;
 
     return asset;
 }
@@ -408,45 +408,28 @@ FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
 
     // shaders
     {
-        manifest->shaderCount = 5;
-
-        manifest->shaders[0].id = assets.simpleVS->id;
-        manifest->shaders[0].sizeInBytes = assets.simpleVS->sizeInBytes;
-        manifest->shaders[0].bytes = assets.simpleVS->bytes;
-
-        manifest->shaders[1].id = assets.simpleFS->id;
-        manifest->shaders[1].sizeInBytes = assets.simpleFS->sizeInBytes;
-        manifest->shaders[1].bytes = assets.simpleFS->bytes;
-
-        manifest->shaders[2].id = assets.boxVS->id;
-        manifest->shaders[2].sizeInBytes = assets.boxVS->sizeInBytes;
-        manifest->shaders[2].bytes = assets.boxVS->bytes;
-
-        manifest->shaders[3].id = assets.boxFS->id;
-        manifest->shaders[3].sizeInBytes = assets.boxFS->sizeInBytes;
-        manifest->shaders[3].bytes = assets.boxFS->bytes;
-
-        manifest->shaders[4].id = assets.lightboxFS->id;
-        manifest->shaders[4].sizeInBytes = assets.lightboxFS->sizeInBytes;
-        manifest->shaders[4].bytes = assets.lightboxFS->bytes;
+        for(auto& item : *assets.mapShaders)
+        {
+            shader_asset* shader = item.value;
+            umm index = manifest->shaderCount++;
+            manifest->shaders[index].id = shader->id;
+            manifest->shaders[index].sizeInBytes = shader->sizeInBytes;
+            manifest->shaders[index].bytes = shader->bytes;
+        }
     }
     // pipelines
     {
-        //manifest->pipelineCount = 3;
-
-        AddPipelineToRenderManifest(manifest, assets.boxPipeline);
-        AddPipelineToRenderManifest(manifest, assets.lightboxPipeline);
-        
-        // manifest->pipelines[1] = assets.boxPipeline->desc;
-        // manifest->pipelines[1].id = assets.boxPipeline->id;
-
-        // manifest->pipelines[2] = assets.lightboxPipeline->desc;
-        // manifest->pipelines[2].id = assets.lightboxPipeline->id;
+        for(auto& item : *assets.mapPipelines)
+        {
+            AddPipelineToRenderManifest(manifest, item.value);
+        }
     }
     // buffers
     {
-        AddModelToManifest(manifest, assets.vikingModel);
-        AddModelToManifest(manifest, assets.skullModel);
+        for(auto& item : *assets.mapModels)
+        {
+            AddModelToManifest(manifest, item.value);
+        }
 
         FOREACH(model, assets.models, assets.numModels)
         {
@@ -455,15 +438,20 @@ FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
     }
     // images
     {
-        AddImageToManifest(manifest, assets.vikingTexture);
-        AddImageToManifest(manifest, assets.skullTexture);
+        for(auto& item : *assets.mapImages)
+        {
+            AddImageToManifest(manifest, item.value);
+        }
     }
     // materials
     {
-        manifest->materialCount = 1;
-
-        manifest->materials[0].id = assets.boxMaterial->id;
-        manifest->materials[0].data = assets.boxMaterial->data;
+        for(auto& item : *assets.mapMaterials)
+        {
+            material_asset* mat = item.value;
+            umm index = manifest->materialCount++;
+            manifest->materials[index].id = mat->id;
+            manifest->materials[index].data = mat->data;
+        }
     }
 }
 
@@ -475,6 +463,8 @@ AllocateGameAssets(game_state& gm_state, render_context& renderer)
     assets.frameArena = gm_state.frameArena;
     assets.resourceQueue = renderer.resourceQueue;
 
+    // TODO(james): Load assets in chunks based on the current area
+
     // NOTE(james): all ids should start at 1. 0 is reserved as an invalid id
     assets.nextModelId = 1;  
     assets.nextShaderId = 1;
@@ -483,32 +473,47 @@ AllocateGameAssets(game_state& gm_state, render_context& renderer)
     assets.nextPipelineId = 1;
     assets.nextMaterialId = 1;
 
-    //hash_asset("shader.vert.spv");
+    assets.mapShaders = shader_table::create(assets.memory);
+    assets.mapImages = image_table::create(assets.memory);
+    assets.mapModels = model_table::create(assets.memory);
+    assets.mapPipelines = pipeline_table::create(assets.memory);
+    assets.mapMaterials = material_table::create(assets.memory);
 
-    // TODO(james): Use the hashes to tag the assets for fast lookup, could also use them for shader variables too
-    
-    assets.simpleVS = LoadShaderAsset(assets, "shader.vert.spv");
-    assets.simpleFS = LoadShaderAsset(assets, "shader.frag.spv");
-    assets.basicTexturePipeline = LoadPipelineAsset(assets);
+    for(auto& desc : asset_descriptions)
+    {
+        switch(desc.type)
+        {
+        case AssetType::Shader:
+            {
+                shader_asset* asset = LoadShaderAsset(assets, desc.filename);
+                assets.mapShaders->set(desc.id, asset);
+            }
+            break;
+        case AssetType::Image:
+            {
+                image_asset* asset = LoadImageAsset(assets, desc.filename);
+                assets.mapImages->set(desc.id, asset);
+            }
+            break;
+        case AssetType::Model_OBJ:
+            {
+                model_asset* asset = LoadModelAsset(assets, desc.filename);
+                assets.mapModels->set(desc.id, asset);
+            }
+            break;
+        case AssetType::Model_GLTF:
 
-    assets.vikingTexture = LoadImageAsset(assets, "viking_room.png");
-    
-    assets.vikingModel = LoadModelAsset(assets, "../data/viking_room.obj");    // TODO(james): data folder reference can be removed once tinyobj loader is gone
-    assets.vikingModel->texture_id = assets.vikingTexture->id;
+            break;
+        }
+    }
 
-    assets.skullTexture = LoadImageAsset(assets, "skull.jpg");
-    assets.skullModel = LoadModelAsset(assets, "../data/skull.obj");
-    assets.skullModel->texture_id = assets.skullTexture->id;
+    assets.mapPipelines->set(pl_basic,LoadPipelineAsset(assets));
+    assets.mapPipelines->set(pl_box, LoadBoxPipeline(assets));
+    assets.mapPipelines->set(pl_lightbox, LoadLightboxPipeline(assets));
 
-    assets.boxVS = LoadShaderAsset(assets, "box.vert.spv");
-    assets.boxFS = LoadShaderAsset(assets, "box.frag.spv");
-    assets.boxPipeline = LoadBoxPipeline(assets);
-    LoadCgltfAssets(assets, "box.glb");
+    assets.mapMaterials->set(mat_box, LoadBoxMaterial(assets));
 
-    assets.lightboxFS = LoadShaderAsset(assets, "lightbox.frag.spv");
-    assets.lightboxPipeline = LoadLightboxPipeline(assets);
-
-    assets.boxMaterial = LoadBoxMaterial(assets);
+    LoadCgltfAssets(assets, "box.glb"); // TODO(james): put these into the asset maps somehow
 
     // TODO(james): Allow this part to be streamed in as part of a streaming assets system.  For now we'll just make one load at startup time
     render_manifest* manifest = PushStruct(*gm_state.frameArena, render_manifest);
