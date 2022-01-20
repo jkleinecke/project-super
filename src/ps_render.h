@@ -363,3 +363,7 @@ struct render_cmd_draw_object
     render_material_binding materialBindings[20];   // TODO(james): tune this
 };
 
+struct render_api
+{
+
+};

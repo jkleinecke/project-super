@@ -9,6 +9,7 @@
 #include "ps_collections.h"
 #include "ps_stream.h"
 #include "ps_image.h"
+#include "ps_graphics.h"
 #include "ps_render.h"
 #include "ps_asset.h"
 
