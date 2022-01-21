@@ -246,6 +246,7 @@ typedef intptr_t imm;
 #define Align4(Value) (((Value) + 3) & ~3)
 #define Align8(Value) (((Value) + 7) & ~7)
 #define Align16(Value) (((Value) + 15) & ~15)
+#define Align64(Value) (((Value) + 63) & ~64)
 
 #define FOREACH(var, in_array, size) for(auto var = (in_array); var < ((in_array) + (size)); ++var)
 
