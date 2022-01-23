@@ -75,3 +75,58 @@ EndRenderCommands(render_commands& cmds)
     render_cmd_header& cmd = *PushCmd(cmds, render_cmd_header);
     cmd = { RenderCommandType::Done, sizeof(render_cmd_header) };
 }
+
+
+/*
+    RenderScene - API psuedocode
+
+    RenderBackgroundPass(scene)
+    {
+        cmds
+
+        SetupRenderPass(cmds, scene->backgroundRenderpass)
+        SetPerRenderPassVariables(cmds)  
+
+        for tile in scene->tiles
+            SetPerDrawVariables(cmds)
+            Draw(cmds, tile)
+
+        return cmds
+    }
+
+    RenderCharacters(scene)
+    {
+        cmds
+
+        SetupRenderPass(cmds, scene->characterRenderpass)
+        SetPerRenderPassVariables(cmds)
+
+        for character in scene->characters
+            SetPerDrawVariables(cmds)
+            Draw(cmds, character)
+
+        SetPerDrawVariables(cmds)
+        Draw(cmds, player)
+
+        return cmds
+    }
+
+    RenderScene(scene)
+    {
+        SetPerFrameVariables(renderDevice, windowSize, timeDelta)
+
+        lights = FindVisibleLights(scene)
+        SetPerSceneVariables(renderDevice, camera, lights)
+
+        // really I want to render multiple passes of the same information
+        //  Shadowmap pass
+        //  Material pass
+  
+        backgroundCmds = RenderBackgroundPass(scene)
+        characterCmds = RenderCharacters(scene)
+
+        RenderPostProcessPasses(renderDevice)
+
+        RenderUI(renderDevice)
+    }
+*/

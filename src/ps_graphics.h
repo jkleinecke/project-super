@@ -53,6 +53,22 @@ struct GfxRenderTargetDesc
 struct GfxPipelineStateDesc
 {
     // and this is the big boy...
+
+    // shader program
+    // root signature
+    // vertex layout
+    // blend state
+    // depth state
+    // rasterizer state
+    
+    u32 renderTargetCount;
+    TinyImageFormat colorFormats[8];
+    // TODO(james): MSAA config
+    TinyImageFormat depthStencilFormat;
+
+    // primitive topology
+    // indirect command buffer support?
+
 };
 
 enum class GfxShaderType
@@ -88,7 +104,7 @@ struct GfxCommandHeader
 struct GfxBindRenderTargetsCommand
 {
     u32 count;
-    GfxRenderTarget rts[16];    // TODO(james): is 16 a decent cap here?? I have no idea
+    GfxRenderTarget rts[8];    // TODO(james): is 16 a decent cap here?? I have no idea
 };
 
 enum class GfxIndexFormat
@@ -113,23 +129,90 @@ struct GfxVertexBufferView
     u32 strideInBytes;
 };
 
+
+enum class GfxSamplerAddressMode
+{
+    Repeat              = 0,    // VK_SAMPLER_ADDRESS_MODE_REPEAT
+    MirrorRepeat        = 1,    // VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT
+    ClampEdge           = 2,    // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+    ClampBorder         = 3,    // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
+    MirrorClampEdge     = 4     // VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE
+};
+
+enum class GfxSamplerMipMapMode
+{
+    Nearest             = 0,    // VK_SAMPLER_MIPMAP_MODE_NEAREST
+    Linear              = 1     // VK_SAMPLER_MIPMAP_MODE_LINEAR
+};
+
+enum class GfxSamplerFilter
+{
+    Nearest             = 0,            // VK_FILTER_NEAREST
+    Linear              = 1,            // VK_FILTER_LINEAR
+    Cubic               = 1000015000,   // VK_FILTER_CUBIC_IMG
+};
+
+struct GfxSampler   // TODO(james): should this be aligned??
+{
+    b32                 enableAnisotropy;
+    b32                 coordinatesNotNormalized;
+
+    GfxSamplerFilter       minFilter;
+    GfxSamplerFilter       magFilter;
+
+    GfxSamplerAddressMode  addressMode_U;
+    GfxSamplerAddressMode  addressMode_V;
+    GfxSamplerAddressMode  addressMode_W;
+
+    f32                 mipLodBias;
+    GfxSamplerMipMapMode   mipmapMode;
+    f32                 minLod;
+    f32                 maxLod;
+};
+
 struct GfxDrawCommand
 {
     GfxIndexBufferView indexView;   // 0 for non-indexed drawing
     u32 vertexBufferCount;
-    GfxVertexBufferView vertexBuffers[8];
+    GfxVertexBufferView vertexBuffers[15];
 
     // TODO(james): how do I represent per-draw call shader variables/uniforms
 };
 
 struct GfxDispatchCommand
 {
-    // TODO(james)
+    u32 groupX;
+    u32 groupY;
+    u32 groupZ;
+};
+
+struct GfxBufferRegion
+{
+    GfxBuffer buffer;
+    umm offset;
+    umm size;
+};
+
+struct GfxImageRegion
+{
+    GfxImage image;
+    umm bufferOffset;
+    umm bufferRowLength;
+    umm bufferHeight;
+    v3 imageOffset;
+    v3 imageExtent;
 };
 
 struct GfxCopyCommand
 {
     // TODO(james): define src and dest
+    union {
+        GfxBufferRegion srcRegion;
+    };
+
+    union {
+        GfxBufferRegion destRegion;
+    };
     // buffer -> buffer
     // buffer -> image
     // image -> buffer
@@ -157,6 +240,7 @@ struct GfxCommandList
 // TODO(james): Platform has to pass a valid GfxDevice and GfxImage swapchain handle...
 struct gfx_api
 {
+    // TODO(james): Schedule work on different queues (Transfer, Compute, Graphics, etc..)
     API_FUNCTION(GfxSyncToken, SubmitWork, GfxDevice device, u32 numCommandLists, GfxCommandList* pCommandLists);
 
     // Resource Management
