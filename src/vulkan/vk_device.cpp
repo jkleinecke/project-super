@@ -927,6 +927,7 @@ void vgCopyBufferToImage(vg_device& device, vg_buffer& buffer, vg_image& image, 
     region.imageOffset = {0,0,0};
     region.imageExtent = { width, height, 1 };
 
+    vkCmdCopyImageToImage
     vkCmdCopyBufferToImage(commandBuffer, buffer.handle, image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     vgEndSingleTimeCommands(device, commandBuffer);

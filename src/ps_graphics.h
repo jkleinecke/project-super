@@ -143,6 +143,17 @@ enum class GfxSampleCount
     MSAA_16,
 };
 
+enum class GfxColorWriteFlags
+{
+    Disable     = 0,
+    Red         = 1 << 0,
+    Green       = 1 << 1,
+    Blue        = 1 << 2,
+    Alpha       = 1 << 3,
+    All         = ~0,
+};
+MAKE_ENUM_FLAG(u32, GfxColorWriteFlags)
+
 enum class GfxShaderStages
 {
     Unknown     = 0,
@@ -168,6 +179,29 @@ enum class GfxShaderFormat
     Metal   =   0x104,
 };
 
+enum class GfxShaderSemantic
+{
+    Undefined   = 0,
+    Position,
+    Normal,
+    Color,
+    Tangent,
+    BiTangent,
+    Joints,
+    Weights,
+    ShadingRate,
+    TexCoord0,
+    TexCoord1,
+    TexCoord2,
+    TexCoord3,
+    TexCoord4,
+    TexCoord5,
+    TexCoord6,
+    TexCoord7,
+    TexCoord8,
+    TexCoord9,
+};
+
 struct GfxShaderDesc
 {
     GfxShaderDataType type;
@@ -179,8 +213,85 @@ struct GfxShaderDesc
 
 struct GfxRootSignature
 {
+    // TODO(james): declare the descriptor layout here somehow...
     GfxShaderModule* pShaders;
     u32 shaderCount;
+};
+
+struct GfxRasterizerState
+{
+    GfxFillMode fillMode;
+    GfxCullMode cullMode;
+    b32 frontCCW;           // NOTE(james): Front side is counter clock-wise
+    i32 depthBias;
+    f32 slopeScaledDepthBias;
+    b32 multisample;
+    b32 scissor;
+    b32 depthClampEnable;
+};
+
+struct GfxDepthStencilOp
+{
+    GfxStencilOp stencilFail;
+    GfxStencilOp depthFail;
+    GfxStencilOp stencilPass;
+    GfxComparisonFunc stencilFunc;
+};
+
+struct GfxDepthStencilState
+{
+    b32 depthEnable;
+    GfxDepthWriteMask depthWriteMask;
+    GfxComparisonFunc depthFunc;
+    b32 stencilEnable;
+    u8 stencilReadMask;
+    u8 stencilWriteMask;
+    GfxDepthStencilOp frontFace;
+    GfxDepthStencilOp backFace;
+    b32 depthBoundsTestEnable;
+};
+
+struct GfxRenderTargetBlendState
+{
+    b32 blendEnable;
+    GfxBlendMode srcBlend;
+    GfxBlendMode destBlend;
+    GfxBlendOp blendOp;
+    GfxBlendMode srcAlphaBlend;
+    GfxBlendMode destAlphaBlend;
+    GfxBlendOp blendOpAlpha;
+    GfxColorWriteFlags colorWriteMask;
+};
+
+struct GfxBlendState
+{
+    b32 alphaToCoverageEnable;
+    b32 independentBlendMode;
+    GfxRenderTargetBlendState renderTargets[8];
+};
+
+enum class GfxVertexAttribRate
+{
+    Vertex,
+    Instance,
+};
+
+struct GfxVertexAttrib
+{
+    GfxShaderSemantic semantic;
+    u32 semanticNameLength;
+    char semanticName[128]; // TODO(james): set size as define/enum/constant
+    u32 location;
+    u32 binding;
+    u32 offset;
+    TinyImageFormat format;
+    GfxVertexAttribRate rate;
+};
+
+struct GfxVertexLayout
+{
+    u32 attribCount;
+    GfxVertexAttrib attribs[15];    // TODO(james): set size as define/enum/constant
 };
 
 struct GfxPipelineStateDesc
@@ -188,21 +299,19 @@ struct GfxPipelineStateDesc
     // and this is the big boy...
 
     // shader program
-    // root signature
-    GfxRootSignature* rootSignature;
-    // vertex layout
-    // blend state
-    // depth state
-    // rasterizer state
+    GfxRootSignature rootSignature;
+    GfxVertexLayout vertexLayout;
+    GfxBlendState blendState;
+    GfxDepthStencilState depthStencilState;
+    GfxRasterizerState rasterizerState;
     
     u32 renderTargetCount;
     TinyImageFormat colorFormats[8];
     GfxSampleCount sampleCount;
     TinyImageFormat depthStencilFormat;
 
-    // primitive topology
-    // indirect command buffer support?
-
+    GfxPrimitiveTopology primitiveTopology;
+    b32 supportIndirectCommandBuffer;
 };
 
 
