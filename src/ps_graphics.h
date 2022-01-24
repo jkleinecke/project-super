@@ -23,11 +23,12 @@ MAKE_ENUM_FLAG(u32, GfxBufferFlags);
 
 enum class GfxMemoryFlags
 {
-    DeviceOnly,     // GPU Only
-    Upload,         // CPU  -> GPU Transfer
-    Readback,       // GPU -> CPU Transfer
+    Unknown,    // 
+    GpuOnly,     // GPU Only
+    CpuOnly,         // CPU  -> GPU Transfer
+    CpuToGpu,       // CPU -> GPU Transfer, CPU Write-Only -> GPU Fast Read - Uncached & Write-Combined (Not available on all devices) 
     // TODO(james): determine proper fallback when not available, this is the infamous resizeable BAR section
-    Upload_BAR,     // CPU Write-Only -> GPU Fast Read - Uncached & Write-Combined (Not available on all devices) 
+    GpuToCpu,     // GPU -> CPU Readback Transfer
 };
 MAKE_ENUM_FLAG(u32, GfxMemoryFlags);
 
@@ -50,12 +51,145 @@ struct GfxRenderTargetDesc
     // not really sure what this needs...
 };
 
+enum class GfxPrimitiveTopology
+{
+    Undefined,
+    TriangleList,
+    TriangleStrip,
+    PointList,
+    LineList,
+    LineStrip,
+};
+
+enum class GfxComparisonFunc
+{
+    Never,
+    Less,
+    Equal,
+    LessEqual,
+    Greater,
+    NotEqual,
+    GreaterEqual,
+    Always,
+};
+
+enum class GfxDepthWriteMask
+{
+    Zero,   // Disables depth write
+    All,    // enables depth write
+};
+
+enum class GfxStencilOp
+{
+    Keep,
+    Zero,
+    Replace,
+    Inc,
+    Dec,
+    IncSat,
+    DecSat,
+    Invert,
+};
+
+enum class GfxBlendMode
+{   
+    Zero,
+    One,
+    SrcColor,
+    InvSrcColor,
+    SrcAlpha,
+    InvSrcAlpha,
+    DestAlpha,
+    InvDestAlpha,
+    DestColor,
+    InvDestColor,
+    SrcAlphaSat,
+    BlendFactor,
+    InvBlendFactor,
+    Src1Color,
+    InvSrc1Color,
+    Src1Alpha,
+    InvSrc1Alpha,
+};
+
+enum class GfxBlendOp
+{
+    Add,
+    Subtract,
+    RevSubtract,
+    Min,
+    Max,
+};
+
+enum class GfxFillMode
+{
+    Wireframe,
+    Solid,
+};
+
+enum class GfxCullMode
+{
+    None,
+    Front,
+    Back,
+};
+
+enum class GfxSampleCount
+{
+    MSAA_1,
+    MSAA_2,
+    MSAA_4,
+    MSAA_8,
+    MSAA_16,
+};
+
+enum class GfxShaderStages
+{
+    Unknown     = 0,
+    Vertex      = 0x001,
+    Hull        = 0x002,
+    Domain      = 0x004,
+    Geometry    = 0x008,
+    Pixel       = 0x010,
+    Compute     = 0x100,
+};
+MAKE_ENUM_FLAG(u32, GfxShaderStages);
+
+enum class GfxShaderFormat
+{
+    Unknown =   0x000,
+    // binary
+    SpirV   =   0x011,
+    Dxbc    =   0x012,
+    Dxil    =   0x013,
+    // source code
+    Glsl    =   0x101,   
+    Hlsl    =   0x102,
+    Metal   =   0x104,
+};
+
+struct GfxShaderDesc
+{
+    GfxShaderDataType type;
+    GfxShaderStages stage;
+    umm size;
+    void* data;
+    char* szEntryPoint;
+};
+
+struct GfxRootSignature
+{
+    GfxShaderModule* pShaders;
+    u32 shaderCount;
+};
+
 struct GfxPipelineStateDesc
 {
     // and this is the big boy...
 
     // shader program
     // root signature
+    GfxRootSignature* rootSignature;
     // vertex layout
     // blend state
     // depth state
@@ -63,7 +197,7 @@ struct GfxPipelineStateDesc
     
     u32 renderTargetCount;
     TinyImageFormat colorFormats[8];
-    // TODO(james): MSAA config
+    GfxSampleCount sampleCount;
     TinyImageFormat depthStencilFormat;
 
     // primitive topology
@@ -71,19 +205,6 @@ struct GfxPipelineStateDesc
 
 };
 
-enum class GfxShaderType
-{
-    // Source will require that the backend be able to compile at runtime...
-    // Source, // TODO(james): We may need to specify the actual stage type, Vertex/Pixel/Tessalation...
-    SPIRV,
-};
-
-struct GfxShaderDesc
-{
-    GfxShaderType type;
-    umm size;
-    void* data;
-};
 
 enum class GfxCommandType
 {
