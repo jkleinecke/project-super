@@ -4,24 +4,33 @@
 // a handle with a value of 0 will always be considered invalid
 #define GFX_INVALID_HANDLE 0
 
-struct GfxDevice { u64 handle; };
-struct GfxBuffer { u64 handle; };
-struct GfxImage { u64 handle; };
-struct GfxRenderTarget { u64 handle; };
-struct GfxPipelineState { u64 handle; };
-struct GfxShaderModule { u64 handle; };
-struct GfxSyncToken { u64 handle; };
-
-enum class GfxBufferFlags
+enum GfxConstants
 {
-    Vertex,
-    Index,
-    Uniform,
-    Storage
+    GFX_MAX_EVENT_NAME_LENGTH = 256,
+    GFX_MAX_RENDERTARGETS = 8,
+    GFX_MAX_ANISOTROPY = 8,
+    GFX_MAX_BINDLESSSLOTS = 1024,
 };
-MAKE_ENUM_FLAG(u32, GfxBufferFlags);
 
-enum class GfxMemoryFlags
+enum class GfxResult
+{
+    Ok,
+    InvalidParameter,
+    InvalidOperation,
+    OutOfMemory,
+    InternalError
+};
+
+struct GfxContext { u64 handle; };
+struct GfxBuffer { u64 handle; };
+struct GfxTexture { u64 handle; };
+struct GfxSampler { u64 handle; };
+struct GfxProgram { u64 handle; };
+struct GfxKernel { u64 handle; };
+struct GfxTimestampQuery { u64 handle; };
+
+
+enum class GfxMemoryAccess
 {
     Unknown,    // 
     GpuOnly,     // GPU Only
@@ -30,25 +39,106 @@ enum class GfxMemoryFlags
     // TODO(james): determine proper fallback when not available, this is the infamous resizeable BAR section
     GpuToCpu,     // GPU -> CPU Readback Transfer
 };
-MAKE_ENUM_FLAG(u32, GfxMemoryFlags);
 
 struct GfxBufferDesc
 {
-    GfxBufferFlags usageFlags;
-    GfxMemoryFlags memoryFlags;
-    umm size;
+    u64 size;
+    GfxMemoryAccess access;
+    u32 stride;
+    u32 numElements;
+};  
+
+struct GfxBufferRangeDesc
+{
+    GfxBuffer buffer;
+    umm elementOffset;
+    umm numElements;
+    umm stride;
+};
+
+enum class GfxTextureType
+{
+    Tex2D,
+    Tex2DArray,
+    Tex3D,
+    Cube,
 };
 
 struct GfxImageDesc
 {
     GfxTextureType type;
-    v3 dimensions;
+    u32 width;
+    u32 height;
+    union {
+        u32 size;
+        u32 depth;
+        u32 slice_count;
+    };
     TinyImageFormat format;     // uses tiny image format to easily convert to graphics backend api format
+    u32 mipLevels;
 };
 
-struct GfxRenderTargetDesc
+enum class GfxSamplerAddressMode
 {
-    // not really sure what this needs...
+    Repeat              = 0,    // VK_SAMPLER_ADDRESS_MODE_REPEAT
+    MirrorRepeat        = 1,    // VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT
+    ClampEdge           = 2,    // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+    ClampBorder         = 3,    // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
+    MirrorClampEdge     = 4     // VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE
+};
+
+enum class GfxSamplerMipMapMode
+{
+    Nearest             = 0,    // VK_SAMPLER_MIPMAP_MODE_NEAREST
+    Linear              = 1     // VK_SAMPLER_MIPMAP_MODE_LINEAR
+};
+
+enum class GfxSamplerFilter
+{
+    Nearest             = 0,            // VK_FILTER_NEAREST
+    Linear              = 1,            // VK_FILTER_LINEAR
+    Cubic               = 1000015000,   // VK_FILTER_CUBIC_IMG
+};
+
+struct GfxSamplerDesc
+{
+    b32                 enableAnisotropy;
+    b32                 coordinatesNotNormalized;
+
+    GfxSamplerFilter       minFilter;
+    GfxSamplerFilter       magFilter;
+
+    GfxSamplerAddressMode  addressMode_U;
+    GfxSamplerAddressMode  addressMode_V;
+    GfxSamplerAddressMode  addressMode_W;
+
+    f32                 mipLodBias;
+    GfxSamplerMipMapMode   mipmapMode;
+    f32                 minLod;
+    f32                 maxLod;
+};
+
+struct GfxShaderDesc
+{
+    umm size;
+    void* data;
+    char* szEntryPoint;
+};
+
+struct GfxProgramDesc
+{
+    GfxShaderDesc* pCompute;
+    GfxShaderDesc* pVertex;
+    union {
+        GfxShaderDesc* pHull;
+        GfxShaderDesc* pTessellationControl;
+    };
+    union {
+        GfxShaderDesc* pDomain;
+        GfxShaderDesc* pTessellationEvaluation;
+    };
+    GfxShaderDesc* pGeometry;
+    GfxShaderDesc* pFragment;
 };
 
 enum class GfxPrimitiveTopology
@@ -154,70 +244,6 @@ enum class GfxColorWriteFlags
 };
 MAKE_ENUM_FLAG(u32, GfxColorWriteFlags)
 
-enum class GfxShaderStages
-{
-    Unknown     = 0,
-    Vertex      = 0x001,
-    Hull        = 0x002,
-    Domain      = 0x004,
-    Geometry    = 0x008,
-    Pixel       = 0x010,
-    Compute     = 0x100,
-};
-MAKE_ENUM_FLAG(u32, GfxShaderStages);
-
-enum class GfxShaderFormat
-{
-    Unknown =   0x000,
-    // binary
-    SpirV   =   0x011,
-    Dxbc    =   0x012,
-    Dxil    =   0x013,
-    // source code
-    Glsl    =   0x101,   
-    Hlsl    =   0x102,
-    Metal   =   0x104,
-};
-
-enum class GfxShaderSemantic
-{
-    Undefined   = 0,
-    Position,
-    Normal,
-    Color,
-    Tangent,
-    BiTangent,
-    Joints,
-    Weights,
-    ShadingRate,
-    TexCoord0,
-    TexCoord1,
-    TexCoord2,
-    TexCoord3,
-    TexCoord4,
-    TexCoord5,
-    TexCoord6,
-    TexCoord7,
-    TexCoord8,
-    TexCoord9,
-};
-
-struct GfxShaderDesc
-{
-    GfxShaderDataType type;
-    GfxShaderStages stage;
-    umm size;
-    void* data;
-    char* szEntryPoint;
-};
-
-struct GfxRootSignature
-{
-    // TODO(james): declare the descriptor layout here somehow...
-    GfxShaderModule* pShaders;
-    u32 shaderCount;
-};
-
 struct GfxRasterizerState
 {
     GfxFillMode fillMode;
@@ -267,222 +293,296 @@ struct GfxBlendState
 {
     b32 alphaToCoverageEnable;
     b32 independentBlendMode;
-    GfxRenderTargetBlendState renderTargets[8];
+    GfxRenderTargetBlendState renderTargets[GFX_MAX_RENDERTARGETS];
 };
 
-enum class GfxVertexAttribRate
+// enum class GfxVertexAttribRate
+// {
+//     Vertex,
+//     Instance,
+// };
+
+// struct GfxVertexAttrib
+// {
+//     GfxShaderSemantic semantic;
+//     u32 semanticNameLength;
+//     char semanticName[128]; // TODO(james): set size as define/enum/constant
+//     u32 location;
+//     u32 binding;
+//     u32 offset;
+//     TinyImageFormat format;
+//     GfxVertexAttribRate rate;
+// };
+
+// struct GfxVertexLayout
+// {
+//     u32 attribCount;
+//     GfxVertexAttrib attribs[15];    // TODO(james): set size as define/enum/constant
+// };
+
+struct GfxRenderTargetDesc
 {
-    Vertex,
-    Instance,
+    GfxTexture texture;
+    u32 mipLevel;
+    u32 slice;
 };
 
-struct GfxVertexAttrib
+struct GfxPipelineDesc
 {
-    GfxShaderSemantic semantic;
-    u32 semanticNameLength;
-    char semanticName[128]; // TODO(james): set size as define/enum/constant
-    u32 location;
-    u32 binding;
-    u32 offset;
-    TinyImageFormat format;
-    GfxVertexAttribRate rate;
-};
-
-struct GfxVertexLayout
-{
-    u32 attribCount;
-    GfxVertexAttrib attribs[15];    // TODO(james): set size as define/enum/constant
-};
-
-struct GfxPipelineStateDesc
-{
-    // and this is the big boy...
-
-    // shader program
-    GfxRootSignature rootSignature;
-    GfxVertexLayout vertexLayout;
     GfxBlendState blendState;
     GfxDepthStencilState depthStencilState;
     GfxRasterizerState rasterizerState;
-    
-    u32 renderTargetCount;
-    TinyImageFormat colorFormats[8];
-    GfxSampleCount sampleCount;
-    TinyImageFormat depthStencilFormat;
-
     GfxPrimitiveTopology primitiveTopology;
+    
+    GfxRenderTargetDesc colorTargets[GFX_MAX_RENDERTARGETS];
+    GfxRenderTargetDesc depthStencilTarget;
+
+    GfxSampleCount sampleCount;
     b32 supportIndirectCommandBuffer;
 };
 
 
-enum class GfxCommandType
+enum class GfxCmdType
 {
-    BindRenderTargets,
+    CopyBuffer,
+    CopyBufferRange,
+    ClearBuffer,
+    ClearBackBuffer,
+    ClearTexture,
+    CopyTexture,
+    ClearImage,
+    CopyTextureToBackBuffer,
+    CopyBufferToTexture,
+    GenerateMips,
+    BindKernel,
+    BindIndexBuffer,
+    BindVertexBuffer,
+    SetViewport,
+    SetScissorRect,
     Draw,
+    DrawIndexed,
+    MultiDrawIndirect,
+    MultiDrawIndexedIndirect,
     Dispatch,
-    Copy,
-    Update,
-    Query
+    DispatchIndirect,
+    MultiDispatchIndirect,
+
+    // Debug Commands
+    BeginTimestampQuery,
+    EndTimestampQuery,
+    BeginEvent,
+    BeginColorEvent,
+    EndEvent,
 };
 
-struct GfxCommandHeader
+struct GfxCmdHeader
 {
     u32 type;
     umm size;   // size (in bytes) of the command structure
 };
 
-struct GfxBindRenderTargetsCommand
+struct GfxCopyBufferCmd
 {
-    u32 count;
-    GfxRenderTarget rts[8];    // TODO(james): is 16 a decent cap here?? I have no idea
+    GfxBuffer src;
+    GfxBuffer dest;
 };
 
-enum class GfxIndexFormat
+struct GfxCopyBufferRangeCmd
 {
-    U16,
-    U32,
+    GfxBuffer src;
+    u64 srcOffset;
+    GfxBuffer dest;
+    u64 destOffset;
+    u64 size;
 };
 
-struct GfxIndexBufferView
-{
-    GfxBuffer buffer;
-    umm offset;
-    umm size;
-    GfxIndexFormat format;
-};
-
-struct GfxVertexBufferView
+struct GfxClearBufferCmd
 {
     GfxBuffer buffer;
-    umm offset;
-    umm size;
-    u32 strideInBytes;
+    u32 clearValue;
 };
 
-
-enum class GfxSamplerAddressMode
+struct GfxClearBackBufferCmd
 {
-    Repeat              = 0,    // VK_SAMPLER_ADDRESS_MODE_REPEAT
-    MirrorRepeat        = 1,    // VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT
-    ClampEdge           = 2,    // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
-    ClampBorder         = 3,    // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER
-    MirrorClampEdge     = 4     // VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE
 };
 
-enum class GfxSamplerMipMapMode
+struct GfxClearTextureCmd
 {
-    Nearest             = 0,    // VK_SAMPLER_MIPMAP_MODE_NEAREST
-    Linear              = 1     // VK_SAMPLER_MIPMAP_MODE_LINEAR
+    GfxTexture texture;
 };
 
-enum class GfxSamplerFilter
+struct GfxCopyTextureCmd
 {
-    Nearest             = 0,            // VK_FILTER_NEAREST
-    Linear              = 1,            // VK_FILTER_LINEAR
-    Cubic               = 1000015000,   // VK_FILTER_CUBIC_IMG
+    GfxTexture src;
+    GfxTexture dest;
 };
 
-struct GfxSampler   // TODO(james): should this be aligned??
+struct GfxClearImageCmd
 {
-    b32                 enableAnisotropy;
-    b32                 coordinatesNotNormalized;
-
-    GfxSamplerFilter       minFilter;
-    GfxSamplerFilter       magFilter;
-
-    GfxSamplerAddressMode  addressMode_U;
-    GfxSamplerAddressMode  addressMode_V;
-    GfxSamplerAddressMode  addressMode_W;
-
-    f32                 mipLodBias;
-    GfxSamplerMipMapMode   mipmapMode;
-    f32                 minLod;
-    f32                 maxLod;
+    GfxTexture texture;
+    u32 mipLevel;
+    u32 slice;
 };
 
-struct GfxDrawCommand
+struct GfxCopyTextureToBackBufferCmd
 {
-    GfxIndexBufferView indexView;   // 0 for non-indexed drawing
-    u32 vertexBufferCount;
-    GfxVertexBufferView vertexBuffers[15];
-
-    // TODO(james): how do I represent per-draw call shader variables/uniforms
+    GfxTexture texture;
 };
 
-struct GfxDispatchCommand
+struct GfxCopyBufferToTextureCmd
 {
-    u32 groupX;
-    u32 groupY;
-    u32 groupZ;
+    GfxBuffer src;
+    GfxTexture dest;
 };
 
-struct GfxBufferRegion
+struct GfxGenerateMipsCmd
+{
+    GfxTexture texture;
+};
+
+struct GfxBindKernelCmd
+{
+    GfxKernel kernel;
+};
+
+struct GfxBindIndexBufferCmd
 {
     GfxBuffer buffer;
-    umm offset;
-    umm size;
 };
 
-struct GfxImageRegion
+struct GfxBindVertexBufferCmd
 {
-    GfxImage image;
-    umm bufferOffset;
-    umm bufferRowLength;
-    umm bufferHeight;
-    v3 imageOffset;
-    v3 imageExtent;
+    GfxBuffer buffer;
 };
 
-struct GfxCopyCommand
+struct GfxSetViewportCmd
 {
-    // TODO(james): define src and dest
-    union {
-        GfxBufferRegion srcRegion;
-    };
-
-    union {
-        GfxBufferRegion destRegion;
-    };
-    // buffer -> buffer
-    // buffer -> image
-    // image -> buffer
-    // image -> image
+    f32 x;
+    f32 y;
+    f32 width;
+    f32 height;
 };
 
-struct GfxUpdateCommand
+struct GfxSetScissorRectCmd
 {
-    // will move data from CPU -> GPU
+    i32 x;
+    i32 y;
+    i32 width;
+    i32 height;
 };
 
-struct GfxQueryCommand
+struct GfxDrawCmd
 {
-    // will move data from GPU -> CPU?  Readback...
-    // TODO(james): not 100% sure this is the correct nomenclature for a Graphics API Query
+    u32 vertexCount;
+    u32 instanceCount;
+    u32 baseVertex;
+    u32 baseInstance;
 };
 
+struct GfxDrawIndexedCmd
+{
+    u32 indexCount;
+    u32 instanceCount;
+    u32 firstIndex;
+    u32 baseVertex;
+    u32 baseInstance;
+};
 
-struct GfxCommandList
+struct GfxMultiDrawIndirectCmd
+{
+    GfxBuffer argsBuffer;
+    u32 argsCount;
+};
+
+struct GfxMultiDrawIndexedIndirectCmd
+{
+    GfxBuffer argsBuffer;
+    u32 argsCount;
+};
+
+struct GfxDispatchCmd
+{
+    u32 numGroupsX;
+    u32 numGroupsY;
+    u32 numGroupsZ;
+};
+
+struct GfxDispatchIndirectCmd
+{
+    GfxBuffer argsBuffer;
+};
+
+struct GfxMultiDispatchIndirectCmd
+{
+    GfxBuffer argsBuffer;
+    u32 argsCount;
+};
+
+struct GfxBeginTimestampQueryCmd
+{
+};
+
+struct GfxEndTimestampQueryCmd
+{
+};
+
+struct GfxBeginEventCmd
+{
+    char szName[GFX_MAX_EVENT_NAME_LENGTH];
+};
+
+struct GfxBeginColorEventCmd
+{
+    u64 color;
+    char szName[GFX_MAX_EVENT_NAME_LENGTH];
+};
+
+struct GfxEndEventCmd
+{
+};
+
+struct GfxCmdList
 {
     u32 numCommands;
-    GfxCommandHeader* cmds;
+    GfxCmdHeader* cmds;
 };
 
 // TODO(james): Platform has to pass a valid GfxDevice and GfxImage swapchain handle...
 struct gfx_api
 {
-    // TODO(james): Schedule work on different queues (Transfer, Compute, Graphics, etc..)
-    API_FUNCTION(GfxSyncToken, SubmitWork, GfxDevice device, u32 numCommandLists, GfxCommandList* pCommandLists);
-
     // Resource Management
     // TODO(james): Track resource creation with __FILE__, __LINE__ trick?
-    API_FUNCTION(GfxBuffer, CreateBuffer, GfxDevice device, GfxBufferDesc* pBufferDesc);
-    API_FUNCTION(void, DestroyBuffer, GfxDevice device, GfxBuffer buffer);
-    API_FUNCTION(GfxImage, CreateImage, GfxDevice device, GfxImageDesc* pImageDesc);
-    API_FUNCTION(void, DestroyImage, GfxDevice device, GfxImage image);
-    API_FUNCTION(GfxRenderTarget, CreateRenderTarget, GfxDevice device, GfxRenderTargetDesc* pRenderTargetDesc);
-    API_FUNCTION(void, DestroyRenderTarget, GfxDevice device, GfxRenderTarget renderTarget);
-    API_FUNCTION(GfxPipelineState, CreateStateBlock, GfxDevice device, GfxPipelineStateDesc* pStateBlockDesc);
-    API_FUNCTION(void, DestroyStateBlock, GfxDevice device, GfxStateBlock stateBlock);
-    API_FUNCTION(GfxShaderModule, CreateShaderModule, GfxDevice device, GfxShaderDesc* pShaderDesc);
-    API_FUNCTION(void, DestroyShader, GfxDevice device, GfxShaderModule shaderModule);
+    API_FUNCTION(GfxBuffer, CreateBuffer, GfxContext context, GfxBufferDesc* pBufferDesc, void const* data);
+    API_FUNCTION(GfxBuffer, CreateBufferRange, GfxContext context, GfxBufferRangeDesc* pBufferRangeDesc);
+    API_FUNCTION(void*, GetBufferData, GfxContext context, GfxBuffer buffer);
+    API_FUNCTION(GfxResult, DestroyBuffer, GfxContext context, GfxBuffer buffer);
+    
+    API_FUNCTION(GfxImage, CreateImage, GfxContext context, GfxImageDesc* pImageDesc);
+    API_FUNCTION(GfxResult, DestroyImage, GfxContext context, GfxImage image);
+
+    API_FUNCTION(GfxSampler, CreateSampler, GfxContext context, GfxSamplerDesc* pSamplerDesc);
+    API_FUNCTION(GfxResult, DestroySampler, GfxContext context, GfxSampler sampler);
+
+    API_FUNCTION(GfxProgram, CreateProgram, GfxContext context, GfxProgramDesc* pProgramDesc);
+    API_FUNCTION(GfxResult, DestroyProgram, GfxContext context, GfxProgram program);
+    API_FUNCTION(GfxResult, SetProgramBuffer, GfxContext context, GfxProgram program, const char* param_name, GfxBuffer buffer);
+    API_FUNCTION(GfxResult, SetProgramTexture, GfxContext context, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel);
+    API_FUNCTION(GfxResult, SetProgramTextures, GfxContext context, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels);
+    API_FUNCTION(GfxResult, SetProgramSampler, GfxContext context, GfxProgram program, const char* param_name, GfxSampler sampler);
+    API_FUNCTION(GfxResult, SetProgramConstants, GfxContext context, GfxProgram program, const char* param_name, const void* data, u32 size);
+
+    API_FUNCTION(GfxKernel, CreateComputeKernel, GfxContext context, GfxProgram program);
+    API_FUNCTION(GfxKernel, CreateGraphicsKernel, GfxContext context, GfxProgram program, GfxPipelineDesc* pPipelineDesc);
+    API_FUNCTION(GfxResult, DestroyKernel, GfxContext context, GfxKernel kernel);
+
+    // Debug Functions
+    API_FUNCTION(GfxTimestampQuery, CreateTimestampQuery, GfxContext context);
+    API_FUNCTION(GfxResult, DestroyTimestampQuery, GfxContext context, GfxTimestampQuery timestampQuery);
+    API_FUNCTION(f32, GetTimestampQueryDuration, GfxContext context, GfxTimestampQuery timestampQuery);
+
+    // Frame Processing
+    // TODO(james): Schedule work on different queues (Transfer, Compute, Graphics, etc..)
+    API_FUNCTION(GfxResult, SubmitCommands, GfxContext context, u32 count, GfxCmdList* pLists);
+    API_FUNCTION(GfxResult, Frame, GfxContext context, b32 vsync);
+    API_FUNCTION(GfxResult, Finish, GfxContext context);
 };
