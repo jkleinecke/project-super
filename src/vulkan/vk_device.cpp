@@ -2469,21 +2469,30 @@ void VulkanGraphicsEndFrame(vg_backend* vb, render_commands* commands)
     device.currentFrameIndex = (device.currentFrameIndex + 1) % FRAME_OVERLAP;
 }
 
+internal vg_resourceheap* 
+vgAllocateResourceHeap()
+{
+    vg_resourceheap* pHeap = BootstrapPushStructMember(vg_resourceheap, arena);
+
+    // TODO(james): Tune these to the game
+    pHeap->buffers = *hashtable_create(pHeap->arena, vg_buffer*, 1024);
+    pHeap->textures = *hashtable_create(pHeap->arena, vg_image*, 1024);
+    pHeap->samplers = *hashtable_create(pHeap->arena, vg_sampler*, 128);
+    pHeap->programs = *hashtable_create(pHeap->arena, vg_program*, 128);
+    pHeap->kernels = *hashtable_create(pHeap->arena, vg_kernel*, 128);
+
+    return pHeap;
+}
+
 template<typename O, typename H>
 struct ObjectHandleConverter
 {
-    static inline O& From(H h) { ASSERT(h.handle != GFX_INVALID_HANDLE); return *((O*)h.handle); }
+    static inline O& From(H h) { ASSERT(h.handle != GFX_INVALID_HANDLE); return *((O*)h.id); }
     static inline H To(O& object) { return H{(u64)&object}; }
 };
 
 typedef ObjectHandleConverter<vg_device, GfxDevice> DeviceObject;
-typedef ObjectHandleConverter<vg_command_encoder_pool, GfxCmdEncoderPool> CmdEncoderPoolObject;
-typedef ObjectHandleConverter<vg_cmd_context, GfxCmdContext> CmdObject;
-typedef ObjectHandleConverter<vg_buffer, GfxBuffer> BufferObject;
-typedef ObjectHandleConverter<vg_image, GfxTexture> ImageObject;
-typedef ObjectHandleConverter<vg_sampler, GfxSampler> SamplerObject;
-typedef ObjectHandleConverter<vg_program, GfxProgram> ProgramObject;
-typedef ObjectHandleConverter<vg_kernel, GfxKernel> KernelObject;
+
 
 inline GfxResult
 ToGfxResult(VkResult result)
@@ -2514,9 +2523,88 @@ ToGfxResult(VkResult result)
     return GfxResult::InternalError;
 }
 
+GfxResourceHeap CreateResourceHeap( GfxDevice deviceHandle )
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+
+    if(device.resourceHeaps.size() == device.resourceHeaps.capacity())
+    {
+        ASSERT(false);  // out of handles
+        return GfxResourceHeap{GFX_INVALID_HANDLE};
+    }
+
+    vg_resourceheap* pHeap = vgAllocateResourceHeap();
+    u64 key = { HASH(device.resourceHeaps.size()+1) };
+
+    device.resourceHeaps.set(key, pHeap);
+
+    return GfxResourceHeap{deviceHandle.id, key};
+}
+
+GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource )
+{
+    ASSERT(resource.handle != GFX_INVALID_HANDLE);
+
+    // TODO(james): may want to push this onto a free list for the active frame object or something to ensure the GPU isn't using it..
+
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps.get(resource.id);
+
+    // buffer
+    for(auto entry: pHeap->buffers)
+    {
+        vg_buffer& buffer = **entry;
+        vmaDestroyBuffer(device.allocator, buffer.handle, buffer.allocation);
+    }
+
+    // image
+    for(auto entry: pHeap->textures)
+    {
+        vg_image& image = **entry;
+        vkDestroyImageView(device.handle, image.view, nullptr);
+        vmaDestroyImage(device.allocator, image.handle, image.allocation);
+    }
+    
+    // sampler
+    for(auto entry: pHeap->samplers)
+    {
+        vg_sampler& sampler = **entry;
+        vkDestroySampler(device.handle, sampler.handle, nullptr);
+    }
+
+    // kernel
+    for(auto entry: pHeap->kernels)
+    {
+        vg_kernel& kernel = **entry;
+        
+        vkDestroyPipeline(device.handle, kernel.pipeline, nullptr);
+        vkDestroyPipelineLayout(device.handle, kernel.piplineLayout, nullptr);
+        vkDestroyRenderPass(device.handle, kernel.renderpass, nullptr);
+        // framebuffer?
+    }
+
+    // program
+    for(auto entry: pHeap->programs)
+    {
+        vg_program& program = **entry;
+        for(u32 i = 0; i < program.numShaders; ++i)
+        {
+            vkDestroyShaderModule(device.handle, program.shaders[i], nullptr);
+        }
+        // descriptor layout?
+    }
+
+    // now clear the heap memory and erase the key
+    Clear(pHeap->arena);
+    device.resourceHeaps.erase(resource.id);
+
+    return GfxResult::Ok;
+}
+
 GfxBuffer CreateBuffer( GfxDevice deviceHandle, const GfxBufferDesc& bufferDesc, void const* data)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
+    vg_resourceheap& heap = *device.resourceHeaps.get(bufferDesc.heap.id);
 
     VkBufferUsageFlags usage = 0;
     VmaMemoryUsage memUsage = 0;
@@ -2550,45 +2638,53 @@ GfxBuffer CreateBuffer( GfxDevice deviceHandle, const GfxBufferDesc& bufferDesc,
     bufferInfo.usage = usage;
     bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    vg_buffer buffer = {};
+    vg_buffer* buffer = PushStruct(heap.arena, vg_buffer);
 
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = memUsage;
-    VkResult result = vmaCreateBuffer(device.allocator, &bufferInfo, &allocInfo, &buffer.handle, &buffer.allocation, nullptr);
+    VkResult result = vmaCreateBuffer(device.allocator, &bufferInfo, &allocInfo, &buffer->handle, &buffer->allocation, nullptr);
     if(result != VK_SUCCESS) return GfxBuffer{GFX_INVALID_HANDLE};
 
     if(data)
     {
-        vmaMapMemory(device.allocator, buffer.allocation, &buffer.mapped);
-        Copy(bufferDesc.size, data, buffer.mapped);
+        vmaMapMemory(device.allocator, buffer->allocation, &buffer->mapped);
+        Copy(bufferDesc.size, data, buffer->mapped);
     }
 
-    buffer.id = device.buffers.size();
-    device.buffers.push_back(buffer);
+    u64 key = HASH(heap.buffers.size()+1);
+    heap.buffers.set(key, buffer);
 
-    return BufferObject::To(device.buffers.back());
+    return GfxBuffer{ bufferDesc.heap.id, key };
 }
 
-void* GetBufferData( GfxDevice deviceHandle, GfxBuffer bufferHandle)
-{
-    vg_buffer& buff = BufferObject::From(bufferHandle);
-
-    if(!buff.mapped)
-    {
-        vg_device& device = DeviceObject::From(deviceHandle);
-        vmaMapMemory(device.allocator, buff.allocation, &buff.mapped);
-    }
-
-    return buff.mapped;
-}
-
-GfxResult DestroyBuffer( GfxDevice deviceHandle, GfxBuffer bufferHandle)
+void* GetBufferData( GfxDevice deviceHandle, GfxBuffer resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
-    vg_buffer& buff = BufferObject::From(bufferHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps.get(resource.heap);
+    vg_buffer& buffer = pHeap->buffers.get(resource.id);
 
-    vmaDestroyBuffer(device.allocator, buff.handle, buff.allocation);
-    device.buffers.erase(&buff);
+    if(!buffer.mapped)
+    {
+        vmaMapMemory(device.allocator, buffer.allocation, &buffer.mapped);
+    }
+
+    return buffer.mapped;
+}
+
+GfxResult DestroyBuffer( GfxDevice deviceHandle, GfxBuffer resource)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps.get(resource.heap);
+    vg_buffer* buffer = pHeap->buffers.get(resource.id);
+
+    if(buffer->mapped)
+    {
+        vmaUnmapMemory(device.allocator, buffer->allocation);
+        buffer->mapped = 0;
+    }
+
+    vmaDestroyBuffer(device.allocator, buffer->handle, buffer->allocation);
+    pHeap->buffers.erase(resource.id);
 
     return GfxResult::Ok;
 }
@@ -2596,6 +2692,8 @@ GfxResult DestroyBuffer( GfxDevice deviceHandle, GfxBuffer bufferHandle)
 GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps.get(textureDesc.heap.id);
+
     VkImageType imageType = 0;
     VkImageViewType imageViewType = 0;
     VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -2629,7 +2727,7 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
         InvalidDefaultCase;
     }
 
-    vg_image image = {};
+    vg_image* image = PushStruct(pHeap->arena, vg_image);
 
     VkImageCreateInfo imageInfo = { };
 	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -2646,7 +2744,7 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
 
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = memUsage;
-    VkResult result = vmaCreateImage(device.allocator, &imageInfo, &allocInfo, &vg_image.handle, &vg_image.allocation, nullptr);
+    VkResult result = vmaCreateImage(device.allocator, &imageInfo, &allocInfo, &image->handle, &image->allocation, nullptr);
     if(result != VK_SUCCESS) return GfxTexture{GFX_INVALID_HANDLE};
 
     // TODO(james): Look into making this a first class type in the graphics interface since it defines to bind to the shader
@@ -2662,25 +2760,28 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
 	viewInfo.subresourceRange.layerCount = imageInfo.arrayLayers;
 	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
-    result = vkCreateImageView(device.handle, &viewInfo, nullptr, &image.view);
+    result = vkCreateImageView(device.handle, &viewInfo, nullptr, &image->view);
     if(result != VK_SUCCESS)
     {
-        vmaDestroyImage(device.allocator, image.handle, image.allocation);
+        vmaDestroyImage(device.allocator, image->handle, image->allocation);
         return GfxTexture{GFX_INVALID_HANDLE};
     }
 
-    device.images.push_back(image);
-    return ImageObject::To(device.images.back());
+    u64 key = HASH(pHeap->images.size()+1);
+    pHeap->images.set(key, image);
+
+    return GfxTexture{textureDesc.heap.id, key};
 }
 
-GfxResult DestroyTexture( GfxDevice deviceHandle, GfxTexture textureHandle)
+GfxResult DestroyTexture( GfxDevice deviceHandle, GfxTexture resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
-    vg_image& image = ImageObject::From(textureHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps.get(resource.heap)
+    vg_image* image = pHeap->images->get(resource.id);
 
     vkDestroyImageView(device.handle, image.view, nullptr);
     vmaDestroyImage(device.allocator, image.handle, image.allocation);
-    device.images.erase(&image);
+    pHeap->images.erase(resource.id);
 
     return GfxResult::Ok;
 }
@@ -2688,7 +2789,8 @@ GfxResult DestroyTexture( GfxDevice deviceHandle, GfxTexture textureHandle)
 GfxSampler CreateSampler( GfxDevice deviceHandle, const GfxSamplerDesc samplerDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
-    vg_sampler sampler = {};
+    vg_resourceheap* pHeap = device.resourceHeaps.get(samplerDesc.heap.id);
+    vg_sampler* sampler = PushStruct(pHeap->arena, vg_sampler);
 
     VkSamplerCreateInfo samplerInfo = vkInit_sampler_create_info(
         VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT
@@ -2714,38 +2816,42 @@ GfxSampler CreateSampler( GfxDevice deviceHandle, const GfxSamplerDesc samplerDe
     samplerInfo.addressModeV = (VkSamplerAddressMode) samplerDesc.addressMode_V;
     samplerInfo.addressModeW = (VkSamplerAddressMode) samplerDesc.addressMode_W;
     
-    result = vkCreateSampler(device.handle, &samplerInfo, nullptr, &sampler.handle);
+    result = vkCreateSampler(device.handle, &samplerInfo, nullptr, &sampler->handle);
     if(result != VK_SUCCESS) return GfxSampler{GFX_INVALID_HANDLE};
 
-    device.samplers.push_back(sampler);
+    u64 key = HASH(pHeap->samplers.size()+1);
+    pHeap->samplers.set(key, sampler);
 
-    return SamplerObject::To(device.samplers.back());
+    return GfxSampler{samplerDesc.heap.id, key};
 }
 
-GfxResult DestroySampler( GfxDevice deviceHandle, GfxSampler samplerHandle)
+GfxResult DestroySampler( GfxDevice deviceHandle, GfxSampler resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
-    vg_sampler& sampler = SamplerObject::From(samplerHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps.get(resource.heap);
+    vg_sampler* sampler = pHeap->samplers.get(resource.id);
 
-    vkDestroySampler(device.handle, sampler.handle, nullptr);
+    vkDestroySampler(device.handle, sampler->handle, nullptr);
+    pHeap->samplers.erase(resource.id);
 
     return GfxResult::Ok;
 }
 
 inline VkResult 
-CreateProgramShader(VkDevice device, GfxShaderDesc* shaderDesc, vg_program& program)
+CreateProgramShader(VkDevice device, GfxShaderDesc* shaderDesc, vg_program* program)
 {
     VkShaderModuleCreateInfo createInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     createInfo.codeSize = shaderDesc->size;
     createInfo.pCode = (u32*)shaderDesc->data;
-    return vkCreateShaderModule(device, &createInfo, nullptr, &program.shaders[program.numShaders++]);
+    return vkCreateShaderModule(device, &createInfo, nullptr, &program->shaders[program.numShaders++]);
 }
 
 GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programDesc)
 {
     VkResult result = VK_SUCCESS;
     vg_device& device = DeviceObject::From(deviceHandle);
-    vg_program program = {};
+    vg_resourceheap* pHeap = device.resourceHeaps.get(programDesc.heap.id);
+    vg_program* program = PushStruct(pHeap->arena, vg_program);
 
     if(programDesc.compute)
     {
@@ -2779,27 +2885,30 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
     if(result != VK_SUCCESS)
     {
-        for(u32 i = 0; i < program.numShaders; ++i)
+        for(u32 i = 0; i < program->numShaders; ++i)
         {
-            vkDestroyShaderModule(device.handle, program.shaders[i], nullptr);
+            vkDestroyShaderModule(device.handle, program->shaders[i], nullptr);
         }
         return GfxProgram{GFX_INVALID_HANDLE};
     }
 
-    device.programs.push_back(program);
-    return ProgramObject::To(device.programs.back());
+    u64 key = HASH(pHeap->programs.size()+1);
+    pHeap->programs.set(key, program);
+
+    return GfxProgram{programDesc.heap.id, key};
 }
 
-GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram programHandle)
+GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
-    vg_program& program = ProgramObject::From(programHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps.get(resource.heap);
+    vg_program* program = pHeap->programs.get(resource.id);
 
-    for(u32 i = 0; i < program.numShaders; ++i)
+    for(u32 i = 0; i < program->numShaders; ++i)
     {
-        vkDestroyShaderModule(device.handle, program.shaders[i], nullptr);
+        vkDestroyShaderModule(device.handle, program->shaders[i], nullptr);
     }
-    device.programs.erase(&program);
+    pHeap->programs.erase(resource.id);
 
     return GfxResult::Ok;
 }
@@ -2846,131 +2955,267 @@ GfxResult DestroyKernel( GfxDevice deviceHandle, GfxKernel kernel)
 
 GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoderPoolDesc& poolDesc)
 {
-    return GfxCmdEncoderPool{GFX_INVALID_HANDLE};
+    vg_device& device = DeviceObject::From(deviceHandle);
+
+    if(device.encoderPools.full()) return GfxCmdEncoderPool{GFX_INVALID_HANDLE};  // out of handles
+
+    VkCommandPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    poolInfo.queueFamilyIndex = device.q_graphics.queue_family_index;
+
+    vg_command_encoder_pool* pool = PushStruct(device.arena);
+    pool->device = device.handle;
+    VkResult result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &pool->cmdPool);
+    if(result != VK_SUCCESS) return GfxCmdEncoderPool{GFX_INVALID_HANDLE};
+
+    pool->cmdcontexts = *hashtable_create(device.arena, vg_cmd_context*, 32);
+
+    u64 key = HASH(device.encoderPools.size()+1);
+    device.encoderPools.set(key, pool);
+    return GfxCmdEncoderPool{deviceHandle.id, key};
 }
 
-GfxResult DestroyCmdEncoderPool( GfxDevice deviceHandle, GfxCmdEncoderPool pool)
+GfxResult DestroyCmdEncoderPool( GfxDevice deviceHandle, GfxCmdEncoderPool resource)
 {
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_command_encoder_pool* pool = device.encoderPools.get(resource.id);
+
+    // NOTE(james): Technically we're leaking the command contexts here, but since the application
+    //              shouldn't be willy-nilly allocating and destroying pools, we're ok with the
+    //              resource leak
+
+    vkDestroyCommandPool(device.handle, pool->cmdPool, nullptr);
+    device.encoderPools.erase(resource.id);
+
     return GfxResult::Ok;
 }
 
-GfxCmdContext CreateEncoderContext( GfxCmdEncoderPool pool)
+GfxCmdContext CreateEncoderContext( GfxCmdEncoderPool resource)
 {
-    return GfxCmdContext{GFX_INVALID_HANDLE};
+    vg_device& device = DeviceObject::From(resource.deviceId);
+    vg_command_encoder_pool* pool = device.encoderPools.get(resource.id);
+
+    if(pool->cmdcontexts.full()) return GfxCmdContext{};
+
+    VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    allocInfo.commandBufferCount = 1;
+    allocInfo.commandPool = pool->cmdPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    VkCommandBuffer buffer;
+    VkResult result = vkAllocateCommandBuffers(device.handle, &allocInfo, &context->buffer);
+    if(result != VK_SUCCESS) return GfxCmdContext{};
+
+    vg_cmd_context* context = PushStruct(device.arena, vg_cmd_context);
+    context->buffer = buffer;
+
+    u64 key = HASH(pool->cmdcontexts.size()+1);
+    pool->cmdcontexts.set(key, context);
+
+    return GfxCmdContext{resource.deviceId, resource.id, key};
 }
 
-GfxResult ResetCmdEncoderPool( GfxCmdEncoderPool pool)
+GfxResult CreateEncoderContexts(GfxCmdEncoderPool resource, u32 numContexts, GfxCmdContext* pContexts)
 {
+    vg_device& device = DeviceObject::From(resource.deviceId);
+    vg_command_encoder_pool* pool = device.encoderPools.get(resource.id);
+
+    ASSERT(numContexts < 32);
+    VkCommandBuffer buffers[32];
+
+    VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    allocInfo.commandBufferCount = numContexts;
+    allocInfo.commandPool = pool->cmdPool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+    VkCommandBuffer buffer;
+    VkResult result = vkAllocateCommandBuffers(device.handle, &allocInfo, &buffers);
+    if(result != VK_SUCCESS) return ToGfxResult(result);
+
+    for(u32 i = 0; i < numContexts; ++i)
+    {
+        if(pool->cmdcontexts.full()) return GfxResult::OutOfHandles;
+
+        vg_cmd_context* context = PushStruct(device.arena, vg_cmd_context);
+        context->buffer = buffers[i];
+
+        u64 key = HASH(pool->cmdcontexts.size()+1);
+        pool->cmdcontexts.set(key, context);
+        pContexts[i]->deviceId = resource.deviceId;
+        pContexts[i]->poolId = resource.id;
+        pContexts[i]->id = key;
+    }
+
     return GfxResult::Ok;
 }
 
-GfxResult CopyBufferWhole( GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest)
+GfxResult ResetCmdEncoderPool( GfxCmdEncoderPool resource)
 {
+    vg_device& device = DeviceObject::From(resource.deviceId);
+    vg_command_encoder_pool* pool = device.encoderPools.get(resource.id);
+
+    vkResetCommandPool(device.handle, pool->cmdPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+
     return GfxResult::Ok;
 }
 
-GfxResult CopyBufferRange( GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size)
+GfxResult BeginEncodingCmds(GfxCmdContext cmds)
 {
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_command_encoder_pool* pool = device.encoderPools.get(cmds.poolId);
+    vg_cmd_context* context = pool->cmdcontexts.get(cmds.id);
+
+    VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkResult result = vkBeginCommandBuffer(context->buffer, &beginInfo);
+
+    return ToGfxResult(result);
+}
+
+GfxResult EndEncodingCmds(GfxCmdContext cmds)
+{
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_command_encoder_pool* pool = device.encoderPools.get(cmds.poolId);
+    vg_cmd_context* context = pool->cmdcontexts.get(cmds.id);
+
+    VkResult result = vkEndCommandBuffer(context->buffer)
+
+    return ToGfxResult(result);
+}
+
+GfxResult CmdCopyBuffer( GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest)
+{
+    //vkCmdCopyBuffer()
     return GfxResult::Ok;
 }
 
-GfxResult ClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
+GfxResult CmdCopyBufferRange( GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size)
 {
+    //vkCmdCopyBuffer()
     return GfxResult::Ok;
 }
 
-GfxResult ClearBackBuffer( GfxCmdContext cmds)
+GfxResult CmdClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
 {
+    //vkCmdFillBuffer
     return GfxResult::Ok;
 }
 
-GfxResult ClearTexture( GfxCmdContext cmds, GfxTexture texture)
+GfxResult CmdClearBackBuffer( GfxCmdContext cmds)
 {
+    // TODO(james): either use those clear commands or store the data in the context for binding of the render pass
+    //vkCmdClearColorImage??
+    //vkCmdClearDepthStencilImage??
+    //vkCmdClearAttachments
     return GfxResult::Ok;
 }
 
-GfxResult CopyTexture( GfxCmdContext cmds, GfxTexture src, GfxTexture dest)
+GfxResult CmdClearTexture( GfxCmdContext cmds, GfxTexture texture)
 {
+    //vkCmdClearColorImage
     return GfxResult::Ok;
 }
 
-GfxResult ClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice)
+GfxResult CmdCopyTexture( GfxCmdContext cmds, GfxTexture src, GfxTexture dest)
 {
+    //vkCmdCopyImage
     return GfxResult::Ok;
 }
 
-GfxResult CopyTextureToBackBuffer( GfxCmdContext cmds, GfxTexture texture)
+GfxResult CmdClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice)
 {
+    //vkCmdClearColorImage
+    return GfxResult::Ok;
+}
+
+GfxResult CmdCopyTextureToBackBuffer( GfxCmdContext cmds, GfxTexture texture)
+{
+    //vkCmdBlitImage / vkCmdResolveImage??
     return GfxResult::Ok;
 }
  
-GfxResult CopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture dest)
+GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture dest)
 {
+    //vkCmdCopyBufferToImage
     return GfxResult::Ok;
 }
 
-GfxResult GenerateMips( GfxCmdContext cmds, GfxTexture texture)
+GfxResult CmdGenerateMips( GfxCmdContext cmds, GfxTexture texture)
 {
+    // TODO(james): look this up..
     return GfxResult::Ok;
 }
 
-GfxResult BindKernel( GfxCmdContext cmds, GfxKernel kernel)
+GfxResult CmdBindKernel( GfxCmdContext cmds, GfxKernel kernel)
 {
+    // this one is where most of the work will get done..
+    // vkCmdBeginRenderPass / vkCmdEndRenderPass if kernel id is 0
+    // vkCmdBindPipeline
     return GfxResult::Ok;
 }
 
-GfxResult BindIndexBuffer( GfxCmdContext cmds, GfxBuffer indexBuffer)
+GfxResult CmdBindIndexBuffer( GfxCmdContext cmds, GfxBuffer indexBuffer)
 {
+    // vkCmdBindIndexBuffer
     return GfxResult::Ok;
 }
 
-GfxResult BindVertexBuffer( GfxCmdContext cmds, GfxBuffer vertexBuffer)
+GfxResult CmdBindVertexBuffer( GfxCmdContext cmds, GfxBuffer vertexBuffer)
 {
+    // vkCmdBindVertexBuffers
     return GfxResult::Ok;
 }
 
-GfxResult SetViewport( GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height)
+GfxResult CmdSetViewport( GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height)
 {
+    // vkCmdSetViewport
     return GfxResult::Ok;
 }
 
-GfxResult SetScissorRect( GfxCmdContext cmds, i32 x, i32 y, i32 width, i32 height)
+GfxResult CmdSetScissorRect( GfxCmdContext cmds, i32 x, i32 y, i32 width, i32 height)
 {
+    // vkCmdSetScissor
     return GfxResult::Ok;
 }
 
-GfxResult Draw( GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 baseVertex, u32 baseInstance)
+GfxResult CmdDraw( GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 baseVertex, u32 baseInstance)
 {
+    // vkCmdDraw
     return GfxResult::Ok;
 }
 
-GfxResult DrawIndexed( GfxCmdContext cmds, u32 indexCount, u32 instanceCount, u32 firstIndex, u32 baseVertex, u32 baseInstance)
+GfxResult CmdDrawIndexed( GfxCmdContext cmds, u32 indexCount, u32 instanceCount, u32 firstIndex, u32 baseVertex, u32 baseInstance)
 {
+    // vkCmdDrawIndexed
     return GfxResult::Ok;
 }
 
-GfxResult MultiDrawIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
+GfxResult CmdMultiDrawIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
 {
+    // vkCmdDrawIndirect
     return GfxResult::Ok;
 }
 
-GfxResult MultiDrawIndexedIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
+GfxResult CmdMultiDrawIndexedIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
 {
+    // vkCmdDrawIndexedIndirect
     return GfxResult::Ok;
 }
 
-GfxResult Dispatch( GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 numGroupsZ)
+GfxResult CmdDispatch( GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 numGroupsZ)
 {
+    // vkCmdDispatch
     return GfxResult::Ok;
 }
 
-GfxResult DispatchIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer)
+GfxResult CmdDispatchIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer)
 {
+    // vkCmdDispatchIndirect
     return GfxResult::Ok;
 }
 
-GfxResult MultiDispatchIndirect(  GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
+GfxResult CmdMultiDispatchIndirect(  GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
 {
+    // vkCmdDispatchIndirect
     return GfxResult::Ok;
 }
 

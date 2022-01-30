@@ -165,17 +165,14 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         }
 
         // TODO(james): Tune these limits
-        vb.device.heaps = *array<vg_heap>::create(vb.device.resourceArena, )
-        vb.device.encoderPools = *array<vg_command_encoder_pool>::create(vb.device.resourceArena, 32);
-        vb.device.buffers = *array<vg_buffer>::create(vb.device.resourceArena, 1024);
-        vb.device.textures = *array<vg_image>::create(vb.device.resourceArena, 1024);
-        vb.device.samplers = *array<VkSampler>::create(vb.device.resourceArena, 128);
-        vb.device.programs = *array<vg_program>::create(vb.device.resourceArena, 128);
-        vb.device.kernels = *array<vg_kernel>::create(vb.device.resourceArena, 128);
+        vb.device.resourceHeaps = *hashtable_create(vb.device.arena, vg_resourceheap*, 32); // TODO(james): tune this to the actual application
+
+        // NOTE(james): default resource heap is always at key 0
+        vb.device.resourceHeaps.set(0, vgAllocateResourceHeap());
+        vb.device.encoderPools = *hashtable_create(vb.device.arena, vg_command_encoder_pool*, 32); // TODO(james): tune this to the actual application
     }
 
     // now setup the swap chain
-    // TODO(james): Should ALL of this be done in the platform agnostic backend??
     {
 
 #if PROJECTSUPER_WIN32

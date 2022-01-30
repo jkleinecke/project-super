@@ -178,15 +178,19 @@ struct vg_transfer_buffer
     VkDeviceSize    stagingBufferSize;
 };
 
-struct vg_command_encoder_pool
-{
-    VkCommandPool   cmdPool;
-};
 
 struct vg_cmd_context
 {
     VkCommandBuffer buffer;
 
+};
+
+struct vg_command_encoder_pool
+{
+    VkDevice        device;
+    VkCommandPool   cmdPool;
+
+    hashtable<vg_cmd_context*>& cmdcontexts;
 };
 
 struct vg_program
@@ -205,6 +209,17 @@ struct vg_kernel
     VkPipelineLayout layout;
 
     // TODO(james): store shader descriptor map here
+};
+
+struct vg_resourceheap
+{
+    memory_arena arena;
+
+    hashtable<vg_buffer*>& buffers;
+    hashtable<vg_image*>& textures;
+    hashtable<vg_sampler*>& samplers;
+    hashtable<vg_program*>& programs;
+    hashtable<vg_kernel*>& kernels;
 };
 
 struct vg_device
@@ -246,24 +261,16 @@ struct vg_device
 
     // Managed Resources
     VmaAllocator allocator;
+    memory_arena deviceArena;
 
-    memory_arena resourceArena;
-    array<vg_command_encoder_pool>& encoderPools;
-    array<vg_buffer>& buffers;
-    array<vg_image>& textures;
-    array<vg_sampler>& samplers;
-    array<vg_program>& programs;
-    array<vg_kernel>& kernels;
-
+    hashtable<vg_resourceheap*>& resourceHeaps;
+    hashtable<vg_command_encoder_pool*>& encoderPools;
 };
 
 struct vg_backend
 {
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
-
-    // TODO(james): Is this enough room for rendering commands?
-    u8 pushBuffer[U16MAX];
 
     vg_device device;
 };

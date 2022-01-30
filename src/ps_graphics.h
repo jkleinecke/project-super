@@ -18,18 +18,20 @@ enum class GfxResult
     InvalidParameter,
     InvalidOperation,
     OutOfMemory,
-    InternalError
+    OutOfHandles,
+    InternalError,
 };
 
-struct GfxDevice { u64 handle; };
-struct GfxCmdEncoderPool { u64 handle; };
-struct GfxCmdContext { u64 handle; };
-struct GfxBuffer { u64 handle; };
-struct GfxTexture { u64 handle; };
-struct GfxSampler { u64 handle; };
-struct GfxProgram { u64 handle; };
-struct GfxKernel { u64 handle; };
-struct GfxTimestampQuery { u64 handle; };
+struct GfxDevice { u64 id; };
+struct GfxResourceHeap { u64 deviceId; u64 id; };
+struct GfxCmdEncoderPool { u64 deviceId; u64 id; };
+struct GfxCmdContext { u64 deviceId; u64 poolId; u64 id; };
+struct GfxBuffer { u64 heap; u64 id; };
+struct GfxTexture { u64 heap; u64 id; };
+struct GfxSampler { u64 heap; u64 id; };
+struct GfxProgram { u64 heap; u64 id; };
+struct GfxKernel { u64 heap; u64 id; };
+struct GfxTimestampQuery { u64 heap; u64 id; };
 
 enum class GfxMemoryAccess
 {
@@ -56,6 +58,7 @@ struct GfxBufferDesc
     u64 size;
     u32 stride;
     u32 numElements;
+    GfxResourceHeap heap;
 };  
 
 enum class GfxTextureType
@@ -88,6 +91,7 @@ struct GfxTextureDesc
     TinyImageFormat format;     // uses tiny image format to easily convert to graphics backend api format
     u32 mipLevels;
     GfxSampleCount sampleCount;
+    GfxResourceHeap heap;
 };
 
 enum class GfxSamplerAddressMode
@@ -128,6 +132,8 @@ struct GfxSamplerDesc
     GfxSamplerMipMapMode   mipmapMode;
     f32                 minLod;
     f32                 maxLod;
+
+    GfxResourceHeap     heap;
 };
 
 struct GfxShaderDesc
@@ -151,6 +157,8 @@ struct GfxProgramDesc
     };
     GfxShaderDesc* geometry;
     GfxShaderDesc* fragment;
+
+    GfxResourceHeap heap;
 };
 
 enum class GfxPrimitiveTopology
@@ -343,6 +351,8 @@ struct GfxPipelineDesc
 
     GfxSampleCount sampleCount;
     b32 supportIndirectCommandBuffer;
+
+    GfxResourceHeap heap;
 };
 
 enum class GfxQueueType
@@ -361,6 +371,9 @@ struct gfx_api
 {
     // Resource Management
     // TODO(james): Track resource creation with __FILE__, __LINE__ trick?
+    API_FUNCTION(GfxResourceHeap, CreateResourceHeap, GfxDevice device);
+    API_FUNCTION(GfxResult, DestroyResourceHeap, GfxDevice device, GfxResourceHeap heap);
+
     API_FUNCTION(GfxBuffer, CreateBuffer, GfxDevice device, const GfxBufferDesc& bufferDesc, void const* data);
     API_FUNCTION(GfxResult, DestroyBuffer, GfxDevice device, GfxBuffer buffer);
     API_FUNCTION(void*, GetBufferData, GfxDevice device, GfxBuffer buffer);
@@ -388,35 +401,41 @@ struct gfx_api
     API_FUNCTION(GfxResult, DestroyCmdEncoderPool, GfxDevice device, GfxCmdEncoderPool pool);
 
     API_FUNCTION(GfxCmdContext, CreateEncoderContext, GfxCmdEncoderPool pool);
+    API_FUNCTION(GfxResult, DestroyEncoderContext, GfxCmdEncoderPool pool, GfxCmdContext);
+    API_FUNCTION(GfxResult, CreateEncoderContexts, GfxCmdEncoderPool pool, u32 numContexts, GfxCmdContext* pContexts);
+    API_FUNCTION(GfxResult, DestroyEncoderContexts, GfxCmdEncoderPool pool, u32 numContexts, GfxCmdContext* pContexts);
+
     API_FUNCTION(GfxResult, ResetCmdEncoderPool, GfxCmdEncoderPool pool);
+    API_FUNCTION(GfxResult, BeginEncodingCmds, GfxCmdContext cmds);
+    API_FUNCTION(GfxResult, EndEncodingCmds, GfxCmdContext cmds);
 
-    API_FUNCTION(GfxResult, CopyBufferWhole, GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest);
-    API_FUNCTION(GfxResult, CopyBufferRange, GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size);
-    API_FUNCTION(GfxResult, ClearBuffer, GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue);
+    API_FUNCTION(GfxResult, CmdCopyBuffer, GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest);
+    API_FUNCTION(GfxResult, CmdCopyBufferRange, GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size);
+    API_FUNCTION(GfxResult, CmdClearBuffer, GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue);
     
-    API_FUNCTION(GfxResult, ClearBackBuffer, GfxCmdContext cmds);
-    API_FUNCTION(GfxResult, ClearTexture, GfxCmdContext cmds, GfxTexture texture);
-    API_FUNCTION(GfxResult, CopyTexture, GfxCmdContext cmds, GfxTexture src, GfxTexture dest);
-    API_FUNCTION(GfxResult, ClearImage, GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice);
+    API_FUNCTION(GfxResult, CmdClearBackBuffer, GfxCmdContext cmds);
+    API_FUNCTION(GfxResult, CmdClearTexture, GfxCmdContext cmds, GfxTexture texture);
+    API_FUNCTION(GfxResult, CmdCopyTexture, GfxCmdContext cmds, GfxTexture src, GfxTexture dest);
+    API_FUNCTION(GfxResult, CmdClearImage, GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice);
 
-    API_FUNCTION(GfxResult, CopyTextureToBackBuffer, GfxCmdContext cmds, GfxTexture texture); 
-    API_FUNCTION(GfxResult, CopyBufferToTexture, GfxCmdContext cmds, GfxBuffer src, GfxTexture dest);
-    API_FUNCTION(GfxResult, GenerateMips, GfxCmdContext cmds, GfxTexture texture);
+    API_FUNCTION(GfxResult, CmdCopyTextureToBackBuffer, GfxCmdContext cmds, GfxTexture texture); 
+    API_FUNCTION(GfxResult, CmdCopyBufferToTexture, GfxCmdContext cmds, GfxBuffer src, GfxTexture dest);
+    API_FUNCTION(GfxResult, CmdGenerateMips, GfxCmdContext cmds, GfxTexture texture);
 
-    API_FUNCTION(GfxResult, BindKernel, GfxCmdContext cmds, GfxKernel kernel);
-    API_FUNCTION(GfxResult, BindIndexBuffer, GfxCmdContext cmds, GfxBuffer indexBuffer);
-    API_FUNCTION(GfxResult, BindVertexBuffer, GfxCmdContext cmds, GfxBuffer vertexBuffer);
+    API_FUNCTION(GfxResult, CmdBindKernel, GfxCmdContext cmds, GfxKernel kernel);
+    API_FUNCTION(GfxResult, CmdBindIndexBuffer, GfxCmdContext cmds, GfxBuffer indexBuffer);
+    API_FUNCTION(GfxResult, CmdBindVertexBuffer, GfxCmdContext cmds, GfxBuffer vertexBuffer);
 
-    API_FUNCTION(GfxResult, SetViewport, GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height);
-    API_FUNCTION(GfxResult, SetScissorRect, GfxCmdContext cmds, i32 x, i32 y, i32 width, i32 height);
+    API_FUNCTION(GfxResult, CmdSetViewport, GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height);
+    API_FUNCTION(GfxResult, CmdSetScissorRect, GfxCmdContext cmds, i32 x, i32 y, i32 width, i32 height);
 
-    API_FUNCTION(GfxResult, Draw, GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 baseVertex, u32 baseInstance);
-    API_FUNCTION(GfxResult, DrawIndexed, GfxCmdContext cmds, u32 indexCount, u32 instanceCount, u32 firstIndex, u32 baseVertex, u32 baseInstance);
-    API_FUNCTION(GfxResult, MultiDrawIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
-    API_FUNCTION(GfxResult, MultiDrawIndexedIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
-    API_FUNCTION(GfxResult, Dispatch, GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 numGroupsZ);
-    API_FUNCTION(GfxResult, DispatchIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer);
-    API_FUNCTION(GfxResult, MultiDispatchIndirect,  GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
+    API_FUNCTION(GfxResult, CmdDraw, GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 baseVertex, u32 baseInstance);
+    API_FUNCTION(GfxResult, CmdDrawIndexed, GfxCmdContext cmds, u32 indexCount, u32 instanceCount, u32 firstIndex, u32 baseVertex, u32 baseInstance);
+    API_FUNCTION(GfxResult, CmdMultiDrawIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
+    API_FUNCTION(GfxResult, CmdMultiDrawIndexedIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
+    API_FUNCTION(GfxResult, CmdDispatch, GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 numGroupsZ);
+    API_FUNCTION(GfxResult, CmdDispatchIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer);
+    API_FUNCTION(GfxResult, CmdMultiDispatchIndirect,  GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
 
     // Frame Processing
     // TODO(james): Schedule work on different queues (Transfer, Compute, Graphics, etc..)
