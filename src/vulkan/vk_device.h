@@ -12,20 +12,16 @@ struct vg_render_commands
 
 struct vg_buffer
 {
-    render_buffer_id id;
-    
     VkBuffer handle;
-    VkDeviceMemory memory;
+    VmaAllocation allocation;
     void* mapped;
 };
 
 struct vg_image
 {
-    render_image_id id;
-
     VkImage handle;
     VkImageView view;
-    VkDeviceMemory memory;
+    VmaAllocation allocation;
 };
 
 struct vg_sampler
@@ -182,6 +178,35 @@ struct vg_transfer_buffer
     VkDeviceSize    stagingBufferSize;
 };
 
+struct vg_command_encoder_pool
+{
+    VkCommandPool   cmdPool;
+};
+
+struct vg_cmd_context
+{
+    VkCommandBuffer buffer;
+
+};
+
+struct vg_program
+{
+    u32 numShaders;
+    VkShaderModule shaders[6];
+    
+    // TODO(james): store shader reflection data here..
+};
+
+struct vg_kernel
+{
+    VkRenderPass renderpass;
+
+    VkPipeline pipeline;
+    VkPipelineLayout layout;
+
+    // TODO(james): store shader descriptor map here
+};
+
 struct vg_device
 {
     VkDevice handle;
@@ -218,6 +243,18 @@ struct vg_device
     VkExtent2D extent;
     VkRenderPass screenRenderPass;
     vg_image depth_image;
+
+    // Managed Resources
+    VmaAllocator allocator;
+
+    memory_arena resourceArena;
+    array<vg_command_encoder_pool>& encoderPools;
+    array<vg_buffer>& buffers;
+    array<vg_image>& textures;
+    array<vg_sampler>& samplers;
+    array<vg_program>& programs;
+    array<vg_kernel>& kernels;
+
 };
 
 struct vg_backend

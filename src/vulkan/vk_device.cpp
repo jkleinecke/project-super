@@ -927,7 +927,6 @@ void vgCopyBufferToImage(vg_device& device, vg_buffer& buffer, vg_image& image, 
     region.imageOffset = {0,0,0};
     region.imageExtent = { width, height, 1 };
 
-    vkCmdCopyImageToImage
     vkCmdCopyBufferToImage(commandBuffer, buffer.handle, image.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     vgEndSingleTimeCommands(device, commandBuffer);
@@ -1072,6 +1071,20 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
 
         vkGetDeviceQueue(device.handle, graphicsQueueIndex, 0, &device.q_graphics.handle);
         vkGetDeviceQueue(device.handle, presentQueueIndex, 0, &device.q_present.handle);
+    }
+
+    // Create the Vulkan Memory Allocator
+    {
+        VmaAllocatorCreateInfo allocInfo = {};
+        allocInfo.vulkanApiVersion = VK_API_VERSION_1_2;
+        allocInfo.physicalDevice = device.physicalDevice;
+        allocInfo.device = device.handle;
+        allocInfo.instance = vb.instance;
+        allocInfo.frameInUseCount = FRAME_OVERLAP - 1;
+        // NOTE(james): since we will handle our own synchronization on allocations, we don't want the allocator to use mutexes internally
+        allocInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT; 
+
+        vmaCreateAllocator(&allocInfo, &device.allocator);
     }
 
 #undef VERIFY_SUCCESS
@@ -2454,4 +2467,564 @@ void VulkanGraphicsEndFrame(vg_backend* vb, render_commands* commands)
     }
 
     device.currentFrameIndex = (device.currentFrameIndex + 1) % FRAME_OVERLAP;
+}
+
+template<typename O, typename H>
+struct ObjectHandleConverter
+{
+    static inline O& From(H h) { ASSERT(h.handle != GFX_INVALID_HANDLE); return *((O*)h.handle); }
+    static inline H To(O& object) { return H{(u64)&object}; }
+};
+
+typedef ObjectHandleConverter<vg_device, GfxDevice> DeviceObject;
+typedef ObjectHandleConverter<vg_command_encoder_pool, GfxCmdEncoderPool> CmdEncoderPoolObject;
+typedef ObjectHandleConverter<vg_cmd_context, GfxCmdContext> CmdObject;
+typedef ObjectHandleConverter<vg_buffer, GfxBuffer> BufferObject;
+typedef ObjectHandleConverter<vg_image, GfxTexture> ImageObject;
+typedef ObjectHandleConverter<vg_sampler, GfxSampler> SamplerObject;
+typedef ObjectHandleConverter<vg_program, GfxProgram> ProgramObject;
+typedef ObjectHandleConverter<vg_kernel, GfxKernel> KernelObject;
+
+inline GfxResult
+ToGfxResult(VkResult result)
+{
+    switch(result)
+    {
+        case VK_SUCCESS: return GfxResult::Ok;
+
+        case VK_ERROR_NOT_PERMITTED_EXT:
+        case VK_INCOMPLETE: return GfxResult::InvalidOperation;
+
+        case VK_ERROR_INVALID_SHADER_NV:
+        case VK_ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS:
+        case VK_ERROR_INVALID_EXTERNAL_HANDLE:    
+        case VK_ERROR_FORMAT_NOT_SUPPORTED:
+        case VK_ERROR_LAYER_NOT_PRESENT: 
+        case VK_ERROR_EXTENSION_NOT_PRESENT: 
+        case VK_ERROR_FEATURE_NOT_PRESENT: return GfxResult::InvalidParameter;
+        
+        case VK_ERROR_FRAGMENTATION:
+        case VK_ERROR_OUT_OF_POOL_MEMORY:
+        case VK_ERROR_OUT_OF_HOST_MEMORY: 
+        case VK_ERROR_OUT_OF_DEVICE_MEMORY: 
+        case VK_ERROR_TOO_MANY_OBJECTS: 
+        case VK_ERROR_TOO_MANY_OBJECTS: return GfxResult::OutOfMemory;
+    }
+
+    return GfxResult::InternalError;
+}
+
+GfxBuffer CreateBuffer( GfxDevice deviceHandle, const GfxBufferDesc& bufferDesc, void const* data)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+
+    VkBufferUsageFlags usage = 0;
+    VmaMemoryUsage memUsage = 0;
+
+    if(IS_FLAG_BIT_SET(bufferDesc.usageFlags, GfxBufferUsageFlags::Uniform)) usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    if(IS_FLAG_BIT_SET(bufferDesc.usageFlags, GfxBufferUsageFlags::Vertex)) usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    if(IS_FLAG_BIT_SET(bufferDesc.usageFlags, GfxBufferUsageFlags::Index)) usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    if(IS_FLAG_BIT_SET(bufferDesc.usageFlags, GfxBufferUsageFlags::Storage)) usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+
+    switch(bufferDesc.access)
+    {
+        case GfxMemoryAccess::GpuOnly:
+            usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            memUsage = VMA_MEMORY_USAGE_GPU_ONLY;
+            break;
+        case GfxMemoryAccess::CpuOnly:
+            usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+            memUsage = VMA_MEMORY_USAGE_CPU_ONLY;
+            break;
+        case GfxMemoryAccess::CpuToGpu:
+            memUsage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            break;
+        case GfxMemoryAccess::GpuToCpu:
+            memUsage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+            break;
+    }
+
+    VkBufferCreateInfo bufferInfo{};
+    bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    bufferInfo.size = (VkDeviceSize)bufferDesc.size;
+    bufferInfo.usage = usage;
+    bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    vg_buffer buffer = {};
+
+    VmaAllocationCreateInfo allocInfo = {};
+    allocInfo.usage = memUsage;
+    VkResult result = vmaCreateBuffer(device.allocator, &bufferInfo, &allocInfo, &buffer.handle, &buffer.allocation, nullptr);
+    if(result != VK_SUCCESS) return GfxBuffer{GFX_INVALID_HANDLE};
+
+    if(data)
+    {
+        vmaMapMemory(device.allocator, buffer.allocation, &buffer.mapped);
+        Copy(bufferDesc.size, data, buffer.mapped);
+    }
+
+    buffer.id = device.buffers.size();
+    device.buffers.push_back(buffer);
+
+    return BufferObject::To(device.buffers.back());
+}
+
+void* GetBufferData( GfxDevice deviceHandle, GfxBuffer bufferHandle)
+{
+    vg_buffer& buff = BufferObject::From(bufferHandle);
+
+    if(!buff.mapped)
+    {
+        vg_device& device = DeviceObject::From(deviceHandle);
+        vmaMapMemory(device.allocator, buff.allocation, &buff.mapped);
+    }
+
+    return buff.mapped;
+}
+
+GfxResult DestroyBuffer( GfxDevice deviceHandle, GfxBuffer bufferHandle)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_buffer& buff = BufferObject::From(bufferHandle);
+
+    vmaDestroyBuffer(device.allocator, buff.handle, buff.allocation);
+    device.buffers.erase(&buff);
+
+    return GfxResult::Ok;
+}
+
+GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureDesc)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    VkImageType imageType = 0;
+    VkImageViewType imageViewType = 0;
+    VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
+    VmaMemoryUsage memUsage = 0;
+    
+    switch(textureDesc.access)
+    {
+        case GfxMemoryAccess::GpuOnly:
+            memUsage = VMA_MEMORY_USAGE_GPU_ONLY;
+            break;
+        case GfxMemoryAccess::CpuOnly:
+            tiling = VK_IMAGE_TILING_LINEAR;
+            memUsage = VMA_MEMORY_USAGE_CPU_ONLY;
+            break;
+        case GfxMemoryAccess::CpuToGpu:
+            tiling = VK_IMAGE_TILING_LINEAR;
+            memUsage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            break;
+        case GfxMemoryAccess::GpuToCpu:
+            tiling = VK_IMAGE_TILING_LINEAR;
+            memUsage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+            break;
+    }
+
+    switch(textureDesc.type)
+    {
+        case GfxTextureType::Tex2D: imageType = VK_IMAGE_TYPE_2D; imageViewType = VK_IMAGE_VIEW_TYPE_2D; break;
+        case GfxTextureType::Tex2DArray: imageType = VK_IMAGE_TYPE_2D; imageViewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY; break;
+        case GfxTextureType::Tex3D: imageType = VK_IMAGE_TYPE_3D; imageViewType = VK_IMAGE_VIEW_TYPE_3D; break;
+        case GfxTextureType::Cube: imageType = VK_IMAGE_TYPE_2D; imageViewType = VK_IMAGE_VIEW_TYPE_CUBE; break;
+        InvalidDefaultCase;
+    }
+
+    vg_image image = {};
+
+    VkImageCreateInfo imageInfo = { };
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.pNext = nullptr;
+	imageInfo.imageType = imageType;
+	imageInfo.format = TinyImageFormat_ToVkFormat(textureDesc.format);
+	imageInfo.extent = { textureDesc.width, textureDesc.height, textureDesc.depth };
+	imageInfo.mipLevels = textureDesc.mipLevels > 0 ? textureDesc.mipLevels : 1;
+	imageInfo.arrayLayers = textureDesc.slice_count > 0 ? textureDesc.mipLevels : 1;
+	imageInfo.samples = textureDesc.sampleCount;
+	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    imageInfo.tiling = tiling;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VmaAllocationCreateInfo allocInfo = {};
+    allocInfo.usage = memUsage;
+    VkResult result = vmaCreateImage(device.allocator, &imageInfo, &allocInfo, &vg_image.handle, &vg_image.allocation, nullptr);
+    if(result != VK_SUCCESS) return GfxTexture{GFX_INVALID_HANDLE};
+
+    // TODO(james): Look into making this a first class type in the graphics interface since it defines to bind to the shader
+    VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.pNext = nullptr;
+	viewInfo.viewType = imageViewType;
+	viewInfo.image = image;
+	viewInfo.format = imageInfo.format;
+	viewInfo.subresourceRange.baseMipLevel = 0;
+	viewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = imageInfo.arrayLayers;
+	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    result = vkCreateImageView(device.handle, &viewInfo, nullptr, &image.view);
+    if(result != VK_SUCCESS)
+    {
+        vmaDestroyImage(device.allocator, image.handle, image.allocation);
+        return GfxTexture{GFX_INVALID_HANDLE};
+    }
+
+    device.images.push_back(image);
+    return ImageObject::To(device.images.back());
+}
+
+GfxResult DestroyTexture( GfxDevice deviceHandle, GfxTexture textureHandle)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_image& image = ImageObject::From(textureHandle);
+
+    vkDestroyImageView(device.handle, image.view, nullptr);
+    vmaDestroyImage(device.allocator, image.handle, image.allocation);
+    device.images.erase(&image);
+
+    return GfxResult::Ok;
+}
+
+GfxSampler CreateSampler( GfxDevice deviceHandle, const GfxSamplerDesc samplerDesc)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_sampler sampler = {};
+
+    VkSamplerCreateInfo samplerInfo = vkInit_sampler_create_info(
+        VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT
+    );
+    samplerInfo.anisotropyEnable = samplerDesc.enableAnisotropy ? VK_TRUE : VK_FALSE;
+    samplerInfo.maxAnisotropy = device.device_properties.limits.maxSamplerAnisotropy;
+    
+    samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    samplerInfo.unnormalizedCoordinates = samplerDesc.coordinatesNotNormalized ? VK_TRUE : VK_FALSE;     // False = [0..1,0..1], [True = 0..Width, 0..Height]
+    
+    samplerInfo.compareEnable = VK_FALSE;
+    samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
+
+    samplerInfo.mipmapMode = (VkSamplerMipmapMode) samplerDesc.mipmapMode;
+    samplerInfo.mipLodBias = samplerDesc.mipLodBias;
+    samplerInfo.minLod = samplerDesc.minLod;
+    samplerInfo.maxLod = samplerDesc.maxLod;
+
+    samplerInfo.minFilter = (VkFilter) samplerDesc.minFilter;
+    samplerInfo.magFilter = (VkFilter) samplerDesc.magFilter;
+
+    samplerInfo.addressModeU = (VkSamplerAddressMode) samplerDesc.addressMode_U;
+    samplerInfo.addressModeV = (VkSamplerAddressMode) samplerDesc.addressMode_V;
+    samplerInfo.addressModeW = (VkSamplerAddressMode) samplerDesc.addressMode_W;
+    
+    result = vkCreateSampler(device.handle, &samplerInfo, nullptr, &sampler.handle);
+    if(result != VK_SUCCESS) return GfxSampler{GFX_INVALID_HANDLE};
+
+    device.samplers.push_back(sampler);
+
+    return SamplerObject::To(device.samplers.back());
+}
+
+GfxResult DestroySampler( GfxDevice deviceHandle, GfxSampler samplerHandle)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_sampler& sampler = SamplerObject::From(samplerHandle);
+
+    vkDestroySampler(device.handle, sampler.handle, nullptr);
+
+    return GfxResult::Ok;
+}
+
+inline VkResult 
+CreateProgramShader(VkDevice device, GfxShaderDesc* shaderDesc, vg_program& program)
+{
+    VkShaderModuleCreateInfo createInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+    createInfo.codeSize = shaderDesc->size;
+    createInfo.pCode = (u32*)shaderDesc->data;
+    return vkCreateShaderModule(device, &createInfo, nullptr, &program.shaders[program.numShaders++]);
+}
+
+GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programDesc)
+{
+    VkResult result = VK_SUCCESS;
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_program program = {};
+
+    if(programDesc.compute)
+    {
+        result = CreateProgramShader(device.handle, programDesc.compute, program);
+    }
+    
+    if(programDesc.vertex && result == VK_SUCCESS)
+    {
+        result = CreateProgramShader(device.handle, programDesc.vertex, program);
+    }
+    
+    if(programDesc.hull && result == VK_SUCCESS)
+    {
+        result = CreateProgramShader(device.handle, programDesc.hull, program);
+    }
+    
+    if(programDesc.domain && result == VK_SUCCESS)
+    {
+        result = CreateProgramShader(device.handle, programDesc.domain, program);
+    }
+    
+    if(programDesc.geometry && result == VK_SUCCESS)
+    {
+        result = CreateProgramShader(device.handle, programDesc.geometry, program);
+    }
+    
+    if(programDesc.fragment && result == VK_SUCCESS)
+    {
+        result = CreateProgramShader(device.handle, programDesc.fragment, program);
+    }
+
+    if(result != VK_SUCCESS)
+    {
+        for(u32 i = 0; i < program.numShaders; ++i)
+        {
+            vkDestroyShaderModule(device.handle, program.shaders[i], nullptr);
+        }
+        return GfxProgram{GFX_INVALID_HANDLE};
+    }
+
+    device.programs.push_back(program);
+    return ProgramObject::To(device.programs.back());
+}
+
+GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram programHandle)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_program& program = ProgramObject::From(programHandle);
+
+    for(u32 i = 0; i < program.numShaders; ++i)
+    {
+        vkDestroyShaderModule(device.handle, program.shaders[i], nullptr);
+    }
+    device.programs.erase(&program);
+
+    return GfxResult::Ok;
+}
+
+GfxResult SetProgramBuffer( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxBuffer buffer)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult SetProgramTexture( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult SetProgramTextures( GfxDevice deviceHandle, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult SetProgramSampler( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxSampler sampler)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult SetProgramConstants( GfxDevice deviceHandle, GfxProgram program, const char* param_name, const void* data, u32 size)
+{
+    return GfxResult::Ok;
+}
+
+GfxKernel CreateComputeKernel( GfxDevice deviceHandle, GfxProgram program)
+{
+    return GfxKernel{GFX_INVALID_HANDLE};
+}
+
+GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram program, const GfxPipelineDesc& pipelineDesc)
+{
+    return GfxKernel{GFX_INVALID_HANDLE};
+}
+
+GfxResult DestroyKernel( GfxDevice deviceHandle, GfxKernel kernel)
+{
+    return GfxResult::Ok;
+}
+
+GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoderPoolDesc& poolDesc)
+{
+    return GfxCmdEncoderPool{GFX_INVALID_HANDLE};
+}
+
+GfxResult DestroyCmdEncoderPool( GfxDevice deviceHandle, GfxCmdEncoderPool pool)
+{
+    return GfxResult::Ok;
+}
+
+GfxCmdContext CreateEncoderContext( GfxCmdEncoderPool pool)
+{
+    return GfxCmdContext{GFX_INVALID_HANDLE};
+}
+
+GfxResult ResetCmdEncoderPool( GfxCmdEncoderPool pool)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult CopyBufferWhole( GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult CopyBufferRange( GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult ClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult ClearBackBuffer( GfxCmdContext cmds)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult ClearTexture( GfxCmdContext cmds, GfxTexture texture)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult CopyTexture( GfxCmdContext cmds, GfxTexture src, GfxTexture dest)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult ClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult CopyTextureToBackBuffer( GfxCmdContext cmds, GfxTexture texture)
+{
+    return GfxResult::Ok;
+}
+ 
+GfxResult CopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture dest)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult GenerateMips( GfxCmdContext cmds, GfxTexture texture)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult BindKernel( GfxCmdContext cmds, GfxKernel kernel)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult BindIndexBuffer( GfxCmdContext cmds, GfxBuffer indexBuffer)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult BindVertexBuffer( GfxCmdContext cmds, GfxBuffer vertexBuffer)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult SetViewport( GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult SetScissorRect( GfxCmdContext cmds, i32 x, i32 y, i32 width, i32 height)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult Draw( GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 baseVertex, u32 baseInstance)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult DrawIndexed( GfxCmdContext cmds, u32 indexCount, u32 instanceCount, u32 firstIndex, u32 baseVertex, u32 baseInstance)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult MultiDrawIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult MultiDrawIndexedIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult Dispatch( GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 numGroupsZ)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult DispatchIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult MultiDispatchIndirect(  GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult SubmitCommands( GfxDevice deviceHandle, u32 count, GfxCmdList* pLists)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult Frame( GfxDevice deviceHandle, b32 vsync)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult Finish( GfxDevice deviceHandle)
+{
+    return GfxResult::Ok;
+}
+
+GfxTimestampQuery CreateTimestampQuery( GfxDevice deviceHandle)
+{
+    return GfxTimestampQuery{GFX_INVALID_HANDLE};
+}
+
+GfxResult DestroyTimestampQuery( GfxDevice deviceHandle, GfxTimestampQuery timestampQuery)
+{
+    return GfxResult::Ok;
+}
+
+f32 GetTimestampQueryDuration( GfxDevice deviceHandle, GfxTimestampQuery timestampQuery)
+{
+    return 0.0f;
+}
+
+GfxResult BeginTimestampQuery( GfxCmdContext cmds, GfxTimestampQuery query)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult EndTimestampQuery( GfxCmdContext cmds, GfxTimestampQuery query)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult BeginEvent( GfxCmdContext cmds, const char* name)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult BeginColorEvent( GfxCmdContext cmds, const char* name)
+{
+    return GfxResult::Ok;
+}
+
+GfxResult EndEvent( GfxCmdContext cmds)
+{
+    return GfxResult::Ok;
 }

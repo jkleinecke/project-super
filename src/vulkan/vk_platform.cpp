@@ -16,6 +16,9 @@
 #include <cstdint>
 #include <algorithm>
 
+#define VMA_IMPLEMENTATION
+#include <VulkanMemoryAllocator/include/vk_mem_alloc.h>
+
 #include "../ps_image.h"            // this may not be the right place for this include
 #include "../ps_render.h"
 #include "vk_device.cpp"
@@ -160,6 +163,15 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
             ASSERT(false);
             vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
         }
+
+        // TODO(james): Tune these limits
+        vb.device.heaps = *array<vg_heap>::create(vb.device.resourceArena, )
+        vb.device.encoderPools = *array<vg_command_encoder_pool>::create(vb.device.resourceArena, 32);
+        vb.device.buffers = *array<vg_buffer>::create(vb.device.resourceArena, 1024);
+        vb.device.textures = *array<vg_image>::create(vb.device.resourceArena, 1024);
+        vb.device.samplers = *array<VkSampler>::create(vb.device.resourceArena, 128);
+        vb.device.programs = *array<vg_program>::create(vb.device.resourceArena, 128);
+        vb.device.kernels = *array<vg_kernel>::create(vb.device.resourceArena, 128);
     }
 
     // now setup the swap chain
