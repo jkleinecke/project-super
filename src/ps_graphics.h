@@ -332,9 +332,26 @@ struct GfxBlendState
 //     GfxVertexAttrib attribs[15];    // TODO(james): set size as define/enum/constant
 // };
 
-struct GfxRenderTargetDesc
+enum class GfxLoadAction
+{
+    DontCare,
+    Load,
+    Clear,
+};
+
+struct GfxColorTargetDesc
 {
     GfxTexture texture;
+    GfxLoadAction loadOp;
+    u32 mipLevel;
+    u32 slice;
+};
+
+struct GfxDepthStencilTargetDesc
+{
+    GfxTexture texture;
+    GfxLoadAction depthLoadOp;
+    GfxLoadAction stencilLoadOp;
     u32 mipLevel;
     u32 slice;
 };
@@ -346,8 +363,8 @@ struct GfxPipelineDesc
     GfxRasterizerState rasterizerState;
     GfxPrimitiveTopology primitiveTopology;
     
-    GfxRenderTargetDesc colorTargets[GFX_MAX_RENDERTARGETS];
-    GfxRenderTargetDesc depthStencilTarget;
+    GfxColorTargetDesc colorTargets[GFX_MAX_RENDERTARGETS];
+    GfxDepthStencilTargetDesc depthStencilTarget;
 
     GfxSampleCount sampleCount;
     b32 supportIndirectCommandBuffer;

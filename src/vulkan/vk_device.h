@@ -22,6 +22,13 @@ struct vg_image
     VkImage handle;
     VkImageView view;
     VmaAllocation allocation;
+
+    VkFormat format;
+    VkImageLayout curLayout;
+
+    u32 width;
+    u32 height;
+    u32 layers;
 };
 
 struct vg_sampler
@@ -187,7 +194,6 @@ struct vg_cmd_context
 
 struct vg_command_encoder_pool
 {
-    VkDevice        device;
     VkCommandPool   cmdPool;
 
     hashtable<vg_cmd_context*>& cmdcontexts;
@@ -204,6 +210,7 @@ struct vg_program
 struct vg_kernel
 {
     VkRenderPass renderpass;
+    VkFramebuffer framebuffer;
 
     VkPipeline pipeline;
     VkPipelineLayout layout;
@@ -261,7 +268,7 @@ struct vg_device
 
     // Managed Resources
     VmaAllocator allocator;
-    memory_arena deviceArena;
+    memory_arena arena;
 
     hashtable<vg_resourceheap*>& resourceHeaps;
     hashtable<vg_command_encoder_pool*>& encoderPools;

@@ -2943,9 +2943,179 @@ GfxKernel CreateComputeKernel( GfxDevice deviceHandle, GfxProgram program)
     return GfxKernel{GFX_INVALID_HANDLE};
 }
 
-GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram program, const GfxPipelineDesc& pipelineDesc)
+inline VkAttachmentLoadOp
+ConvertLoadOp(GfxLoadAction action)
 {
-    return GfxKernel{GFX_INVALID_HANDLE};
+    switch(action)
+    {
+        case GfxLoadAction::DontCare: return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        case GfxLoadAction::Load: return VK_ATTACHMENT_LOAD_OP_LOAD;
+        case GfxLoadAction::Clear: return VK_ATTACHMENT_LOAD_OP_CLEAR;
+        InvalidDefaultCase;
+    }
+
+    return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+}
+
+GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, const GfxPipelineDesc& pipelineDesc)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps.get(resource.heap);
+    vg_program& program = pHeap->programs.get(resource.id);
+    pHeap = device.resourceHeaps.get(pipelineDesc.heap.id);
+
+    u32 width = 0;
+    u32 height = 0;
+    u32 layers = 0;
+
+    u32 numRTs = 0;
+    VkAttachmentDescription attachments[GFX_MAX_RENDERTARGETS + 1]; // add 1 for the depth attachment
+    VkAttachmentReference colorRefs[GFX_MAX_RENDERTARGETS];
+    VkImageView framebufferViews[GFX_MAX_RENDERTARGETS+1];
+    
+    VkSubpassDescription subpass{};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+
+    // TODO(james): add load/store ops to RT description
+
+    for(u32 i = 0; i < GFX_MAX_RENDERTARGETS; ++i)
+    {
+        GfxColorTargetDesc& target = pipelineDesc.colorTargets[i];
+        if(target.texture.id)
+        {
+            vg_resourceheap* pTexHeap = device.resourceHeaps.get(target.texture.heap);
+            vg_image* pImage = pTexHeap->images.get(target.texture.id);
+
+            width = pImage->width;
+            height = pImage->height;
+            layers = pImage->layers;
+
+            VkAttachmentDescription colorAttachment = {};
+            colorAttachment.format = pImage->format;
+            colorAttachment.samples = pipelineDesc.sampleCount;
+            colorAttachment.loadOp = ConvertLoadOp(target.loadOp);
+            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+            colorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;  
+            
+            attachments[numRTs] = colorAttachment;
+            framebufferViews[numRTs] = pImage->view;
+
+            VkAttachmentReference colorRef = {};
+            colorRef.attachment = numRTs;
+            colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+            colorRefs[numRTs++] = colorRef;
+        }
+    }
+
+
+    subpass.colorAttachmentCount = numRTs;
+    subpass.pColorAttachments = colorRefs;
+
+    {
+        if(pipelineDesc.depthStencilTarget.texture.id)
+        {
+            vg_resourceheap* pTexHeap = device.resourceHeaps.get(pipelineDesc.depthStencilTarget.texture.heap);
+            vg_image* pImage = pTexHeap->images.get(pipelineDesc.depthStencilTarget.texture.id);
+
+            width = pImage->width;
+            height = pImage->height;
+            layers = pImage->layers;
+
+            VkAttachmentDescription depthAttachment = {};
+            depthAttachment.format = pImage->format;
+            depthAttachment.samples = pipelineDesc.sampleCount;
+            depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            depthAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            depthAttachment.initialLayout = pImage->curLayout;
+            depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+            VkAttachmentReference ref = {};
+            ref.attachment = numRTs;
+            ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            subpass.pDepthStencilAttachment = &ref;
+
+            framebufferViews[numRTs] = pImage->view;
+            attachments[numRTs++] = depthAttachment;
+        }
+    }
+
+    // wtf is this?? is this more tiled mobile bs?
+    // VkSubpassDependency dependency{};
+    // dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    // dependency.dstSubpass = 0;
+    // dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    // dependency.srcAccessMask = 0;
+    // dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    // dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo renderPassInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    renderPassInfo.attachmentCount = numRTs;
+    renderPassInfo.pAttachments = attachments;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 0;
+    renderPassInfo.pDependencies = nullptr;
+
+    VkRenderPass renderpass;
+    VkResult result = vkCreateRenderPass(device.handle, &renderPassInfo, nullptr, &renderpass);
+    if(result != VK_SUCCESS) return GfxKernel{};
+
+    VkFramebufferCreateInfo framebufferInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+    framebufferInfo.renderPass = renderpass;
+    framebufferInfo.attachmentCount = numRTs;
+    framebufferInfo.pAttachments = framebufferViews;
+    framebufferInfo.width = width;
+    framebufferInfo.height = height;
+    framebufferInfo.layers = layers
+    
+    VkFramebuffer framebuffer;
+    result = vkCreateFramebuffer(device.handle, &framebufferInfo, nullptr, &framebuffer);
+    if(result != VK_SUCCESS)
+    {
+        vkDestroyRenderPass(device.handle, renderpass, nullptr);
+        return GfxKernel{};
+    } 
+
+    // now that we have a renderpass and framebuffer object, we can create the graphics pipeline
+    VkPipelineLayout pipelineLayout;    // TODO(james): create this object from the program layout
+
+    VkGraphicsPipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    pipelineInfo.stageCount = program.numShaders;
+    pipelineInfo.pStages = program.shaders;
+    pipelineInfo.pVertexInputState = nullptr; // TODO(james)
+    pipelineInfo.pInputAssemblyState = nullptr; // TODO(james)
+    pipelineInfo.pViewportState = nullptr; // TODO(james)
+    pipelineInfo.pRasterizationState = nullptr; // TODO(james)
+    pipelineInfo.pMultisampleState = nullptr; // TODO(james)
+    pipelineInfo.pDepthStencilState = nullptr; // TODO(james)
+    pipelineInfo.pColorBlendState = nullptr; // TODO(james)
+    pipelineInfo.pDynamicState = nullptr;   // TODO(james): viewport and scissor rect
+    pipelineInfo.layout = pipelineLayout;    
+    pipelineInfo.renderPass = renderpass;
+    // TODO(james): use base pipeline for templating...
+    // TODO(james): Use pipeline cache to speed up initialization
+
+    VkPipeline pipeline;
+    result = vkCreateGraphicsPipelines(device.handle, nullptr, 1, &pipelineInfo, nullptr, &pipeline);
+    if(result != VK_SUCCESS)
+    {
+        vkDestroyRenderPass(device.handle, renderpass, nullptr);
+        vkDestroyFramebuffer(device.handle, framebuffer, nullptr);
+        return GfxKernel{};
+    }
+
+    vg_kernel* kernel = PushStruct(pHeap->arena, vg_kernel);
+
+    u64 key = HASH(pHeap->kernels.size()+1);
+    pHeap->kernels.set(key, kernel);
+
+    return GfxKernel{pipelineDesc.heap.id, key};
 }
 
 GfxResult DestroyKernel( GfxDevice deviceHandle, GfxKernel kernel)
