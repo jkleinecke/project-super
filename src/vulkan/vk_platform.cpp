@@ -16,7 +16,6 @@
 #include <cstdint>
 #include <algorithm>
 
-#define VMA_IMPLEMENTATION
 #include <VulkanMemoryAllocator/include/vk_mem_alloc.h>
 
 #include "../ps_image.h"            // this may not be the right place for this include
@@ -165,11 +164,11 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         }
 
         // TODO(james): Tune these limits
-        vb.device.resourceHeaps = *hashtable_create(vb.device.arena, vg_resourceheap*, 32); // TODO(james): tune this to the actual application
+        vb.device.resourceHeaps = hashtable_create(vb.device.arena, vg_resourceheap*, 32); // TODO(james): tune this to the actual application
 
         // NOTE(james): default resource heap is always at key 0
-        vb.device.resourceHeaps.set(0, vgAllocateResourceHeap());
-        vb.device.encoderPools = *hashtable_create(vb.device.arena, vg_command_encoder_pool*, 32); // TODO(james): tune this to the actual application
+        vb.device.resourceHeaps->set(0, vgAllocateResourceHeap());
+        vb.device.encoderPools = hashtable_create(vb.device.arena, vg_command_encoder_pool*, 32); // TODO(james): tune this to the actual application
     }
 
     // now setup the swap chain

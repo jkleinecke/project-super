@@ -473,11 +473,11 @@ AllocateGameAssets(game_state& gm_state, render_context& renderer)
     assets.nextPipelineId = 1;
     assets.nextMaterialId = 1;
 
-    assets.mapShaders = shader_table::create(assets.memory);
-    assets.mapImages = image_table::create(assets.memory);
-    assets.mapModels = model_table::create(assets.memory);
-    assets.mapPipelines = pipeline_table::create(assets.memory);
-    assets.mapMaterials = material_table::create(assets.memory);
+    assets.mapShaders = shader_table::create<1024>(assets.memory);
+    assets.mapImages = image_table::create<1024>(assets.memory);
+    assets.mapModels = model_table::create<1024>(assets.memory);
+    assets.mapPipelines = pipeline_table::create<1024>(assets.memory);
+    assets.mapMaterials = material_table::create<1024>(assets.memory);
 
     for(auto& desc : asset_descriptions)
     {

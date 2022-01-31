@@ -363,21 +363,21 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 
     PushCmd_UpdateLight(cmds, state.lightPosition, lite_ambient, lite_diffuse, lite_spec);
 
-    PushCmd_UsePipeline(cmds, state.assets->mapPipelines->get(pl_box)->id);;
+    // PushCmd_UsePipeline(cmds, state.assets->mapPipelines->get(pl_box)->id);;
 
-    {
-        m4 scale = Scale(Vec3(state.scaleFactor,state.scaleFactor,state.scaleFactor));
-        m4 model = Translate(state.position) * Rotate(state.rotationAngle, Vec3i(0,1,0)) ;
-        RenderModel(cmds, state.assets->models, state.assets->mapMaterials->get(mat_box)->id, viewProj, model, scale);
-    }
+    // {
+    //     m4 scale = Scale(Vec3(state.scaleFactor,state.scaleFactor,state.scaleFactor));
+    //     m4 model = Translate(state.position) * Rotate(state.rotationAngle, Vec3i(0,1,0)) ;
+    //     RenderModel(cmds, state.assets->models, state.assets->mapMaterials->get(mat_box)->id, viewProj, model, scale);
+    // }
 
-    PushCmd_UsePipeline(cmds, state.assets->mapPipelines->get(pl_lightbox)->id);
+    // PushCmd_UsePipeline(cmds, state.assets->mapPipelines->get(pl_lightbox)->id);
 
-    {
-        m4 scale = Scale(Vec3(state.lightScale, state.lightScale, state.lightScale));
-        m4 model = Translate(state.lightPosition);
-        RenderModel(cmds, state.assets->models, state.assets->mapMaterials->get(mat_box)->id, viewProj, model, scale);
-    }
+    // {
+    //     m4 scale = Scale(Vec3(state.lightScale, state.lightScale, state.lightScale));
+    //     m4 model = Translate(state.lightPosition);
+    //     RenderModel(cmds, state.assets->models, state.assets->mapMaterials->get(mat_box)->id, viewProj, model, scale);
+    // }
 
     EndRenderCommands(cmds);
 }

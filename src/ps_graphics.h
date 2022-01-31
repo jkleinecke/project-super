@@ -81,6 +81,7 @@ enum class GfxSampleCount
 struct GfxTextureDesc
 {
     GfxTextureType type;
+    GfxMemoryAccess access;
     u32 width;
     u32 height;
     union {
@@ -456,7 +457,7 @@ struct gfx_api
 
     // Frame Processing
     // TODO(james): Schedule work on different queues (Transfer, Compute, Graphics, etc..)
-    API_FUNCTION(GfxResult, SubmitCommands, GfxDevice device, u32 count, GfxCmdList* pLists);
+    API_FUNCTION(GfxResult, SubmitCommands, GfxDevice device, u32 count, GfxCmdContext* pContexts);
     API_FUNCTION(GfxResult, Frame, GfxDevice device, b32 vsync);
     API_FUNCTION(GfxResult, Finish, GfxDevice device);
     

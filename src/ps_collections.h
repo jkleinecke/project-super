@@ -191,7 +191,7 @@ struct array
     }
 };
 
-#define hashtable_create(arena, type, size) hashtable<type>::create(arena)
+#define hashtable_create(arena, type, size) hashtable<type>::create<size>(arena)
 
 template<typename T>
 struct hashtable

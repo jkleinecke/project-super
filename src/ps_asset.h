@@ -116,11 +116,11 @@ struct material_asset
     render_material         data;     
 };
 
-typedef hashtable<shader_asset*, 1024> shader_table;
-typedef hashtable<image_asset*, 1024> image_table;
-typedef hashtable<model_asset*, 1024> model_table;
-typedef hashtable<pipeline_asset*, 1024> pipeline_table;
-typedef hashtable<material_asset*, 1024> material_table;
+typedef hashtable<shader_asset*> shader_table;
+typedef hashtable<image_asset*> image_table;
+typedef hashtable<model_asset*> model_table;
+typedef hashtable<pipeline_asset*> pipeline_table;
+typedef hashtable<material_asset*> material_table;
 
 struct game_assets
 {

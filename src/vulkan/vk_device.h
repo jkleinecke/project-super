@@ -24,7 +24,6 @@ struct vg_image
     VmaAllocation allocation;
 
     VkFormat format;
-    VkImageLayout curLayout;
 
     u32 width;
     u32 height;
@@ -213,7 +212,7 @@ struct vg_kernel
     VkFramebuffer framebuffer;
 
     VkPipeline pipeline;
-    VkPipelineLayout layout;
+    VkPipelineLayout pipelineLayout;
 
     // TODO(james): store shader descriptor map here
 };
@@ -270,8 +269,8 @@ struct vg_device
     VmaAllocator allocator;
     memory_arena arena;
 
-    hashtable<vg_resourceheap*>& resourceHeaps;
-    hashtable<vg_command_encoder_pool*>& encoderPools;
+    hashtable<vg_resourceheap*>* resourceHeaps;
+    hashtable<vg_command_encoder_pool*>* encoderPools;
 };
 
 struct vg_backend
