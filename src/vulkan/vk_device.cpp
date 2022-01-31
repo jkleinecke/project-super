@@ -2957,6 +2957,110 @@ ConvertLoadOp(GfxLoadAction action)
     return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 }
 
+inline VkPolygonMode
+ConvertFillMode(GfxFillMode fillMode)
+{
+    switch(fillMode)
+    {
+        case GfxFillMode::Wireframe: return VK_POLYGON_MODE_LINE;
+        case GfxFillMode::Solid: return VK_POLYGON_MODE_FILL;
+        InvalidDefaultCase;
+    }
+
+    return VK_POLYGON_MODE_FILL;
+}
+
+inline VkCullModeFlags
+ConvertCullMode(GfxCullMode cullMode)
+{
+    switch(cullMode)
+    {
+        case GfxCullMode::None: return VK_CULL_MODE_NONE;
+        case GfxCullMode::Front: return VK_CULL_MODE_FRONT_BIT;
+        case GfxCullMode::Back: return VK_CULL_MODE_BACK_BIT;
+        InvalidDefaultCase;
+    }
+    return VK_CULL_MODE_NONE;
+}
+
+inline VkCompareOp
+ConvertComparisonFunc(GfxComparisonFunc compare)
+{
+    switch(compare)
+    {
+        case GfxComparisonFunc::Never: return VK_COMPARE_OP_NEVER;
+        case GfxComparisonFunc::Less: return VK_COMPARE_OP_LESS;
+        case GfxComparisonFunc::Equal: return VK_COMPARE_OP_EQUAL;
+        case GfxComparisonFunc::LessEqual: return VK_COMPARE_OP_LESS_OR_EQUAL;
+        case GfxComparisonFunc::Greater: return VK_COMPARE_OP_GREATER;
+        case GfxComparisonFunc::NotEqual: return VK_COMPARE_OP_NOT_EQUAL;
+        case GfxComparisonFunc::GreaterEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
+        case GfxComparisonFunc::Always: return VK_COMPARE_OP_ALWAYS;
+        InvalidDefaultCase;
+    }
+    return VK_COMPARE_OP_NEVER;
+}
+
+inline VkStencilOp
+ConvertStencilOp(GfxStencilOp op)
+{
+    switch(op)
+    {
+        case GfxStencilOp::Keep: return VK_STENCIL_OP_KEEP;
+        case GfxStencilOp::Zero: return VK_STENCIL_OP_ZERO;
+        case GfxStencilOp::Replace: return VK_STENCIL_OP_REPLACE;
+        case GfxStencilOp::Inc: return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+        case GfxStencilOp::Dec: return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+        case GfxStencilOp::IncSat: return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+        case GfxStencilOp::DecSat: return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+        case GfxStencilOp::Invert: return VK_STENCIL_OP_INVERT;
+        InvalidDefaultCase;
+    }
+
+    return VK_STENCIL_OP_KEEP;
+}
+
+inline VkBlendFactor
+ConvertBlendMode(GfxBlendMode blend)
+{
+    switch(blend)
+    {
+        case GfxBlendMode::Zero: return VK_BLEND_FACTOR_ZERO;
+        case GfxBlendMode::One: return VK_BLEND_FACTOR_ONE;
+        case GfxBlendMode::SrcColor: return VK_BLEND_FACTOR_SRC_COLOR;
+        case GfxBlendMode::InvSrcColor: return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+        case GfxBlendMode::SrcAlpha: return VK_BLEND_FACTOR_SRC_ALPHA;
+        case GfxBlendMode::InvSrcAlpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        case GfxBlendMode::DestAlpha: return VK_BLEND_FACTOR_DST_ALPHA;
+        case GfxBlendMode::InvDestAlpha: return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+        case GfxBlendMode::DestColor:  return VK_BLEND_FACTOR_DST_COLOR;
+        case GfxBlendMode::InvDestColor: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+        case GfxBlendMode::SrcAlphaSat: return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
+        case GfxBlendMode::BlendFactor: return VK_BLEND_FACTOR_CONSTANT_COLOR;
+        case GfxBlendMode::InvBlendFactor: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+        case GfxBlendMode::Src1Color: return VK_BLEND_FACTOR_SRC1_COLOR;
+        case GfxBlendMode::InvSrc1Color: return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
+        case GfxBlendMode::Src1Alpha: return VK_BLEND_FACTOR_SRC1_ALPHA;
+        case GfxBlendMode::InvSrc1Alpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+        InvalidDefaultCase;
+    }
+    return VK_BLEND_FACTOR_ZERO;
+}
+
+inline VkBlendOp
+ConvertBlendOp(GfxBlendOp op)
+{
+    switch(op)
+    {
+        case GfxBlendOp::Add: return VK_BLEND_OP_ADD;
+        case GfxBlendOp::Subtract: return VK_BLEND_OP_SUBTRACT;
+        case GfxBlendOp::RevSubtract: return VK_BLEND_OP_REVERSE_SUBTRACT;
+        case GfxBlendOp::Min: return VK_BLEND_OP_MIN;
+        case GfxBlendOp::Max: return VK_BLEND_OP_MAX;
+    }
+    return VK_BLEND_OP_ADD;
+}
+
 GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, const GfxPipelineDesc& pipelineDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3085,17 +3189,65 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     // now that we have a renderpass and framebuffer object, we can create the graphics pipeline
     VkPipelineLayout pipelineLayout;    // TODO(james): create this object from the program layout
 
+    VkPipelineViewportStateCreateInfo viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewportState.flags = 0;
+    viewportState.viewportCount = 1;    // using dynamic viewport state, but still have to set to 1
+    viewportState.pViewports = nullptr;
+    viewportState.scissorCount = 1;
+    viewportState.pScissors = nullptr;
+
+    VkPipelineMultisampleStateCreateInfo multisampleState = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multiplesampleState.flags = 0;
+    multiplesampleState.rasterizationSamples = pipelineDesc.sampleCount;
+    multiplesampleState.sampleShadingEnable = VK_FALSE;
+    multiplesampleState.minSampleShading = 0.0f;
+    multiplesampleState.pSampleMask = 0;
+    multiplesampleState.alphaToCoverageEnable = VK_FALSE;
+    multiplesampleState.alphaToOneEnable = VK_FALSE;
+
+    VkDynamicState dyn_states[] =
+    {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+        // VK_DYNAMIC_STATE_BLEND_CONSTANTS,
+        // VK_DYNAMIC_STATE_DEPTH_BOUNDS,
+        // VK_DYNAMIC_STATE_STENCIL_REFERENCE,
+    };
+    VkPipelineDynamicStateCreateInfo dynamicInfo = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamicInfo.flags = 0;
+    dynamicInfo.dynamicStateCount = ARRAY_COUNT(dyn_states);
+    dynamicInfo.pDynamicStates = dyn_states;
+
+    VkPipelineRasterizationStateCreateInfo rs = {VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rs.flags = 0;
+    rs.depthClampEnable = pipelineDesc.rasterizerState.depthClampEnable ? VK_TRUE : VK_FALSE;
+    rs.rasterizerDiscardEnable = VK_FALSE;
+    rs.polygonMode = ConvertFillMode(pipelineDesc.rasterizerState.fillMode);
+    rs.cullMode = ConvertCullMode(pipelineDesc.rasterizerState.cullMode);
+    rs.frontFace = pipelineDesc.rasterizerState.frontCCW ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
+    rs.depthBiasEnable = pipelineDesc.rasterizerState.depthBias != 0 ? VK_TRUE : VK_FALSE;
+    rs.depthBiasConstantFactor = (f32)pipelineDesc.rasterizerState.depthBias;
+    rs.depthBiasClamp = 0.0f;
+    rs.depthBiasSlopeFactor = pipelineDesc.rasterizerState.slopeScaledDepthBias;
+    rs.lineWidth = 1;
+
+    VkPipelineDepthStencilStateCreateInfo ds = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    ds.flags = 0;
+    ds.depthTestEnable = pipelinDesc.depthStencilState.depthEnable ? VK_TRUE : VK_FALSE;
+    ds.depthWriteEnable = pipelinDesc.depthStencilState.depthWriteMask == GfxDepthWriteMask::All ? VK_TRUE : VK_FALSE;
+    ds.depthCompareOp
+
     VkGraphicsPipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     pipelineInfo.stageCount = program.numShaders;
     pipelineInfo.pStages = program.shaders;
     pipelineInfo.pVertexInputState = nullptr; // TODO(james)
     pipelineInfo.pInputAssemblyState = nullptr; // TODO(james)
-    pipelineInfo.pViewportState = nullptr; // TODO(james)
-    pipelineInfo.pRasterizationState = nullptr; // TODO(james)
-    pipelineInfo.pMultisampleState = nullptr; // TODO(james)
+    pipelineInfo.pViewportState = &viewportState; 
+    pipelineInfo.pRasterizationState = &rs; 
+    pipelineInfo.pMultisampleState = &multiplesampleState;  
     pipelineInfo.pDepthStencilState = nullptr; // TODO(james)
     pipelineInfo.pColorBlendState = nullptr; // TODO(james)
-    pipelineInfo.pDynamicState = nullptr;   // TODO(james): viewport and scissor rect
+    pipelineInfo.pDynamicState = &dynamicInfo;  
     pipelineInfo.layout = pipelineLayout;    
     pipelineInfo.renderPass = renderpass;
     // TODO(james): use base pipeline for templating...
@@ -3111,6 +3263,11 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     }
 
     vg_kernel* kernel = PushStruct(pHeap->arena, vg_kernel);
+
+    kernel->renderpass = renderpass;
+    kernel->framebuffer = framebuffer;
+    kernel->layout = pipelineLayout;
+    kernel->pipeline = pipeline;
 
     u64 key = HASH(pHeap->kernels.size()+1);
     pHeap->kernels.set(key, kernel);
