@@ -2470,6 +2470,7 @@ vgAllocateResourceHeap()
     pHeap->buffers = *hashtable_create(pHeap->arena, vg_buffer*, 1024);
     pHeap->textures = *hashtable_create(pHeap->arena, vg_image*, 1024);
     pHeap->samplers = *hashtable_create(pHeap->arena, vg_sampler*, 128);
+    pHeap->rtvs = *hashtable_create(pHeap->arena, vg_rendertargetview*, 32);
     pHeap->programs = *hashtable_create(pHeap->arena, vg_program*, 128);
     pHeap->kernels = *hashtable_create(pHeap->arena, vg_kernel*, 128);
 
@@ -2532,6 +2533,184 @@ ConvertSampleCount(GfxSampleCount count)
     return VK_SAMPLE_COUNT_1_BIT;
 }
 
+inline VkAttachmentLoadOp
+ConvertLoadOp(GfxLoadAction action)
+{
+    switch(action)
+    {
+        case GfxLoadAction::DontCare: return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        case GfxLoadAction::Load: return VK_ATTACHMENT_LOAD_OP_LOAD;
+        case GfxLoadAction::Clear: return VK_ATTACHMENT_LOAD_OP_CLEAR;
+        InvalidDefaultCase;
+    }
+
+    return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+}
+
+inline VkPolygonMode
+ConvertFillMode(GfxFillMode fillMode)
+{
+    switch(fillMode)
+    {
+        case GfxFillMode::Wireframe: return VK_POLYGON_MODE_LINE;
+        case GfxFillMode::Solid: return VK_POLYGON_MODE_FILL;
+        InvalidDefaultCase;
+    }
+
+    return VK_POLYGON_MODE_FILL;
+}
+
+inline VkCullModeFlags
+ConvertCullMode(GfxCullMode cullMode)
+{
+    switch(cullMode)
+    {
+        case GfxCullMode::None: return VK_CULL_MODE_NONE;
+        case GfxCullMode::Front: return VK_CULL_MODE_FRONT_BIT;
+        case GfxCullMode::Back: return VK_CULL_MODE_BACK_BIT;
+        InvalidDefaultCase;
+    }
+    return VK_CULL_MODE_NONE;
+}
+
+inline VkCompareOp
+ConvertComparisonFunc(GfxComparisonFunc compare)
+{
+    switch(compare)
+    {
+        case GfxComparisonFunc::Never: return VK_COMPARE_OP_NEVER;
+        case GfxComparisonFunc::Less: return VK_COMPARE_OP_LESS;
+        case GfxComparisonFunc::Equal: return VK_COMPARE_OP_EQUAL;
+        case GfxComparisonFunc::LessEqual: return VK_COMPARE_OP_LESS_OR_EQUAL;
+        case GfxComparisonFunc::Greater: return VK_COMPARE_OP_GREATER;
+        case GfxComparisonFunc::NotEqual: return VK_COMPARE_OP_NOT_EQUAL;
+        case GfxComparisonFunc::GreaterEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
+        case GfxComparisonFunc::Always: return VK_COMPARE_OP_ALWAYS;
+        InvalidDefaultCase;
+    }
+    return VK_COMPARE_OP_NEVER;
+}
+
+inline VkStencilOp
+ConvertStencilOp(GfxStencilOp op)
+{
+    switch(op)
+    {
+        case GfxStencilOp::Keep: return VK_STENCIL_OP_KEEP;
+        case GfxStencilOp::Zero: return VK_STENCIL_OP_ZERO;
+        case GfxStencilOp::Replace: return VK_STENCIL_OP_REPLACE;
+        case GfxStencilOp::Inc: return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+        case GfxStencilOp::Dec: return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+        case GfxStencilOp::IncSat: return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+        case GfxStencilOp::DecSat: return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+        case GfxStencilOp::Invert: return VK_STENCIL_OP_INVERT;
+        InvalidDefaultCase;
+    }
+
+    return VK_STENCIL_OP_KEEP;
+}
+
+inline VkBlendFactor
+ConvertBlendMode(GfxBlendMode blend)
+{
+    switch(blend)
+    {
+        case GfxBlendMode::Zero: return VK_BLEND_FACTOR_ZERO;
+        case GfxBlendMode::One: return VK_BLEND_FACTOR_ONE;
+        case GfxBlendMode::SrcColor: return VK_BLEND_FACTOR_SRC_COLOR;
+        case GfxBlendMode::InvSrcColor: return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+        case GfxBlendMode::SrcAlpha: return VK_BLEND_FACTOR_SRC_ALPHA;
+        case GfxBlendMode::InvSrcAlpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        case GfxBlendMode::DestAlpha: return VK_BLEND_FACTOR_DST_ALPHA;
+        case GfxBlendMode::InvDestAlpha: return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+        case GfxBlendMode::DestColor:  return VK_BLEND_FACTOR_DST_COLOR;
+        case GfxBlendMode::InvDestColor: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+        case GfxBlendMode::SrcAlphaSat: return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
+        case GfxBlendMode::BlendFactor: return VK_BLEND_FACTOR_CONSTANT_COLOR;
+        case GfxBlendMode::InvBlendFactor: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+        case GfxBlendMode::Src1Color: return VK_BLEND_FACTOR_SRC1_COLOR;
+        case GfxBlendMode::InvSrc1Color: return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
+        case GfxBlendMode::Src1Alpha: return VK_BLEND_FACTOR_SRC1_ALPHA;
+        case GfxBlendMode::InvSrc1Alpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+        InvalidDefaultCase;
+    }
+    return VK_BLEND_FACTOR_ZERO;
+}
+
+inline VkBlendOp
+ConvertBlendOp(GfxBlendOp op)
+{
+    switch(op)
+    {
+        case GfxBlendOp::Add: return VK_BLEND_OP_ADD;
+        case GfxBlendOp::Subtract: return VK_BLEND_OP_SUBTRACT;
+        case GfxBlendOp::RevSubtract: return VK_BLEND_OP_REVERSE_SUBTRACT;
+        case GfxBlendOp::Min: return VK_BLEND_OP_MIN;
+        case GfxBlendOp::Max: return VK_BLEND_OP_MAX;
+    }
+    return VK_BLEND_OP_ADD;
+}
+
+VkResult CreateRenderPassForPipeline(VkDevice device, const GfxPipelineDesc& pipelineDesc, VkRenderPass* pRenderPass)
+{
+    VkAttachmentDescription attachments[GFX_MAX_RENDERTARGETS + 1] = {}; // +1 in case depth/stencil is attached
+    VkAttachmentReference colorRefs[GFX_MAX_RENDERTARGETS] = {};
+    VkAttachmentReference depthStencilRef = {};
+
+    u32 numColorAttachments = pipelineDesc.numColorTargets;
+    b32 hasDepthStencilAttachment = pipelineDesc.depthStencilTarget != TinyImageFormat_UNDEFINED ? true : false;
+
+    for(u32 i = 0; i < numColorAttachments; ++i)
+    {
+        attachments[i].flags = 0;
+        attachments[i].format = (VkFormat)TinyImageFormat_ToVkFormat(pipelineDesc.colorTargets[i]);
+        attachments[i].samples = ConvertSampleCount(pipelineDesc.sampleCount);
+        attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+        attachments[i].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        attachments[i].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        colorRefs[i].attachment = i;
+        colorRefs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+
+    if(hasDepthStencilAttachment)
+    {
+        uint32_t idx = numColorAttachments;
+		attachments[idx].flags = 0;
+		attachments[idx].format = (VkFormat)TinyImageFormat_ToVkFormat(pipelineDesc.depthStencilTarget);
+		attachments[idx].samples = ConvertSampleCount(pipelineDesc.sampleCount);
+		attachments[idx].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachments[idx].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[idx].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachments[idx].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[idx].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		attachments[idx].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+		depthStencilRef.attachment = idx;    
+		depthStencilRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    }
+
+    // ugh.. silly subpass needs to redefine all the same crap
+    VkSubpassDescription subpass = {};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = numColorAttachments;
+    subpass.pColorAttachments = colorRefs;
+    subpass.pDepthStencilAttachment = hasDepthStencilAttachment ? &depthStencilRef : nullptr;
+
+    VkRenderPassCreateInfo renderPassInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    renderPassInfo.attachmentCount = numColorAttachments + (hasDepthStencilAttachment ? 1 : 0);
+    renderPassInfo.pAttachments = attachments;
+    renderPassInfo.subpassCount = 1;
+    renderPassInfo.pSubpasses = &subpass;
+    renderPassInfo.dependencyCount = 0;
+    renderPassInfo.pDependencies = nullptr;
+
+    return vkCreateRenderPass(device, &renderPassInfo, nullptr, pRenderPass);
+}
+
 GfxResourceHeap CreateResourceHeap( GfxDevice deviceHandle )
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -2581,6 +2760,12 @@ GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource 
         vkDestroySampler(device.handle, sampler.handle, nullptr);
     }
 
+    for(auto entry: pHeap->rtvs)
+    {
+        vg_rendertargetview& rtv = **entry;
+        vkDestroyImageView(device.handle, rtv.view, nullptr);
+    }
+
     // kernel
     for(auto entry: pHeap->kernels)
     {
@@ -2588,8 +2773,6 @@ GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource 
         
         vkDestroyPipeline(device.handle, kernel.pipeline, nullptr);
         vkDestroyPipelineLayout(device.handle, kernel.pipelineLayout, nullptr);
-        vkDestroyRenderPass(device.handle, kernel.renderpass, nullptr);
-        vkDestroyFramebuffer(device.handle, kernel.framebuffer, nullptr);
     }
 
     // program
@@ -2962,122 +3145,84 @@ GfxKernel CreateComputeKernel( GfxDevice deviceHandle, GfxProgram program)
     return GfxKernel{GFX_INVALID_HANDLE};
 }
 
-inline VkAttachmentLoadOp
-ConvertLoadOp(GfxLoadAction action)
+VkImageAspectFlags DetermineAspectMaskFromFormat(VkFormat format, bool includeStencilBit)
 {
-    switch(action)
-    {
-        case GfxLoadAction::DontCare: return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        case GfxLoadAction::Load: return VK_ATTACHMENT_LOAD_OP_LOAD;
-        case GfxLoadAction::Clear: return VK_ATTACHMENT_LOAD_OP_CLEAR;
-        InvalidDefaultCase;
-    }
-
-    return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	VkImageAspectFlags result = 0;
+	switch (format)
+	{
+			// Depth
+		case VK_FORMAT_D16_UNORM:
+		case VK_FORMAT_X8_D24_UNORM_PACK32:
+		case VK_FORMAT_D32_SFLOAT:
+			result = VK_IMAGE_ASPECT_DEPTH_BIT;
+			break;
+			// Stencil
+		case VK_FORMAT_S8_UINT:
+			result = VK_IMAGE_ASPECT_STENCIL_BIT;
+			break;
+			// Depth/stencil
+		case VK_FORMAT_D16_UNORM_S8_UINT:
+		case VK_FORMAT_D24_UNORM_S8_UINT:
+		case VK_FORMAT_D32_SFLOAT_S8_UINT:
+			result = VK_IMAGE_ASPECT_DEPTH_BIT;
+			if (includeStencilBit)
+				result |= VK_IMAGE_ASPECT_STENCIL_BIT;
+			break;
+			// Assume everything else is Color
+		default: result = VK_IMAGE_ASPECT_COLOR_BIT; break;
+	}
+	return result;
 }
 
-inline VkPolygonMode
-ConvertFillMode(GfxFillMode fillMode)
+GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRenderTargetViewDesc& rtvDesc)
 {
-    switch(fillMode)
-    {
-        case GfxFillMode::Wireframe: return VK_POLYGON_MODE_LINE;
-        case GfxFillMode::Solid: return VK_POLYGON_MODE_FILL;
-        InvalidDefaultCase;
-    }
+    vg_device& device = DeviceObject::From(deviceHandle);
+    // NOTE(james): RT View will use the same heap as the backing texture.  Won't make sense to allocate them separately.
+    vg_resourceheap* pHeap = device.resourceHeaps->get(rtvDesc.texture.heap);
+    vg_image& image = *pHeap->textures.get(rtvDesc.texture.id);
 
-    return VK_POLYGON_MODE_FILL;
+    VkImageViewCreateInfo viewInfo = {};
+	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	viewInfo.pNext = nullptr;
+	viewInfo.viewType = rtvDesc.numSlices > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;  
+	viewInfo.image = image.handle;
+	viewInfo.format = (VkFormat)TinyImageFormat_ToVkFormat(rtvDesc.format);
+    viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+	viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+	viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+	viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+	viewInfo.subresourceRange.baseMipLevel = rtvDesc.mipLevel;
+	viewInfo.subresourceRange.levelCount = 1;
+	viewInfo.subresourceRange.baseArrayLayer = rtvDesc.slice;
+	viewInfo.subresourceRange.layerCount = rtvDesc.numSlices > 0 ? rtvDesc.numSlices : 1;   // NOTE(james): must have at least one
+	viewInfo.subresourceRange.aspectMask = DetermineAspectMaskFromFormat(viewInfo.format, true);  
+
+    VkImageView imageview = VK_NULL_HANDLE;
+    VkResult result = vkCreateImageView(device.handle, &viewInfo, nullptr, &imageview);
+    if(result != VK_SUCCESS) return GfxRenderTargetView{};
+
+    // This is just an image view with a little extra information on the device side
+    vg_rendertargetview* rtv = PushStruct(pHeap->arena, vg_rendertargetview);
+    rtv->view = imageview;
+    rtv->loadOp = ConvertLoadOp(rtvDesc.loadOp);
+    rtv->clearValue = rtvDesc.clearValue;
+
+    u64 key = HASH(pHeap->rtvs.size() + 1);
+    pHeap->rtvs.set(key, rtv);
+
+    return GfxRenderTargetView{rtvDesc.texture.heap, key};
 }
 
-inline VkCullModeFlags
-ConvertCullMode(GfxCullMode cullMode)
+GfxResult DestroyRenderTargetView( GfxDevice deviceHandle, GfxRenderTargetView resource )
 {
-    switch(cullMode)
-    {
-        case GfxCullMode::None: return VK_CULL_MODE_NONE;
-        case GfxCullMode::Front: return VK_CULL_MODE_FRONT_BIT;
-        case GfxCullMode::Back: return VK_CULL_MODE_BACK_BIT;
-        InvalidDefaultCase;
-    }
-    return VK_CULL_MODE_NONE;
-}
+    vg_device& device = DeviceObject::From(deviceHandle);
+    vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
+    vg_rendertargetview& rtv = *pHeap->rtvs.get(resource.id);
 
-inline VkCompareOp
-ConvertComparisonFunc(GfxComparisonFunc compare)
-{
-    switch(compare)
-    {
-        case GfxComparisonFunc::Never: return VK_COMPARE_OP_NEVER;
-        case GfxComparisonFunc::Less: return VK_COMPARE_OP_LESS;
-        case GfxComparisonFunc::Equal: return VK_COMPARE_OP_EQUAL;
-        case GfxComparisonFunc::LessEqual: return VK_COMPARE_OP_LESS_OR_EQUAL;
-        case GfxComparisonFunc::Greater: return VK_COMPARE_OP_GREATER;
-        case GfxComparisonFunc::NotEqual: return VK_COMPARE_OP_NOT_EQUAL;
-        case GfxComparisonFunc::GreaterEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
-        case GfxComparisonFunc::Always: return VK_COMPARE_OP_ALWAYS;
-        InvalidDefaultCase;
-    }
-    return VK_COMPARE_OP_NEVER;
-}
+    vkDestroyImageView(device.handle, rtv.view, nullptr);
+    pHeap->rtvs.erase(resource.id);
 
-inline VkStencilOp
-ConvertStencilOp(GfxStencilOp op)
-{
-    switch(op)
-    {
-        case GfxStencilOp::Keep: return VK_STENCIL_OP_KEEP;
-        case GfxStencilOp::Zero: return VK_STENCIL_OP_ZERO;
-        case GfxStencilOp::Replace: return VK_STENCIL_OP_REPLACE;
-        case GfxStencilOp::Inc: return VK_STENCIL_OP_INCREMENT_AND_WRAP;
-        case GfxStencilOp::Dec: return VK_STENCIL_OP_DECREMENT_AND_WRAP;
-        case GfxStencilOp::IncSat: return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
-        case GfxStencilOp::DecSat: return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
-        case GfxStencilOp::Invert: return VK_STENCIL_OP_INVERT;
-        InvalidDefaultCase;
-    }
-
-    return VK_STENCIL_OP_KEEP;
-}
-
-inline VkBlendFactor
-ConvertBlendMode(GfxBlendMode blend)
-{
-    switch(blend)
-    {
-        case GfxBlendMode::Zero: return VK_BLEND_FACTOR_ZERO;
-        case GfxBlendMode::One: return VK_BLEND_FACTOR_ONE;
-        case GfxBlendMode::SrcColor: return VK_BLEND_FACTOR_SRC_COLOR;
-        case GfxBlendMode::InvSrcColor: return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-        case GfxBlendMode::SrcAlpha: return VK_BLEND_FACTOR_SRC_ALPHA;
-        case GfxBlendMode::InvSrcAlpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        case GfxBlendMode::DestAlpha: return VK_BLEND_FACTOR_DST_ALPHA;
-        case GfxBlendMode::InvDestAlpha: return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-        case GfxBlendMode::DestColor:  return VK_BLEND_FACTOR_DST_COLOR;
-        case GfxBlendMode::InvDestColor: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-        case GfxBlendMode::SrcAlphaSat: return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
-        case GfxBlendMode::BlendFactor: return VK_BLEND_FACTOR_CONSTANT_COLOR;
-        case GfxBlendMode::InvBlendFactor: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
-        case GfxBlendMode::Src1Color: return VK_BLEND_FACTOR_SRC1_COLOR;
-        case GfxBlendMode::InvSrc1Color: return VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
-        case GfxBlendMode::Src1Alpha: return VK_BLEND_FACTOR_SRC1_ALPHA;
-        case GfxBlendMode::InvSrc1Alpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
-        InvalidDefaultCase;
-    }
-    return VK_BLEND_FACTOR_ZERO;
-}
-
-inline VkBlendOp
-ConvertBlendOp(GfxBlendOp op)
-{
-    switch(op)
-    {
-        case GfxBlendOp::Add: return VK_BLEND_OP_ADD;
-        case GfxBlendOp::Subtract: return VK_BLEND_OP_SUBTRACT;
-        case GfxBlendOp::RevSubtract: return VK_BLEND_OP_REVERSE_SUBTRACT;
-        case GfxBlendOp::Min: return VK_BLEND_OP_MIN;
-        case GfxBlendOp::Max: return VK_BLEND_OP_MAX;
-    }
-    return VK_BLEND_OP_ADD;
+    return GfxResult::Ok;
 }
 
 GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, const GfxPipelineDesc& pipelineDesc)
@@ -3087,123 +3232,10 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     vg_program* program = pHeap->programs.get(resource.id);
     pHeap = device.resourceHeaps->get(pipelineDesc.heap.id);
 
-    u32 width = 0;
-    u32 height = 0;
-    u32 layers = 0;
-
-    u32 numRTs = 0;
-    VkAttachmentDescription attachments[GFX_MAX_RENDERTARGETS + 1]; // add 1 for the depth attachment
-    VkAttachmentReference colorRefs[GFX_MAX_RENDERTARGETS];
-    VkImageView framebufferViews[GFX_MAX_RENDERTARGETS+1];
-    
-    VkSubpassDescription subpass{};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-
-    // TODO(james): add load/store ops to RT description
-
-    for(u32 i = 0; i < GFX_MAX_RENDERTARGETS; ++i)
-    {
-        const GfxColorTargetDesc& target = pipelineDesc.colorTargets[i];
-        if(target.texture.id)
-        {
-            vg_resourceheap* pTexHeap = device.resourceHeaps->get(target.texture.heap);
-            vg_image* pImage = pTexHeap->textures.get(target.texture.id);
-
-            width = pImage->width;
-            height = pImage->height;
-            layers = pImage->layers;
-
-            VkAttachmentDescription colorAttachment = {};
-            colorAttachment.format = pImage->format;
-            colorAttachment.samples = ConvertSampleCount(pipelineDesc.sampleCount);
-            colorAttachment.loadOp = ConvertLoadOp(target.loadOp);
-            colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-            colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-            colorAttachment.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;  
-            
-            attachments[numRTs] = colorAttachment;
-            framebufferViews[numRTs] = pImage->view;
-
-            VkAttachmentReference colorRef = {};
-            colorRef.attachment = numRTs;
-            colorRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-            colorRefs[numRTs++] = colorRef;
-        }
-    }
-
-
-    subpass.colorAttachmentCount = numRTs;
-    subpass.pColorAttachments = colorRefs;
-
-    {
-        if(pipelineDesc.depthStencilTarget.texture.id)
-        {
-            vg_resourceheap* pTexHeap = device.resourceHeaps->get(pipelineDesc.depthStencilTarget.texture.heap);
-            vg_image* pImage = pTexHeap->textures.get(pipelineDesc.depthStencilTarget.texture.id);
-
-            width = pImage->width;
-            height = pImage->height;
-            layers = pImage->layers;
-
-            VkAttachmentDescription depthAttachment = {};
-            depthAttachment.format = pImage->format;
-            depthAttachment.samples = ConvertSampleCount(pipelineDesc.sampleCount);
-            depthAttachment.loadOp = ConvertLoadOp(pipelineDesc.depthStencilTarget.depthLoadOp);
-            depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depthAttachment.stencilLoadOp = ConvertLoadOp(pipelineDesc.depthStencilTarget.stencilLoadOp);
-            depthAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depthAttachment.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            depthAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-            VkAttachmentReference ref = {};
-            ref.attachment = numRTs;
-            ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            subpass.pDepthStencilAttachment = &ref;
-
-            framebufferViews[numRTs] = pImage->view;
-            attachments[numRTs++] = depthAttachment;
-        }
-    }
-
-    // wtf is this?? is this more tiled mobile bs?
-    // VkSubpassDependency dependency{};
-    // dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    // dependency.dstSubpass = 0;
-    // dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    // dependency.srcAccessMask = 0;
-    // dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    // dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-
-    VkRenderPassCreateInfo renderPassInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-    renderPassInfo.attachmentCount = numRTs;
-    renderPassInfo.pAttachments = attachments;
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-    renderPassInfo.dependencyCount = 0;
-    renderPassInfo.pDependencies = nullptr;
-
-    VkRenderPass renderpass;
-    VkResult result = vkCreateRenderPass(device.handle, &renderPassInfo, nullptr, &renderpass);
-    if(result != VK_SUCCESS) return GfxKernel{};
-
-    VkFramebufferCreateInfo framebufferInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-    framebufferInfo.renderPass = renderpass;
-    framebufferInfo.attachmentCount = numRTs;
-    framebufferInfo.pAttachments = framebufferViews;
-    framebufferInfo.width = width;
-    framebufferInfo.height = height;
-    framebufferInfo.layers = layers;
-    
-    VkFramebuffer framebuffer;
-    result = vkCreateFramebuffer(device.handle, &framebufferInfo, nullptr, &framebuffer);
-    if(result != VK_SUCCESS)
-    {
-        vkDestroyRenderPass(device.handle, renderpass, nullptr);
-        return GfxKernel{};
-    } 
+    // just create a temporary render pass for pipeline creation
+    VkRenderPass renderpass = VK_NULL_HANDLE;
+    VkResult result = CreateRenderPassForPipeline(device.handle, pipelineDesc, &renderpass);
+    if(result != VK_SUCCESS) return GfxKernel{};     
 
     // now that we have a renderpass and framebuffer object, we can create the graphics pipeline
     VkPipelineLayout pipelineLayout = nullptr;    // TODO(james): create this object from the program layout
@@ -3318,17 +3350,18 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     VkPipeline pipeline;
     // TODO(james): Use pipeline cache to speed up initialization
     result = vkCreateGraphicsPipelines(device.handle, nullptr, 1, &pipelineInfo, nullptr, &pipeline);
+
+    // NOTE(james): No matter what, clean up the temporary render pass...
+    vkDestroyRenderPass(device.handle, renderpass, nullptr);
+
     if(result != VK_SUCCESS)
     {
-        vkDestroyRenderPass(device.handle, renderpass, nullptr);
-        vkDestroyFramebuffer(device.handle, framebuffer, nullptr);
         return GfxKernel{};
     }
 
+    // track the kernel resource...
     vg_kernel* kernel = PushStruct(pHeap->arena, vg_kernel);
 
-    kernel->renderpass = renderpass;
-    kernel->framebuffer = framebuffer;
     kernel->pipelineLayout = pipelineLayout;
     kernel->pipeline = pipeline;
 
@@ -3488,15 +3521,6 @@ GfxResult CmdClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
     return GfxResult::Ok;
 }
 
-GfxResult CmdClearBackBuffer( GfxCmdContext cmds)
-{
-    // TODO(james): either use those clear commands or store the data in the context for binding of the render pass
-    //vkCmdClearColorImage??
-    //vkCmdClearDepthStencilImage??
-    //vkCmdClearAttachments
-    return GfxResult::Ok;
-}
-
 GfxResult CmdClearTexture( GfxCmdContext cmds, GfxTexture texture)
 {
     //vkCmdClearColorImage
@@ -3515,12 +3539,6 @@ GfxResult CmdClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u
     return GfxResult::Ok;
 }
 
-GfxResult CmdCopyTextureToBackBuffer( GfxCmdContext cmds, GfxTexture texture)
-{
-    //vkCmdBlitImage / vkCmdResolveImage??
-    return GfxResult::Ok;
-}
- 
 GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture dest)
 {
     //vkCmdCopyBufferToImage
@@ -3533,10 +3551,16 @@ GfxResult CmdGenerateMips( GfxCmdContext cmds, GfxTexture texture)
     return GfxResult::Ok;
 }
 
+GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView depthStencilRTV)
+{
+    // Need to lookup or create a valid renderpass / framebuffer combo OR use the fancy vk_KHR_dynamic_rendering extension
+    // vkCmdBeginRenderPass / vkCmdEndRenderPass if numRenderTargets is 0
+
+    return GfxResult::Ok;
+}
+
 GfxResult CmdBindKernel( GfxCmdContext cmds, GfxKernel kernel)
 {
-    // this one is where most of the work will get done..
-    // vkCmdBeginRenderPass / vkCmdEndRenderPass if kernel id is 0
     // vkCmdBindPipeline
     return GfxResult::Ok;
 }
@@ -3619,6 +3643,14 @@ GfxResult Frame( GfxDevice deviceHandle, b32 vsync)
 
 GfxResult Finish( GfxDevice deviceHandle)
 {
+
+    return GfxResult::Ok;
+}
+
+GfxResult CleanupUnusedRenderingResources(GfxDevice deviceHandle)
+{
+    // TODO: Cleanup all the renderpass and framebuffer objects that weren't used in the cur frame
+    // Store objects in the free list after releasing vulkan resources
     return GfxResult::Ok;
 }
 

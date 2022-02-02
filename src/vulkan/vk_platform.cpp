@@ -169,6 +169,17 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         // NOTE(james): default resource heap is always at key 0
         vb.device.resourceHeaps->set(0, vgAllocateResourceHeap());
         vb.device.encoderPools = hashtable_create(vb.device.arena, vg_command_encoder_pool*, 32); // TODO(james): tune this to the actual application
+
+        // TODO(james): Change swap chain creation to create the framebuffers and add them to the runtime lookup
+        // At runtime the backend will allocate both framebuffers and renderpasses as required, so just
+        // passing a valid rendertargetview for each swap chain image will either create them OR lookup one that was
+        // already created.
+        vb.device.mapRenderpasses = hashtable_create(vb.device.arena, vg_renderpass*, 128); // TODO(james): also tune these...
+        vb.device.mapFramebuffers = hashtable_create(vb.device.arena, vg_framebuffer*, 128);
+
+        // TODO(james) figure out how to put these into a freelist...
+        // ZeroStruct(vb.device.renderpass_freelist_sentinal);
+        // ZeroStruct(vb.device.framebuffer_freelist_sentinal);
     }
 
     // now setup the swap chain

@@ -31,6 +31,7 @@ struct GfxTexture { u64 heap; u64 id; };
 struct GfxSampler { u64 heap; u64 id; };
 struct GfxProgram { u64 heap; u64 id; };
 struct GfxKernel { u64 heap; u64 id; };
+struct GfxRenderTargetView { u64 heap; u64 id; };
 struct GfxTimestampQuery { u64 heap; u64 id; };
 
 enum class GfxMemoryAccess
@@ -340,21 +341,15 @@ enum class GfxLoadAction
     Clear,
 };
 
-struct GfxColorTargetDesc
+struct GfxRenderTargetViewDesc
 {
     GfxTexture texture;
     GfxLoadAction loadOp;
+    v4 clearValue;
+    TinyImageFormat format;
     u32 mipLevel;
     u32 slice;
-};
-
-struct GfxDepthStencilTargetDesc
-{
-    GfxTexture texture;
-    GfxLoadAction depthLoadOp;
-    GfxLoadAction stencilLoadOp;
-    u32 mipLevel;
-    u32 slice;
+    u32 numSlices;
 };
 
 struct GfxPipelineDesc
@@ -364,8 +359,9 @@ struct GfxPipelineDesc
     GfxRasterizerState rasterizerState;
     GfxPrimitiveTopology primitiveTopology;
     
-    GfxColorTargetDesc colorTargets[GFX_MAX_RENDERTARGETS];
-    GfxDepthStencilTargetDesc depthStencilTarget;
+    u32 numColorTargets;
+    TinyImageFormat colorTargets[GFX_MAX_RENDERTARGETS];
+    TinyImageFormat depthStencilTarget;
 
     GfxSampleCount sampleCount;
     b32 supportIndirectCommandBuffer;
@@ -410,6 +406,9 @@ struct gfx_api
     API_FUNCTION(GfxResult, SetProgramSampler, GfxDevice device, GfxProgram program, const char* param_name, GfxSampler sampler);
     API_FUNCTION(GfxResult, SetProgramConstants, GfxDevice device, GfxProgram program, const char* param_name, const void* data, u32 size);
 
+    API_FUNCTION(GfxRenderTargetView, CreateRenderTargetView, GfxDevice device, const GfxRenderTargetViewDesc& rtvDesc);
+    API_FUNCTION(GfxResult, DestroyRenderTargetView, GfxDevice device, GfxRenderTargetView rtv);
+
     API_FUNCTION(GfxKernel, CreateComputeKernel, GfxDevice device, GfxProgram program);
     API_FUNCTION(GfxKernel, CreateGraphicsKernel, GfxDevice device, GfxProgram program, const GfxPipelineDesc& pipelineDesc);
     API_FUNCTION(GfxResult, DestroyKernel, GfxDevice device, GfxKernel kernel);
@@ -431,15 +430,14 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdCopyBufferRange, GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size);
     API_FUNCTION(GfxResult, CmdClearBuffer, GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue);
     
-    API_FUNCTION(GfxResult, CmdClearBackBuffer, GfxCmdContext cmds);
     API_FUNCTION(GfxResult, CmdClearTexture, GfxCmdContext cmds, GfxTexture texture);
     API_FUNCTION(GfxResult, CmdCopyTexture, GfxCmdContext cmds, GfxTexture src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdClearImage, GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice);
 
-    API_FUNCTION(GfxResult, CmdCopyTextureToBackBuffer, GfxCmdContext cmds, GfxTexture texture); 
     API_FUNCTION(GfxResult, CmdCopyBufferToTexture, GfxCmdContext cmds, GfxBuffer src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdGenerateMips, GfxCmdContext cmds, GfxTexture texture);
 
+    API_FUNCTION(GfxResult, CmdBindRenderTargets, GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView depthStencilRTV);
     API_FUNCTION(GfxResult, CmdBindKernel, GfxCmdContext cmds, GfxKernel kernel);
     API_FUNCTION(GfxResult, CmdBindIndexBuffer, GfxCmdContext cmds, GfxBuffer indexBuffer);
     API_FUNCTION(GfxResult, CmdBindVertexBuffer, GfxCmdContext cmds, GfxBuffer vertexBuffer);
@@ -460,6 +458,7 @@ struct gfx_api
     API_FUNCTION(GfxResult, SubmitCommands, GfxDevice device, u32 count, GfxCmdContext* pContexts);
     API_FUNCTION(GfxResult, Frame, GfxDevice device, b32 vsync);
     API_FUNCTION(GfxResult, Finish, GfxDevice device);
+    API_FUNCTION(GfxResult, CleanupUnusedRenderingResources, GfxDevice device);     // cleans up any transient resources that were allocated during rendering but are no longer needed..  Varies based on backend
     
     // Debug Functions
     API_FUNCTION(GfxTimestampQuery, CreateTimestampQuery, GfxDevice device);

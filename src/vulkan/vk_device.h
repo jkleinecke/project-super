@@ -81,12 +81,6 @@ struct vg_pipeline
     VkDescriptorSetLayout descriptorLayout;
 };
 
-struct vg_renderpass
-{
-    VkRenderPass handle;
-    // TODO(james): add framebuffers
-};
-
 struct vg_descriptorlayout_cache_info
 {
     u64 key;
@@ -208,13 +202,17 @@ struct vg_program
 
 struct vg_kernel
 {
-    VkRenderPass renderpass;
-    VkFramebuffer framebuffer;
-
     VkPipeline pipeline;
     VkPipelineLayout pipelineLayout;
 
     // TODO(james): store shader descriptor map here
+};
+
+struct vg_rendertargetview
+{
+    VkImageView view;
+    VkAttachmentLoadOp loadOp;
+    v4 clearValue;
 };
 
 struct vg_resourceheap
@@ -224,8 +222,21 @@ struct vg_resourceheap
     hashtable<vg_buffer*>& buffers;
     hashtable<vg_image*>& textures;
     hashtable<vg_sampler*>& samplers;
+    hashtable<vg_rendertargetview*>& rtvs;
     hashtable<vg_program*>& programs;
     hashtable<vg_kernel*>& kernels;
+};
+
+struct vg_renderpass
+{
+    u32 lastUsedInFrameIndex;
+    VkRenderPass handle;
+};
+
+struct vg_framebuffer
+{
+    u32 lastUsedInFrameIndex;
+    VkFramebuffer handle;
 };
 
 struct vg_device
@@ -271,6 +282,14 @@ struct vg_device
 
     hashtable<vg_resourceheap*>* resourceHeaps;
     hashtable<vg_command_encoder_pool*>* encoderPools;
+
+    // NOTE(james): Render passes and framebuffer objects are created as required.  Can be
+    //   garbage collected later and put into the free list for re-use later
+    hashtable<vg_renderpass*>* mapRenderpasses;
+    //listnode<vg_renderpass*> renderpass_freelist_sentinal;
+
+    hashtable<vg_framebuffer*>* mapFramebuffers;
+    //listnode<vg_framebuffer*> framebuffer_freelist_sentinal;
 };
 
 struct vg_backend
