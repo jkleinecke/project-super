@@ -7,6 +7,7 @@
 #include "ps_math.h"
 #include "ps_memory.h"
 #include "ps_collections.h"
+#include "ps_graphics.h"
 
 #include "macos_platform.h"
 
