@@ -10,6 +10,7 @@ enum GfxConstants
     GFX_MAX_RENDERTARGETS = 8,
     GFX_MAX_ANISOTROPY = 8,
     GFX_MAX_BINDLESSSLOTS = 1024,
+    GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH = 32,
 };
 
 enum class GfxResult

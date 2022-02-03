@@ -11,7 +11,6 @@
 // will overlap!  If you need that, write another copy method that
 // supports that case.
 
-#define CopyString(src, dest) CopyBuffer(src, dest)
 #define CopyBuffer(src, dest) Copy(src.size, src.data, dest.data)
 #define CopyArray(count, src, dest) Copy((count)*sizeof(*(src)), (src), (dest))
 internal void*
@@ -79,6 +78,14 @@ int StringLength(const char* s)
     char* ch = (char*)s;
     for(; *ch; ++ch) {}
     return (int)(ch - s);
+}
+
+internal char*
+CopyString(const char* src, char* dst, umm maxdstsize)
+{
+    umm srclength = (umm)StringLength(src);
+    umm sizetocopy = srclength < maxdstsize ? srclength : maxdstsize;
+    return (char*)Copy(sizetocopy, src, dst);
 }
 
 inline internal

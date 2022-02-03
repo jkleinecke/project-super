@@ -195,9 +195,11 @@ struct vg_command_encoder_pool
 struct vg_program
 {
     u32 numShaders;
-    VkShaderModule shaders[6];
+    VkShaderModule  shaders[6];
+    char            entrypoints[6][GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH];
     
     // TODO(james): store shader reflection data here..
+    VkVertexInputBindingDescription vertexBindingDesc;
 };
 
 struct vg_kernel

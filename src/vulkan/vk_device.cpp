@@ -3042,8 +3042,19 @@ CreateProgramShader(VkDevice device, GfxShaderDesc* shaderDesc, vg_program* prog
     VkShaderModuleCreateInfo createInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     createInfo.codeSize = shaderDesc->size;
     createInfo.pCode = (u32*)shaderDesc->data;
+
     VkShaderModule shaderModule;
     VkResult result = vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule);
+    if(shaderDesc->szEntryPoint)
+    {
+        CopyString(shaderDesc->szEntryPoint, program->entrypoints[program->numShaders], GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH);
+    }
+    else
+    {
+        // just default to main... or maybe we could just use reflection?
+        CopyString("main", program->entrypoints[program->numShaders], GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH);
+    }
+
     program->shaders[program->numShaders++] = shaderModule;
     return result;
 }
@@ -3057,6 +3068,8 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
     if(programDesc.compute)
     {
+        SpvReflectShaderModule module = {};
+        SpvReflectResult reflectResult = spvReflectCreateShaderModule(programDesc.compute->size, programDesc.compute->data, &module);
         result = CreateProgramShader(device.handle, programDesc.compute, program);
     }
     
