@@ -192,14 +192,13 @@ struct vg_command_encoder_pool
     hashtable<vg_cmd_context*>& cmdcontexts;
 };
 
+#define VG_MAX_PROGRAM_SHADER_COUNT 6
 struct vg_program
 {
     u32 numShaders;
-    VkShaderModule  shaders[6];
-    char            entrypoints[6][GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH];
-    
-    // TODO(james): store shader reflection data here..
-    VkVertexInputBindingDescription vertexBindingDesc;
+    VkShaderModule  shaders[VG_MAX_PROGRAM_SHADER_COUNT];
+    SpvReflectShaderModule* shaderReflections[VG_MAX_PROGRAM_SHADER_COUNT];
+    SpvReflectEntryPoint* entrypoints[VG_MAX_PROGRAM_SHADER_COUNT];
 };
 
 struct vg_kernel
@@ -233,12 +232,16 @@ struct vg_renderpass
 {
     u32 lastUsedInFrameIndex;
     VkRenderPass handle;
+
+    vg_renderpass* next;    // used when maintaining a freelist
 };
 
 struct vg_framebuffer
 {
     u32 lastUsedInFrameIndex;
     VkFramebuffer handle;
+
+    vg_renderpass* next;    // used when maintaining a freelist
 };
 
 struct vg_device
@@ -288,10 +291,10 @@ struct vg_device
     // NOTE(james): Render passes and framebuffer objects are created as required.  Can be
     //   garbage collected later and put into the free list for re-use later
     hashtable<vg_renderpass*>* mapRenderpasses;
-    //listnode<vg_renderpass*> renderpass_freelist_sentinal;
+    vg_renderpass* freelist_renderpass;
 
     hashtable<vg_framebuffer*>* mapFramebuffers;
-    //listnode<vg_framebuffer*> framebuffer_freelist_sentinal;
+    vg_framebuffer* freelist_framebuffer;
 };
 
 struct vg_backend

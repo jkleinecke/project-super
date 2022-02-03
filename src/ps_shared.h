@@ -39,6 +39,30 @@ Copy(umm size, const void* src, void* dst)
     return dst;
 }
 
+internal b32
+MemCompare(umm size, const void* a, const void* b)
+{
+    CompileAssert(sizeof(umm)==sizeof(a));   // verify pointer size
+    memory_index chunks = size / sizeof(a);  // Compare by CPU bit width
+    memory_index slice = size % sizeof(a);   // remaining bytes < CPU bit width
+
+    umm* l = (umm*)a;
+    umm* r = (umm*)b;
+
+    while(chunks--) {
+        if(*l++ != *r++) { return false; }
+    }
+
+    u8* l8 = (u8*)l;
+    u8* r8 = (u8*)r;
+
+    while(slice--) {
+        if(*l8++ != *r8++) { return false; }
+    }
+
+    return true;
+}
+
 #define ZeroStruct(instance) ZeroSize(sizeof(instance), &(instance))
 #define ZeroArray(count, array_ptr) ZeroSize((count)*sizeof((array_ptr)[0]), (array_ptr))
 #define ZeroBuffer(buffer) ZeroSize(buffer.size, buffer.data)
@@ -84,8 +108,22 @@ internal char*
 CopyString(const char* src, char* dst, umm maxdstsize)
 {
     umm srclength = (umm)StringLength(src);
-    umm sizetocopy = srclength < maxdstsize ? srclength : maxdstsize;
-    return (char*)Copy(sizetocopy, src, dst);
+    umm sizetocopy = srclength < maxdstsize-1 ? srclength : maxdstsize-1;
+    Copy(sizetocopy, src, dst);
+    dst[sizetocopy] = 0; // put the null terminator at the end
+    return dst;
+}
+
+internal b32
+CompareStrings(const char* l, const char* r)
+{
+    int l_size = StringLength(l);
+    int r_size = StringLength(r);
+
+    if(l_size != r_size)
+        return false;
+
+    return MemCompare((umm)l_size, l, r);
 }
 
 inline internal

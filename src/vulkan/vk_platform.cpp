@@ -177,9 +177,9 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         vb.device.mapRenderpasses = hashtable_create(vb.device.arena, vg_renderpass*, 128); // TODO(james): also tune these...
         vb.device.mapFramebuffers = hashtable_create(vb.device.arena, vg_framebuffer*, 128);
 
-        // TODO(james) figure out how to put these into a freelist...
-        // ZeroStruct(vb.device.renderpass_freelist_sentinal);
-        // ZeroStruct(vb.device.framebuffer_freelist_sentinal);
+        // initially there a no objects in the freelist
+        vb.device.freelist_renderpass = 0;
+        vb.device.freelist_framebuffer = 0;
     }
 
     // now setup the swap chain

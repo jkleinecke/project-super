@@ -2781,6 +2781,7 @@ GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource 
         vg_program& program = **entry;
         for(u32 i = 0; i < program.numShaders; ++i)
         {
+            spvReflectDestroyShaderModule(program.shaderReflections[i]);
             vkDestroyShaderModule(device.handle, program.shaders[i], nullptr);
         }
         // descriptor layout?
@@ -3036,26 +3037,47 @@ GfxResult DestroySampler( GfxDevice deviceHandle, GfxSampler resource)
     return GfxResult::Ok;
 }
 
-inline VkResult 
-CreateProgramShader(VkDevice device, GfxShaderDesc* shaderDesc, vg_program* program)
+
+
+internal VkResult 
+CreateProgramShader(vg_resourceheap* pHeap, VkDevice device, GfxShaderDesc* shaderDesc, vg_program* program)
 {
     VkShaderModuleCreateInfo createInfo = {VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     createInfo.codeSize = shaderDesc->size;
     createInfo.pCode = (u32*)shaderDesc->data;
 
+    const u32 idx = program->numShaders++;
+
     VkShaderModule shaderModule;
     VkResult result = vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule);
+
+    SpvReflectShaderModule* reflectModule = PushStruct(pHeap->arena, SpvReflectShaderModule);
+    SpvReflectResult reflectResult = spvReflectCreateShaderModule(shaderDesc->size, shaderDesc->data, reflectModule);
+    // pull the entry point from the reflection module if one isn't specified
+    u32 entrypoint_index = 0;
+    SpvReflectEntryPoint* pEntryPoint = reflectModule->entry_points;
     if(shaderDesc->szEntryPoint)
     {
-        CopyString(shaderDesc->szEntryPoint, program->entrypoints[program->numShaders], GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH);
-    }
-    else
-    {
-        // just default to main... or maybe we could just use reflection?
-        CopyString("main", program->entrypoints[program->numShaders], GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH);
-    }
+        SpvReflectEntryPoint* pIter = pEntryPoint;
+        while(pIter && !CompareStrings(shaderDesc->szEntryPoint, pIter->name))
+        {
+            entrypoint_index++;
+            if(entrypoint_index >= reflectModule->entry_point_count)
+            {
+                ASSERT(false);
+                pIter = 0;
+                break;
+            }
 
-    program->shaders[program->numShaders++] = shaderModule;
+            if(pIter)
+            {
+                pEntryPoint = pIter;
+            }
+        }
+    }
+    program->entrypoints[idx] = pEntryPoint;
+    program->shaderReflections[idx] = reflectModule;
+    program->shaders[idx] = shaderModule;
     return result;
 }
 
@@ -3068,40 +3090,39 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
     if(programDesc.compute)
     {
-        SpvReflectShaderModule module = {};
-        SpvReflectResult reflectResult = spvReflectCreateShaderModule(programDesc.compute->size, programDesc.compute->data, &module);
-        result = CreateProgramShader(device.handle, programDesc.compute, program);
+        result = CreateProgramShader(pHeap, device.handle, programDesc.compute, program);
     }
     
     if(programDesc.vertex && result == VK_SUCCESS)
     {
-        result = CreateProgramShader(device.handle, programDesc.vertex, program);
+        result = CreateProgramShader(pHeap, device.handle, programDesc.vertex, program);
     }
     
     if(programDesc.hull && result == VK_SUCCESS)
     {
-        result = CreateProgramShader(device.handle, programDesc.hull, program);
+        result = CreateProgramShader(pHeap, device.handle, programDesc.hull, program);
     }
     
     if(programDesc.domain && result == VK_SUCCESS)
     {
-        result = CreateProgramShader(device.handle, programDesc.domain, program);
+        result = CreateProgramShader(pHeap, device.handle, programDesc.domain, program);
     }
     
     if(programDesc.geometry && result == VK_SUCCESS)
     {
-        result = CreateProgramShader(device.handle, programDesc.geometry, program);
+        result = CreateProgramShader(pHeap, device.handle, programDesc.geometry, program);
     }
     
     if(programDesc.fragment && result == VK_SUCCESS)
     {
-        result = CreateProgramShader(device.handle, programDesc.fragment, program);
+        result = CreateProgramShader(pHeap, device.handle, programDesc.fragment, program);
     }
 
     if(result != VK_SUCCESS)
     {
         for(u32 i = 0; i < program->numShaders; ++i)
         {
+            spvReflectDestroyShaderModule(program->shaderReflections[i]);
             vkDestroyShaderModule(device.handle, program->shaders[i], nullptr);
         }
         return GfxProgram{GFX_INVALID_HANDLE};
@@ -3121,6 +3142,7 @@ GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram resource)
 
     for(u32 i = 0; i < program->numShaders; ++i)
     {
+        spvReflectDestroyShaderModule(program->shaderReflections[i]);
         vkDestroyShaderModule(device.handle, program->shaders[i], nullptr);
     }
     pHeap->programs.erase(resource.id);
@@ -3250,6 +3272,65 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     VkResult result = CreateRenderPassForPipeline(device.handle, pipelineDesc, &renderpass);
     if(result != VK_SUCCESS) return GfxKernel{};     
 
+    temporary_memory temp = BeginTemporaryMemory(pHeap->arena);
+
+    VkVertexInputBindingDescription vertexBindingDesc = {};
+    vertexBindingDesc.binding = 0;
+    vertexBindingDesc.stride = 0;   // full stride will get computed from vertex shader reflection
+    vertexBindingDesc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX; // OR VK_VERTEX_INPUT_RATE_INSTANCE??
+
+    VkPipelineVertexInputStateCreateInfo vertexInputInfo = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertexInputInfo.vertexBindingDescriptionCount = 0;
+    vertexInputInfo.vertexAttributeDescriptionCount = 0;
+
+    VkPipelineShaderStageCreateInfo shaderStages[VG_MAX_PROGRAM_SHADER_COUNT];
+
+    for(u32 i = 0; i < program->numShaders; ++i)
+    {
+        const SpvReflectEntryPoint& entrypoint = *program->entrypoints[i];
+        shaderStages[i] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        shaderStages[i].stage = (VkShaderStageFlagBits)entrypoint.shader_stage;
+        shaderStages[i].module = program->shaders[i];
+        shaderStages[i].pName = entrypoint.name;
+
+        if(entrypoint.shader_stage & SPV_REFLECT_SHADER_STAGE_VERTEX_BIT)
+        {
+            // Simplifying assumptions:
+            // - All vertex input attributes are sourced from a single vertex buffer,
+            //   bound to VB slot 0.
+            // - Each vertex's attribute are laid out in ascending order by location.
+            // - The format of each attribute matches its usage in the shader;
+            //   float4 -> VK_FORMAT_R32G32B32A32_FLOAT, etc. No attribute compression is applied.
+            // - All attributes are provided per-vertex, not per-instance.
+            vertexInputInfo.vertexBindingDescriptionCount = 1;
+            vertexInputInfo.pVertexBindingDescriptions = &vertexBindingDesc;
+            vertexInputInfo.vertexAttributeDescriptionCount = entrypoint.input_variable_count;
+
+            VkVertexInputAttributeDescription* pAttributeDescriptions = PushArray(pHeap->arena, entrypoint.input_variable_count, VkVertexInputAttributeDescription);
+            vertexInputInfo.pVertexAttributeDescriptions = pAttributeDescriptions;
+            slice<VkVertexInputAttributeDescription> attrSlice = make_slice(pAttributeDescriptions, entrypoint.input_variable_count);
+
+            for(u32 attr_idx = 0; attr_idx < attrSlice.size(); ++attr_idx)
+            {
+                const SpvReflectInterfaceVariable& input = *(entrypoint.input_variables[attr_idx]);
+                VkVertexInputAttributeDescription& attr = attrSlice[attr_idx];
+                attr.location = input.location;
+                attr.binding = vertexBindingDesc.binding;
+                attr.format = (VkFormat)input.format;
+                attr.offset = 0;    // final value computed below
+            }
+
+            sort::quickSort(attrSlice, [](const VkVertexInputAttributeDescription& a, const VkVertexInputAttributeDescription& b){return a.location < b.location;});
+
+            for(auto& attr: attrSlice)
+            {
+                u32 size = vkInit_GetFormatSize(attr.format);
+                attr.offset = vertexBindingDesc.stride;
+                vertexBindingDesc.stride += size;
+            }
+        }
+    }
+
     // now that we have a renderpass and framebuffer object, we can create the graphics pipeline
     VkPipelineLayout pipelineLayout = nullptr;    // TODO(james): create this object from the program layout
 
@@ -3346,9 +3427,9 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
 	cb.blendConstants[3] = 0.0f;
 
     VkGraphicsPipelineCreateInfo pipelineInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    pipelineInfo.stageCount = program->numShaders;  // TODO(james)
-    pipelineInfo.pStages = nullptr; // TODO(james)
-    pipelineInfo.pVertexInputState = nullptr; // TODO(james)
+    pipelineInfo.stageCount = program->numShaders;  
+    pipelineInfo.pStages = shaderStages; 
+    pipelineInfo.pVertexInputState = &vertexInputInfo; 
     pipelineInfo.pInputAssemblyState = nullptr; // TODO(james)
     pipelineInfo.pViewportState = &viewportState; 
     pipelineInfo.pRasterizationState = &rs; 
@@ -3363,6 +3444,8 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     VkPipeline pipeline;
     // TODO(james): Use pipeline cache to speed up initialization
     result = vkCreateGraphicsPipelines(device.handle, nullptr, 1, &pipelineInfo, nullptr, &pipeline);
+
+    EndTemporaryMemory(temp);
 
     // NOTE(james): No matter what, clean up the temporary render pass...
     vkDestroyRenderPass(device.handle, renderpass, nullptr);

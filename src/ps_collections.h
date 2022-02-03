@@ -8,6 +8,7 @@
 // insert() moves the element at the index to the end of the array to make room rather than moving all the elements down a position
 // erase() moves the element at the end of the array to the slot being erased
 
+
 template<typename T>
 struct slice
 {
@@ -60,8 +61,13 @@ struct slice
     }
 };
 
+template<typename T>
+inline slice<T> make_slice(T* ptr, u32 size) { return slice<T>{ptr, size}; }
+
 #define array_create(arena, type, capacity) array<type>::create(arena, capacity)
-#define array_create_init(arena, type, init) array<type>::create(arena, init)
+#define array_create_init(arena, type, init, ...) array<type>::create(arena, init, ## __VA_ARGS__)
+#define array_create_copy(arena, srcarray, ...) array<type>::create_copy(arena, srcarray, ## __VA_ARGS__)
+
 
 template<typename T>
 struct array
@@ -80,6 +86,16 @@ struct array
         array<T>* arr = PushStruct(arena, array<T>);
         arr->_data = PushArray(arena, capacity, T);
         arr->_capacity = capacity;
+        return arr;
+    }
+
+    static array<T>* create_copy(memory_arena& arena, const array<T>* src, u32 capacity = 0)
+    {
+        array<T>* arr = PushStruct(arena, array<T>);
+        arr->capacity = capacity ? capacity : src->_capacity;
+        arr->_data = PushArray(arena, arr->_capacity, T);
+        arr->_size = src->_size;
+        CopyArray(arr->_size, src->_data, arr->_data);
         return arr;
     }
 
