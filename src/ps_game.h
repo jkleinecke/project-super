@@ -13,7 +13,11 @@
 #include "ps_render.h"
 #include "ps_asset.h"
 
-
+struct renderable
+{
+    render_material material;
+    render_geometry geometry;
+};
 
 struct game_state
 {
@@ -23,6 +27,12 @@ struct game_state
 
     game_assets* assets;
     // render_resource_queue* resourceQueue;
+
+    GfxCmdEncoderPool cmdpool;
+    GfxCmdContext cmds;
+    GfxProgram shaderProgram;
+    GfxKernel mainKernel;
+    renderable box;
 
     m4 cameraProjection;
     camera camera;

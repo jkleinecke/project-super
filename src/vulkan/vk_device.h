@@ -189,7 +189,7 @@ struct vg_command_encoder_pool
 {
     VkCommandPool   cmdPool;
 
-    hashtable<vg_cmd_context*>& cmdcontexts;
+    hashtable<vg_cmd_context*>* cmdcontexts;
 };
 
 struct vg_program_binding_desc
@@ -229,12 +229,12 @@ struct vg_resourceheap
 {
     memory_arena arena;
 
-    hashtable<vg_buffer*>& buffers;
-    hashtable<vg_image*>& textures;
-    hashtable<vg_sampler*>& samplers;
-    hashtable<vg_rendertargetview*>& rtvs;
-    hashtable<vg_program*>& programs;
-    hashtable<vg_kernel*>& kernels;
+    hashtable<vg_buffer*>* buffers;
+    hashtable<vg_image*>* textures;
+    hashtable<vg_sampler*>* samplers;
+    hashtable<vg_rendertargetview*>* rtvs;
+    hashtable<vg_program*>* programs;
+    hashtable<vg_kernel*>* kernels;
 };
 
 struct vg_renderpass

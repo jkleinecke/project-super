@@ -1080,7 +1080,6 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
         allocInfo.physicalDevice = device.physicalDevice;
         allocInfo.device = device.handle;
         allocInfo.instance = vb.instance;
-        allocInfo.frameInUseCount = FRAME_OVERLAP - 1;
         // NOTE(james): since we will handle our own synchronization on allocations, we don't want the allocator to use mutexes internally
         allocInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT; 
 
@@ -1158,15 +1157,32 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
     vkGetSwapchainImagesKHR(device.handle, swapChain, &imageCount, images.data());
 
     arrsetlen(device.paSwapChainImages, imageCount);
+
+    vg_resourceheap* pHeap = device.resourceHeaps->get(0);
     //device.swapChainImages.resize(imageCount);
     for(u32 index = 0; index < imageCount; ++index)
     {
+
+
         device.paSwapChainImages[index].handle = images[index];
 
         // now setup the image view for use in the swap chain
-        NotImplemented;
+        VkImageViewCreateInfo viewInfo = vkInit_imageview_create_info(
+            surfaceFormat.format, device.paSwapChainImages[index].handle, VK_IMAGE_ASPECT_COLOR_BIT
+        );
+
+        result = vkCreateImageView(device.handle, &viewInfo, nullptr, &device.paSwapChainImages[index].view);
         // result = vgCreateImageView(device, device.paSwapChainImages[index].handle, surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, &device.paSwapChainImages[index].view);
         VERIFY_SUCCESS(result);
+
+        vg_rendertargetview* pRTV = PushStruct(pHeap->arena, vg_rendertargetview);
+        result = vkCreateImageView(device.handle, &viewInfo, nullptr, &pRTV->view); // NOTE(james): rtv is managed separately from the image view on the swap chain...
+        VERIFY_SUCCESS(result);
+        pRTV->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        pRTV->clearValue = Vec4(0.0f,0.0f,0.0f,0.0f);   // black
+
+        u64 key = pHeap->rtvs->size()+1;
+        pHeap->rtvs->set(key, pRTV);
     }
     
     VERIFY_SUCCESS(result);
@@ -1186,6 +1202,41 @@ VkResult vgInitializeMemory(vg_device& device)
     {
         vgInitDescriptorAllocator(device.frames[i].dynamicDescriptorAllocator, device.handle);
     }
+
+    u32 numImages = FRAME_OVERLAP;
+
+    VkSemaphoreCreateInfo semaphoreInfo = vkInit_semaphore_create_info(0);
+    VkFenceCreateInfo fenceInfo = vkInit_fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
+
+    for(u32 i = 0; i < numImages; i++)
+    {
+        vg_framedata& frame = device.frames[i];
+
+        VkResult imageAvailableResult = vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &frame.renderSemaphore);
+        VkResult renderFinishedResult = vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &frame.presentSemaphore);
+        VkResult fenceResult = vkCreateFence(device.handle, &fenceInfo, nullptr, &frame.renderFence);
+
+        if(DIDFAIL(imageAvailableResult)) { 
+            LOG_ERROR("Vulkan Error: %X", (imageAvailableResult));
+            ASSERT(false);
+            return imageAvailableResult; 
+        }
+        else if(DIDFAIL(renderFinishedResult))
+        {
+            LOG_ERROR("Vulkan Error: %X", (renderFinishedResult));
+            ASSERT(false);
+            return renderFinishedResult; 
+        } 
+        else if(DIDFAIL(fenceResult))
+        {
+            LOG_ERROR("Vulkan Error: %X", (fenceResult));
+            ASSERT(false);
+            return fenceResult; 
+        }
+    }
+
+    device.pCurFrame = &device.frames[0];
+    device.pPrevFrame = &device.frames[FRAME_OVERLAP - 1];
 
     return VK_SUCCESS;
 }
@@ -2468,12 +2519,12 @@ vgAllocateResourceHeap()
     vg_resourceheap* pHeap = BootstrapPushStructMember(vg_resourceheap, arena);
 
     // TODO(james): Tune these to the game
-    pHeap->buffers = *hashtable_create(pHeap->arena, vg_buffer*, 1024);
-    pHeap->textures = *hashtable_create(pHeap->arena, vg_image*, 1024);
-    pHeap->samplers = *hashtable_create(pHeap->arena, vg_sampler*, 128);
-    pHeap->rtvs = *hashtable_create(pHeap->arena, vg_rendertargetview*, 32);
-    pHeap->programs = *hashtable_create(pHeap->arena, vg_program*, 128);
-    pHeap->kernels = *hashtable_create(pHeap->arena, vg_kernel*, 128);
+    pHeap->buffers = hashtable_create(pHeap->arena, vg_buffer*, 1024);
+    pHeap->textures = hashtable_create(pHeap->arena, vg_image*, 1024);
+    pHeap->samplers = hashtable_create(pHeap->arena, vg_sampler*, 128);
+    pHeap->rtvs = hashtable_create(pHeap->arena, vg_rendertargetview*, 32);
+    pHeap->programs = hashtable_create(pHeap->arena, vg_program*, 128);
+    pHeap->kernels = hashtable_create(pHeap->arena, vg_kernel*, 128);
 
     return pHeap;
 }
@@ -2523,6 +2574,7 @@ ConvertSampleCount(GfxSampleCount count)
 {
     switch(count)
     {
+        case GfxSampleCount::Undefined:
         case GfxSampleCount::MSAA_1: return VK_SAMPLE_COUNT_1_BIT;
         case GfxSampleCount::MSAA_2: return VK_SAMPLE_COUNT_2_BIT;
         case GfxSampleCount::MSAA_4: return VK_SAMPLE_COUNT_4_BIT;
@@ -2730,8 +2782,22 @@ VkResult CreateRenderPassForPipeline(VkDevice device, const GfxPipelineDesc& pip
 
 GfxRenderTargetView AcquireNextSwapChainTarget(GfxDevice deviceHandle)
 {
-    NotImplemented;
-    return GfxRenderTargetView{};
+    vg_device& device = DeviceObject::From(deviceHandle);
+
+    VkResult result = vkWaitForFences(device.handle, 1, &device.pCurFrame->renderFence, VK_TRUE, UINT64_MAX);
+    result = vkAcquireNextImageKHR(device.handle, device.swapChain, UINT64_MAX, device.pCurFrame->presentSemaphore, VK_NULL_HANDLE, &device.curSwapChainIndex);
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR) 
+    {
+        ASSERT(false);
+        // Win32RecreateSwapChain(graphics);
+    }
+    else if(result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+    {
+        ASSERT(false);
+    }
+
+    return GfxRenderTargetView{0, device.curSwapChainIndex+1};
 }
 
 GfxResourceHeap CreateResourceHeap( GfxDevice deviceHandle )
@@ -2762,14 +2828,14 @@ GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource 
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.id);
 
     // buffer
-    for(auto entry: pHeap->buffers)
+    for(auto entry: *pHeap->buffers)
     {
         vg_buffer& buffer = **entry;
         vmaDestroyBuffer(device.allocator, buffer.handle, buffer.allocation);
     }
 
     // image
-    for(auto entry: pHeap->textures)
+    for(auto entry: *pHeap->textures)
     {
         vg_image& image = **entry;
         vkDestroyImageView(device.handle, image.view, nullptr);
@@ -2777,20 +2843,20 @@ GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource 
     }
     
     // sampler
-    for(auto entry: pHeap->samplers)
+    for(auto entry: *pHeap->samplers)
     {
         vg_sampler& sampler = **entry;
         vkDestroySampler(device.handle, sampler.handle, nullptr);
     }
 
-    for(auto entry: pHeap->rtvs)
+    for(auto entry: *pHeap->rtvs)
     {
         vg_rendertargetview& rtv = **entry;
         vkDestroyImageView(device.handle, rtv.view, nullptr);
     }
 
     // kernel
-    for(auto entry: pHeap->kernels)
+    for(auto entry: *pHeap->kernels)
     {
         vg_kernel& kernel = **entry;
         
@@ -2798,7 +2864,7 @@ GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource 
     }
 
     // program
-    for(auto entry: pHeap->programs)
+    for(auto entry: *pHeap->programs)
     {
         vg_program& program = **entry;
         for(u32 i = 0; i < program.numShaders; ++i)
@@ -2876,8 +2942,8 @@ GfxBuffer CreateBuffer( GfxDevice deviceHandle, const GfxBufferDesc& bufferDesc,
         Copy(bufferDesc.size, data, buffer->mapped);
     }
 
-    u64 key = HASH(heap.buffers.size()+1);
-    heap.buffers.set(key, buffer);
+    u64 key = HASH(heap.buffers->size()+1);
+    heap.buffers->set(key, buffer);
 
     return GfxBuffer{ bufferDesc.heap.id, key };
 }
@@ -2886,7 +2952,7 @@ void* GetBufferData( GfxDevice deviceHandle, GfxBuffer resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
-    vg_buffer* buffer = pHeap->buffers.get(resource.id);
+    vg_buffer* buffer = pHeap->buffers->get(resource.id);
 
     if(!buffer->mapped)
     {
@@ -2900,7 +2966,7 @@ GfxResult DestroyBuffer( GfxDevice deviceHandle, GfxBuffer resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
-    vg_buffer* buffer = pHeap->buffers.get(resource.id);
+    vg_buffer* buffer = pHeap->buffers->get(resource.id);
 
     if(buffer->mapped)
     {
@@ -2909,7 +2975,7 @@ GfxResult DestroyBuffer( GfxDevice deviceHandle, GfxBuffer resource)
     }
 
     vmaDestroyBuffer(device.allocator, buffer->handle, buffer->allocation);
-    pHeap->buffers.erase(resource.id);
+    pHeap->buffers->erase(resource.id);
 
     return GfxResult::Ok;
 }
@@ -2998,8 +3064,8 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
     // image->height = textureDesc.height;
     // image->layers = textureDesc.slice_count;
 
-    u64 key = HASH(pHeap->textures.size()+1);
-    pHeap->textures.set(key, image);
+    u64 key = HASH(pHeap->textures->size()+1);
+    pHeap->textures->set(key, image);
 
     return GfxTexture{textureDesc.heap.id, key};
 }
@@ -3008,11 +3074,11 @@ GfxResult DestroyTexture( GfxDevice deviceHandle, GfxTexture resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
-    vg_image* image = pHeap->textures.get(resource.id);
+    vg_image* image = pHeap->textures->get(resource.id);
 
     vkDestroyImageView(device.handle, image->view, nullptr);
     vmaDestroyImage(device.allocator, image->handle, image->allocation);
-    pHeap->textures.erase(resource.id);
+    pHeap->textures->erase(resource.id);
 
     return GfxResult::Ok;
 }
@@ -3050,8 +3116,8 @@ GfxSampler CreateSampler( GfxDevice deviceHandle, const GfxSamplerDesc samplerDe
     VkResult result = vkCreateSampler(device.handle, &samplerInfo, nullptr, &sampler->handle);
     if(result != VK_SUCCESS) return GfxSampler{};
 
-    u64 key = HASH(pHeap->samplers.size()+1);
-    pHeap->samplers.set(key, sampler);
+    u64 key = HASH(pHeap->samplers->size()+1);
+    pHeap->samplers->set(key, sampler);
 
     return GfxSampler{samplerDesc.heap.id, key};
 }
@@ -3060,10 +3126,10 @@ GfxResult DestroySampler( GfxDevice deviceHandle, GfxSampler resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
-    vg_sampler* sampler = pHeap->samplers.get(resource.id);
+    vg_sampler* sampler = pHeap->samplers->get(resource.id);
 
     vkDestroySampler(device.handle, sampler->handle, nullptr);
-    pHeap->samplers.erase(resource.id);
+    pHeap->samplers->erase(resource.id);
 
     return GfxResult::Ok;
 }
@@ -3198,17 +3264,21 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
                 result = vkCreateDescriptorSetLayout(device.handle, &descLayoutInfo, nullptr, &setLayout);
                 if(result == VK_SUCCESS)
                 {
-                    ASSERT(false);
                     program->descriptorSetLayouts->push_back(setLayout);
                 }
             }
 
             for(u32 i = 0; i < entrypoint.used_push_constant_count; ++i)
             {
-                SpvReflectBlockVariable& block = module.push_constant_blocks[entrypoint.used_push_constants[i]];
+                SpvReflectBlockVariable* block = nullptr;
+                for(u32 pci = 0; !block && pci < module.push_constant_block_count; ++pci)
+                {
+                    if(module.push_constant_blocks[pci].spirv_id == entrypoint.used_push_constants[i])
+                        block = &module.push_constant_blocks[pci];
+                }
                 VkPushConstantRange& pushConstant = pushConstants[pushConstantCount++];
-                pushConstant.offset = block.offset;
-                pushConstant.size = block.size;
+                pushConstant.offset = (VkDeviceSize)block->offset;
+                pushConstant.size = (VkDeviceSize)block->size;
                 pushConstant.stageFlags = entrypoint.shader_stage;
             }
         }
@@ -3251,8 +3321,8 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
         return GfxProgram{};
     }
 
-    u64 key = HASH(pHeap->programs.size()+1);
-    pHeap->programs.set(key, program);
+    u64 key = HASH(pHeap->programs->size()+1);
+    pHeap->programs->set(key, program);
 
     return GfxProgram{programDesc.heap.id, key};
 }
@@ -3261,7 +3331,7 @@ GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
-    vg_program* program = pHeap->programs.get(resource.id);
+    vg_program* program = pHeap->programs->get(resource.id);
 
     for(u32 i = 0; i < program->numShaders; ++i)
     {
@@ -3276,7 +3346,7 @@ GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram resource)
     {
         vkDestroyDescriptorSetLayout(device.handle, setLayout, nullptr);
     }
-    pHeap->programs.erase(resource.id);
+    pHeap->programs->erase(resource.id);
 
     return GfxResult::Ok;
 }
@@ -3351,7 +3421,7 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
     vg_device& device = DeviceObject::From(deviceHandle);
     // NOTE(james): RT View will use the same heap as the backing texture.  Won't make sense to allocate them separately.
     vg_resourceheap* pHeap = device.resourceHeaps->get(rtvDesc.texture.heap);
-    vg_image& image = *pHeap->textures.get(rtvDesc.texture.id);
+    vg_image& image = *pHeap->textures->get(rtvDesc.texture.id);
 
     VkImageViewCreateInfo viewInfo = {};
 	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -3379,8 +3449,8 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
     rtv->loadOp = ConvertLoadOp(rtvDesc.loadOp);
     rtv->clearValue = rtvDesc.clearValue;
 
-    u64 key = HASH(pHeap->rtvs.size() + 1);
-    pHeap->rtvs.set(key, rtv);
+    u64 key = HASH(pHeap->rtvs->size() + 1);
+    pHeap->rtvs->set(key, rtv);
 
     return GfxRenderTargetView{rtvDesc.texture.heap, key};
 }
@@ -3389,19 +3459,26 @@ GfxResult DestroyRenderTargetView( GfxDevice deviceHandle, GfxRenderTargetView r
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
-    vg_rendertargetview& rtv = *pHeap->rtvs.get(resource.id);
+    vg_rendertargetview& rtv = *pHeap->rtvs->get(resource.id);
 
     vkDestroyImageView(device.handle, rtv.view, nullptr);
-    pHeap->rtvs.erase(resource.id);
+    pHeap->rtvs->erase(resource.id);
 
     return GfxResult::Ok;
+}
+
+TinyImageFormat GetDeviceBackBufferFormat( GfxDevice deviceHandle )
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+
+    return TinyImageFormat_FromVkFormat((TinyImageFormat_VkFormat)device.swapChainFormat);
 }
 
 GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, const GfxPipelineDesc& pipelineDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
-    vg_program* program = pHeap->programs.get(resource.id);
+    vg_program* program = pHeap->programs->get(resource.id);
     pHeap = device.resourceHeaps->get(pipelineDesc.heap.id);
 
     // just create a temporary render pass for pipeline creation
@@ -3557,7 +3634,7 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     cb.flags = 0;
 	cb.logicOpEnable = VK_FALSE;
 	cb.logicOp = VK_LOGIC_OP_CLEAR;
-    cb.attachmentCount = GFX_MAX_RENDERTARGETS;
+    cb.attachmentCount = pipelineDesc.numColorTargets;
 	cb.pAttachments = blendAttachments;
 	cb.blendConstants[0] = 0.0f;
 	cb.blendConstants[1] = 0.0f;
@@ -3599,8 +3676,8 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     kernel->pipeline = pipeline;
     kernel->program = program;
 
-    u64 key = HASH(pHeap->kernels.size()+1);
-    pHeap->kernels.set(key, kernel);
+    u64 key = HASH(pHeap->kernels->size()+1);
+    pHeap->kernels->set(key, kernel);
 
     return GfxKernel{pipelineDesc.heap.id, key};
 }
@@ -3609,10 +3686,10 @@ GfxResult DestroyKernel( GfxDevice deviceHandle, GfxKernel resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
-    vg_kernel* kernel = pHeap->kernels.get(resource.id);    
+    vg_kernel* kernel = pHeap->kernels->get(resource.id);    
 
     vkDestroyPipeline(device.handle, kernel->pipeline, nullptr);
-    pHeap->kernels.erase(resource.id);
+    pHeap->kernels->erase(resource.id);
 
     return GfxResult::Ok;
 }
@@ -3630,7 +3707,7 @@ GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoder
     VkResult result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &pool->cmdPool);
     if(result != VK_SUCCESS) return GfxCmdEncoderPool{};
 
-    pool->cmdcontexts = *hashtable_create(device.arena, vg_cmd_context*, 32);
+    pool->cmdcontexts = hashtable_create(device.arena, vg_cmd_context*, 32);
 
     u64 key = HASH(device.encoderPools->size()+1);
     device.encoderPools->set(key, pool);
@@ -3657,7 +3734,7 @@ GfxCmdContext CreateEncoderContext( GfxCmdEncoderPool resource)
     vg_device& device = DeviceObject::From(resource.deviceId);
     vg_command_encoder_pool* pool = device.encoderPools->get(resource.id);
 
-    if(pool->cmdcontexts.full()) return GfxCmdContext{};
+    if(pool->cmdcontexts->full()) return GfxCmdContext{};
 
     VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     allocInfo.commandBufferCount = 1;
@@ -3671,8 +3748,8 @@ GfxCmdContext CreateEncoderContext( GfxCmdEncoderPool resource)
     vg_cmd_context* context = PushStruct(device.arena, vg_cmd_context);
     context->buffer = buffer;
 
-    u64 key = HASH(pool->cmdcontexts.size()+1);
-    pool->cmdcontexts.set(key, context);
+    u64 key = HASH(pool->cmdcontexts->size()+1);
+    pool->cmdcontexts->set(key, context);
 
     return GfxCmdContext{resource.deviceId, resource.id, key};
 }
@@ -3695,13 +3772,13 @@ GfxResult CreateEncoderContexts(GfxCmdEncoderPool resource, u32 numContexts, Gfx
 
     for(u32 i = 0; i < numContexts; ++i)
     {
-        if(pool->cmdcontexts.full()) return GfxResult::OutOfHandles;
+        if(pool->cmdcontexts->full()) return GfxResult::OutOfHandles;
 
         vg_cmd_context* context = PushStruct(device.arena, vg_cmd_context);
         context->buffer = buffers[i];
 
-        u64 key = HASH(pool->cmdcontexts.size()+1);
-        pool->cmdcontexts.set(key, context);
+        u64 key = HASH(pool->cmdcontexts->size()+1);
+        pool->cmdcontexts->set(key, context);
         pContexts[i].deviceId = resource.deviceId;
         pContexts[i].poolId = resource.id;
         pContexts[i].id = key;
@@ -3714,7 +3791,7 @@ GfxResult ResetCmdEncoderPool( GfxCmdEncoderPool resource)
 {
     vg_device& device = DeviceObject::From(resource.deviceId);
     vg_command_encoder_pool* pool = device.encoderPools->get(resource.id);
-
+    
     vkResetCommandPool(device.handle, pool->cmdPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     return GfxResult::Ok;
@@ -3724,7 +3801,7 @@ GfxResult BeginEncodingCmds(GfxCmdContext cmds)
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_command_encoder_pool* pool = device.encoderPools->get(cmds.poolId);
-    vg_cmd_context* context = pool->cmdcontexts.get(cmds.id);
+    vg_cmd_context* context = pool->cmdcontexts->get(cmds.id);
 
     VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -3737,7 +3814,7 @@ GfxResult EndEncodingCmds(GfxCmdContext cmds)
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_command_encoder_pool* pool = device.encoderPools->get(cmds.poolId);
-    vg_cmd_context* context = pool->cmdcontexts.get(cmds.id);
+    vg_cmd_context* context = pool->cmdcontexts->get(cmds.id);
 
     VkResult result = vkEndCommandBuffer(context->buffer);
 
@@ -3800,7 +3877,7 @@ GfxResult CmdGenerateMips( GfxCmdContext cmds, GfxTexture texture)
     return GfxResult::Ok;
 }
 
-GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView depthStencilRTV)
+GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDpthStencilRTV)
 {
     // Need to lookup or create a valid renderpass / framebuffer combo OR use the fancy vk_KHR_dynamic_rendering extension
     // vkCmdBeginRenderPass / vkCmdEndRenderPass if numRenderTargets is 0
@@ -3900,7 +3977,16 @@ GfxResult SubmitCommands( GfxDevice deviceHandle, u32 count, GfxCmdContext* pCon
 
 GfxResult Frame( GfxDevice deviceHandle, b32 vsync)
 {
+    vg_device& device = DeviceObject::From(deviceHandle);
+
     NotImplemented;
+
+    // Now move to the next frame...
+
+    device.currentFrameIndex = (device.currentFrameIndex + 1) % FRAME_OVERLAP;
+    device.pPrevFrame = device.pCurFrame;
+    device.pCurFrame = &device.frames[device.currentFrameIndex];
+
     return GfxResult::Ok;
 }
 

@@ -624,9 +624,8 @@ extern "C" int __stdcall WinMainCRTStartup()
     HRESULT hr = 0;
 
     ps_graphics_backend graphicsDriver = platform_load_graphics_backend(hInstance, mainWindow);
-    gfx_api& graphicsApi = graphicsDriver.gfx; 
-    gameRender.device = graphicsDriver.device;
-    gameRender.gfx = graphicsDriver.gfx;
+    gfx_api& gfx = graphicsDriver.gfx; 
+    gameRender.gfx = gfx;
 
     ShowWindow(mainWindow, SW_SHOW);
     Win32LoadXinput();
@@ -825,7 +824,7 @@ extern "C" int __stdcall WinMainCRTStartup()
                 break;
         }
 
-        gameRender.screenRTV = graphicsDriver.AcquireNextSwapChainTarget(gameRender.device);
+        gameRender.screenRTV = graphicsDriver.AcquireNextSwapChainTarget(gfx.device);
 
         // graphicsApi.BeginFrame(graphicsDriver.instance, &gameRender.commands);
 

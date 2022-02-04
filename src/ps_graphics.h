@@ -24,6 +24,8 @@ enum class GfxResult
     InternalError, 
 };
 
+#define GFX_ASSERT_VALID(resource) ASSERT(resource.id)
+
 struct GfxDevice { u64 id; };
 struct GfxResourceHeap { u64 deviceId; u64 id; };
 struct GfxCmdEncoderPool { u64 deviceId; u64 id; };
@@ -74,6 +76,7 @@ enum class GfxTextureType
 
 enum class GfxSampleCount
 {
+    Undefined = 0,
     MSAA_1  = 1,
     MSAA_2  = 2,
     MSAA_4  = 4,
@@ -256,7 +259,7 @@ enum class GfxColorWriteFlags
     Green       = 1 << 1,
     Blue        = 1 << 2,
     Alpha       = 1 << 3,
-    All         = ~0,
+    All         = Red|Green|Blue|Alpha,
 };
 MAKE_ENUM_FLAG(u32, GfxColorWriteFlags)
 
@@ -385,6 +388,8 @@ struct GfxCmdEncoderPoolDesc
 
 struct gfx_api
 {
+    GfxDevice device;
+
     // Resource Management
     // TODO(james): Track resource creation with __FILE__, __LINE__ trick?
     API_FUNCTION(GfxResourceHeap, CreateResourceHeap, GfxDevice device);
@@ -410,6 +415,7 @@ struct gfx_api
 
     API_FUNCTION(GfxRenderTargetView, CreateRenderTargetView, GfxDevice device, const GfxRenderTargetViewDesc& rtvDesc);
     API_FUNCTION(GfxResult, DestroyRenderTargetView, GfxDevice device, GfxRenderTargetView rtv);
+    API_FUNCTION(TinyImageFormat, GetDeviceBackBufferFormat, GfxDevice device);
 
     API_FUNCTION(GfxKernel, CreateComputeKernel, GfxDevice device, GfxProgram program);
     API_FUNCTION(GfxKernel, CreateGraphicsKernel, GfxDevice device, GfxProgram program, const GfxPipelineDesc& pipelineDesc);
@@ -439,7 +445,7 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdCopyBufferToTexture, GfxCmdContext cmds, GfxBuffer src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdGenerateMips, GfxCmdContext cmds, GfxTexture texture);
 
-    API_FUNCTION(GfxResult, CmdBindRenderTargets, GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView depthStencilRTV);
+    API_FUNCTION(GfxResult, CmdBindRenderTargets, GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDpthStencilRTV);
     API_FUNCTION(GfxResult, CmdBindKernel, GfxCmdContext cmds, GfxKernel kernel);
     API_FUNCTION(GfxResult, CmdBindIndexBuffer, GfxCmdContext cmds, GfxBuffer indexBuffer);
     API_FUNCTION(GfxResult, CmdBindVertexBuffer, GfxCmdContext cmds, GfxBuffer vertexBuffer);

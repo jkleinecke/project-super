@@ -8,7 +8,7 @@
                 "${workspaceFolder}/src/libs",
                 "${env:VULKAN_SDK}/Include"
             ],
-            "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.30.30705/bin/Hostx64/x64/cl.exe",
+            "compilerPath": "",
             "intelliSenseMode": "windows-msvc-x64",
             "compilerArgs": [
                 "-Oi",
@@ -38,8 +38,7 @@
             "cStandard": "c17",
             "cppStandard": "c++20",
             "browse": {
-                "limitSymbolsToIncludedHeaders": true,
-                "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db"
+                "limitSymbolsToIncludedHeaders": true
             }
         },
         {

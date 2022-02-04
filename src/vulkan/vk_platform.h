@@ -43,7 +43,6 @@ struct ps_graphics_backend
 {
     DECLARE_GB_FUNCTION(GfxRenderTargetView, AcquireNextSwapChainTarget, GfxDevice device);
     gfx_api gfx;
-    GfxDevice device;
     vg_backend* instance;
 };
 

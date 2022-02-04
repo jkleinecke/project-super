@@ -385,9 +385,30 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 #endif
 
 internal void
-RenderFrame(game_state& state, render_context& render)
+RenderFrame(game_state& state, render_context& rc)
 {
+    GfxCmdContext& cmds = state.cmds;
 
+    gfx.BeginEncodingCmds(cmds);
+
+    gfx.CmdSetViewport(cmds, 0, 0, rc.renderDimensions.Width, rc.renderDimensions.Height);
+
+    gfx.CmdBindRenderTargets(cmds, 1, &rc.screenRTV, nullptr);
+    gfx.CmdBindKernel(cmds, state.mainKernel);
+
+    // TODO(james): send the position of the geometry
+
+    render_geometry& gm = state.box.geometry;
+    gfx.CmdBindIndexBuffer(cmds, gm.indexBuffer);
+    gfx.CmdBindVertexBuffer(cmds, gm.vertexBuffer);
+    gfx.CmdDrawIndexed(cmds, gm.indexCount, 1, 0, 0, 0);
+
+    gfx.EndEncodingCmds(cmds);
+
+    gfx.SubmitCommands(gfx.device, 1, &cmds);
+
+    b32 vsync = true;
+    gfx.Frame(gfx.device, vsync);
 }
 
 internal void
@@ -396,11 +417,14 @@ SetupRenderResources(game_state& state, render_context& render)
 
 }
 
+
+
 platform_api Platform;
 extern "C"
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
     Platform = gameMemory.platformApi;
+    gfx = render.gfx;
     
     // TODO(james): Use bootstrap arena to allocate and initialize game state!!!
 
@@ -429,6 +453,13 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.position = Vec3i(0,0,0);
         gameState.scaleFactor = 1.0f;
         //gameState.rotationAngle = 120.188347f;
+
+        {
+            gameState.shaderProgram = LoadProgram(*gameState.frameArena, "shader.vert.spv", "shader.frag.spv");
+            gameState.mainKernel = gfx.CreateGraphicsKernel(gfx.device, gameState.shaderProgram, DefaultPipeline());
+            gameState.cmdpool = gfx.CreateEncoderPool(gfx.device, {GfxQueueType::Graphics});
+            gameState.cmds = gfx.CreateEncoderContext(gameState.cmdpool);
+        }
     }    
     
     game_state& gameState = *gameMemory.state;
@@ -520,6 +551,8 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             }
         }
     }
+
+    RenderFrame(gameState, render);
     
     // BuildRenderCommands(gameState, render, input.clock);
     

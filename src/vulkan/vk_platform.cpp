@@ -190,12 +190,12 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
 
     ps_graphics_backend backend = {};
     backend.instance = &g_VulkanBackend;
-    backend.device = DeviceObject::To(g_VulkanBackend.device);
     // WINDOWS SPECIFIC
     // TODO(james): Setup resource operation thread
     //backend.resourceQueue.semaphore = CreateSemaphore(0, 0, 1, 0);    // Only 1 resource operation thread will be active
     // ----------------
     backend.AcquireNextSwapChainTarget = AcquireNextSwapChainTarget;
+    backend.gfx.device = DeviceObject::To(g_VulkanBackend.device);
     backend.gfx.CreateResourceHeap = CreateResourceHeap;
     backend.gfx.DestroyResourceHeap = DestroyResourceHeap;
     backend.gfx.CreateBuffer = CreateBuffer;
@@ -214,6 +214,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.SetProgramConstants = SetProgramConstants;
     backend.gfx.CreateRenderTargetView = CreateRenderTargetView;
     backend.gfx.DestroyRenderTargetView = DestroyRenderTargetView;
+    backend.gfx.GetDeviceBackBufferFormat = GetDeviceBackBufferFormat;
     backend.gfx.CreateComputeKernel = CreateComputeKernel;
     backend.gfx.CreateGraphicsKernel = CreateGraphicsKernel;
     backend.gfx.DestroyKernel = DestroyKernel;
