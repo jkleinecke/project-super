@@ -3,6 +3,12 @@
 
 #include "ps_types.h"
 
+#define API_FUNCTION(ret, name, ...)   \
+    typedef PS_API ret(PS_APICALL* PFN_##name)(__VA_ARGS__); \
+    PFN_##name    name
+
+#include "ps_graphics.h"
+
 //===================== PLATFORM API =================================
 
 enum class FileUsage
@@ -66,10 +72,6 @@ struct platform_work_queue;
 
 #define PLATFORM_WORK_QUEUE_CALLBACK(name) void name(platform_work_queue* queue, void* data)
 typedef PLATFORM_WORK_QUEUE_CALLBACK(platform_work_queue_callback);
-
-#define API_FUNCTION(ret, name, ...)   \
-    typedef PS_API ret(PS_APICALL* PFN_##name)(__VA_ARGS__); \
-    PFN_##name    name
 
 struct platform_api
 {
@@ -209,17 +211,13 @@ enum class RenderResourceOpType
     Destroy
 };
 
-typedef u64 render_sync_token;
-struct render_resource_queue;
 struct render_context
 {
     v2 renderDimensions;
 
-    render_resource_queue* resourceQueue;
-    render_commands commands;
-
-    API_FUNCTION(render_sync_token, AddResourceOperation, render_resource_queue* queue, RenderResourceOpType operationType, render_manifest* manifest);
-    API_FUNCTION(b32, IsResourceOperationComplete, render_resource_queue* queue, render_sync_token operationToken);
+    GfxDevice device;
+    GfxRenderTargetView screenRTV;
+    gfx_api gfx;
 };
 
 struct game_state;

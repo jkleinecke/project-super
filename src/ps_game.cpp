@@ -295,6 +295,7 @@ void RenderScene(GraphicsContext& graphics, GameTestState& gameState, FrameConte
 
 #endif
 
+#if 0
 internal void
 RenderModel(render_commands& cmds, model_asset* model, u32 materialId, m4& viewProj, m4& world, m4& scale)
 {
@@ -381,6 +382,19 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 
     EndRenderCommands(cmds);
 }
+#endif
+
+internal void
+RenderFrame(game_state& state, render_context& render)
+{
+
+}
+
+internal void
+SetupRenderResources(game_state& state, render_context& render)
+{
+
+}
 
 platform_api Platform;
 extern "C"
@@ -397,8 +411,8 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.frameArena = (memory_arena*)BootstrapPushSize_(DEBUG_MEMORY_NAME("FrameArena") sizeof(memory_arena), 0, NonRestoredArena());
         gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
 
-        gameState.resourceQueue = render.resourceQueue;   
-        gameState.assets = AllocateGameAssets(gameState, render);
+        // gameState.resourceQueue = render.resourceQueue;   
+        gameState.assets = AllocateGameAssets(gameState);
      
         gameState.camera.position = Vec3(1.0f, 5.0f, 5.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
@@ -507,7 +521,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
     }
     
-    BuildRenderCommands(gameState, render, input.clock);
+    // BuildRenderCommands(gameState, render, input.clock);
     
 #if 0
     // TODO(james): needs a better allocation scheme 

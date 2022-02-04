@@ -127,8 +127,8 @@ struct game_assets
     memory_arena memory;
     memory_arena* frameArena;
 
-    render_resource_queue*  resourceQueue;
-    render_sync_token       lastResourceSyncToken;
+    // render_resource_queue*  resourceQueue;
+    // render_sync_token       lastResourceSyncToken;
 
     // TODO: Split into multiple regions/rooms to be able to stream assets chunks from disk
     model_id            nextModelId;

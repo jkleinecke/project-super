@@ -10,10 +10,8 @@ enum GfxConstants
     GFX_MAX_RENDERTARGETS = 8,
     GFX_MAX_ANISOTROPY = 8,
     GFX_MAX_BINDLESSSLOTS = 1024,
-    GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH = 32,
+    GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH = 32,
     GFX_MAX_PUSH_CONSTANT_COUNT = 32,
-    GFX_MAX_DESCRIPTOR_SETS = 16,
-    GFX_MAX_DESCRIPTOR_SET_BINDINGS = 32,
 };
 
 enum class GfxResult
@@ -422,9 +420,9 @@ struct gfx_api
     API_FUNCTION(GfxResult, DestroyCmdEncoderPool, GfxDevice device, GfxCmdEncoderPool pool);
 
     API_FUNCTION(GfxCmdContext, CreateEncoderContext, GfxCmdEncoderPool pool);
-    API_FUNCTION(GfxResult, DestroyEncoderContext, GfxCmdEncoderPool pool, GfxCmdContext);
+    // API_FUNCTION(GfxResult, DestroyEncoderContext, GfxCmdEncoderPool pool, GfxCmdContext);
     API_FUNCTION(GfxResult, CreateEncoderContexts, GfxCmdEncoderPool pool, u32 numContexts, GfxCmdContext* pContexts);
-    API_FUNCTION(GfxResult, DestroyEncoderContexts, GfxCmdEncoderPool pool, u32 numContexts, GfxCmdContext* pContexts);
+    // API_FUNCTION(GfxResult, DestroyEncoderContexts, GfxCmdEncoderPool pool, u32 numContexts, GfxCmdContext* pContexts);
 
     API_FUNCTION(GfxResult, ResetCmdEncoderPool, GfxCmdEncoderPool pool);
     API_FUNCTION(GfxResult, BeginEncodingCmds, GfxCmdContext cmds);

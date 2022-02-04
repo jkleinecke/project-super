@@ -10,39 +10,41 @@ struct ps_graphics_backend_api
     // TODO(james): create,resize,destroy swapchain per platform window/surface
     //ResizeSwapChain(vg_backend &graphics, )
 
-    DECLARE_GB_FUNCTION(void, BeginFrame, vg_backend* vb, render_commands* commands);
-    DECLARE_GB_FUNCTION(void, EndFrame, vg_backend* vb, render_commands* commands);
+    
 
-    DECLARE_GB_FUNCTION(render_sync_token, AddResourceOperation, render_resource_queue* queue, RenderResourceOpType operationType, render_manifest* manifest);
-    DECLARE_GB_FUNCTION(b32, IsResourceOperationComplete, render_resource_queue* queue, render_sync_token operationToken);
+    // DECLARE_GB_FUNCTION(void, BeginFrame, vg_backend* vb, render_commands* commands);
+    // DECLARE_GB_FUNCTION(void, EndFrame, vg_backend* vb, render_commands* commands);
+
+    //DECLARE_GB_FUNCTION(render_sync_token, AddResourceOperation, render_resource_queue* queue, RenderResourceOpType operationType, render_manifest* manifest);
+    //DECLARE_GB_FUNCTION(b32, IsResourceOperationComplete, render_resource_queue* queue, render_sync_token operationToken);
 };
 
-struct render_resource_op
-{
-    RenderResourceOpType type;
-    render_manifest* manifest;
-};
+// struct render_resource_op
+// {
+//     RenderResourceOpType type;
+//     render_manifest* manifest;
+// };
 
-typedef u64 render_sync_token;
+// typedef u64 render_sync_token;
 
-struct render_resource_queue
-{
-    render_sync_token volatile requestedSyncToken;
-    render_sync_token volatile currentSyncToken;
+// struct render_resource_queue
+// {
+//     render_sync_token volatile requestedSyncToken;
+//     render_sync_token volatile currentSyncToken;
 
-    u32 volatile readIndex;
-    u32 volatile writeIndex;
-    //HANDLE semaphore;
+//     u32 volatile readIndex;
+//     u32 volatile writeIndex;
+//     //HANDLE semaphore;
 
-    render_resource_op resourceOps[256];
-};
+//     render_resource_op resourceOps[256];
+// };
 
 struct ps_graphics_backend
 {
-    ps_graphics_backend_api api;
+    DECLARE_GB_FUNCTION(GfxRenderTargetView, AcquireNextSwapChainTarget, GfxDevice device);
+    gfx_api gfx;
+    GfxDevice device;
     vg_backend* instance;
-
-    render_resource_queue resourceQueue;
 };
 
 #if PROJECTSUPER_WIN32

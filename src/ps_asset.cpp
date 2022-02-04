@@ -456,12 +456,12 @@ FillOutRenderManifest(game_assets& assets, render_manifest* manifest)
 }
 
 internal game_assets*
-AllocateGameAssets(game_state& gm_state, render_context& renderer)
+AllocateGameAssets(game_state& gm_state)
 {
     game_assets& assets = *BootstrapPushStructMember(game_assets, memory, NonRestoredArena());
     
     assets.frameArena = gm_state.frameArena;
-    assets.resourceQueue = renderer.resourceQueue;
+    // assets.resourceQueue = renderer.resourceQueue;
 
     // TODO(james): Load assets in chunks based on the current area
 
@@ -516,15 +516,8 @@ AllocateGameAssets(game_state& gm_state, render_context& renderer)
     LoadCgltfAssets(assets, "box.glb"); // TODO(james): put these into the asset maps somehow
 
     // TODO(james): Allow this part to be streamed in as part of a streaming assets system.  For now we'll just make one load at startup time
-    render_manifest* manifest = PushStruct(*gm_state.frameArena, render_manifest);
-    FillOutRenderManifest(assets, manifest);
-
-    ASSERT(renderer.AddResourceOperation);
-    assets.lastResourceSyncToken = renderer.AddResourceOperation(assets.resourceQueue, RenderResourceOpType::Create, manifest);
-
-    // TODO(james): Only works because we're expecting the resource operations to be synchronous right now.  Remove once async loading is implemented
-    b32 isComplete = renderer.IsResourceOperationComplete(assets.resourceQueue, assets.lastResourceSyncToken);
-    ASSERT(isComplete);
+    // render_manifest* manifest = PushStruct(*gm_state.frameArena, render_manifest);
+    // FillOutRenderManifest(assets, manifest);
 
     return &assets;
 }

@@ -6,7 +6,7 @@
 #include "ps_math.h"
 #include "ps_memory.h"
 #include "ps_collections.h"
-#include "ps_graphics.h"
+// #include "ps_graphics.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -624,10 +624,9 @@ extern "C" int __stdcall WinMainCRTStartup()
     HRESULT hr = 0;
 
     ps_graphics_backend graphicsDriver = platform_load_graphics_backend(hInstance, mainWindow);
-    ps_graphics_backend_api graphicsApi = graphicsDriver.api; 
-    gameRender.resourceQueue = &graphicsDriver.resourceQueue;
-    gameRender.AddResourceOperation = graphicsApi.AddResourceOperation;
-    gameRender.IsResourceOperationComplete = graphicsApi.IsResourceOperationComplete;    
+    gfx_api& graphicsApi = graphicsDriver.gfx; 
+    gameRender.device = graphicsDriver.device;
+    gameRender.gfx = graphicsDriver.gfx;
 
     ShowWindow(mainWindow, SW_SHOW);
     Win32LoadXinput();
@@ -826,7 +825,9 @@ extern "C" int __stdcall WinMainCRTStartup()
                 break;
         }
 
-        graphicsApi.BeginFrame(graphicsDriver.instance, &gameRender.commands);
+        gameRender.screenRTV = graphicsDriver.AcquireNextSwapChainTarget(gameRender.device);
+
+        // graphicsApi.BeginFrame(graphicsDriver.instance, &gameRender.commands);
 
         if(gameFunctions.GameUpdateAndRender)
         {
@@ -878,7 +879,7 @@ extern "C" int __stdcall WinMainCRTStartup()
 
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
 
-        graphicsApi.EndFrame(graphicsDriver.instance, &gameRender.commands);
+        // graphicsApi.EndFrame(graphicsDriver.instance, &gameRender.commands);
 
         ++input.clock.frameCounter;
     }

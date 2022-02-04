@@ -50,62 +50,6 @@
 
 global vg_backend g_VulkanBackend = {};
 
-internal render_sync_token
-PlatformAddResourceOperation(render_resource_queue* queue, RenderResourceOpType operationType, render_manifest* manifest)
-{
-    render_sync_token syncToken = 0;
-
-    {    
-        // TODO(james): switch to InterlockedCompareExchange() so any thread can add a resource operation
-        u32 writeIndex = queue->writeIndex;
-        u32 nextWriteIndex = (queue->writeIndex + 1) % ARRAY_COUNT(queue->resourceOps);
-        ASSERT(nextWriteIndex != queue->readIndex);
-
-        u32 index = AtomicCompareExchangeUInt32(&queue->writeIndex, nextWriteIndex, writeIndex);
-        if(index == writeIndex)
-        {
-            render_resource_op* op = queue->resourceOps + index;
-            op->type = operationType;
-            op->manifest = manifest;
-
-            syncToken = AtomicIncrementU64(&queue->requestedSyncToken);
-        }
-        else
-        {   
-            // TODO(james): Setup a loop here so that we can ensure that the resource operation is always added
-            InvalidCodePath;
-        }
-    }
-
-    
-    // TODO(james): Move this part to a different thread
-    {
-        // NOTE(james): assumes that this queue works on the main vulkan device
-        u32 readIndex = queue->readIndex;
-        u32 nextReadIndex = (readIndex + 1) % ARRAY_COUNT(queue->resourceOps);
-        if(readIndex != queue->writeIndex)
-        {
-            u32 index = AtomicCompareExchangeUInt32(&queue->readIndex, nextReadIndex, readIndex);
-
-            if(index == readIndex)
-            {
-                render_resource_op& operation = queue->resourceOps[index];
-                vgPerformResourceOperation(g_VulkanBackend.device, operation.type, operation.manifest);
-                AtomicIncrementU64(&queue->currentSyncToken);
-            }
-        }
-    }
-
-    return syncToken;
-}
-
-internal b32
-PlatformIsResourceOperationComplete(render_resource_queue* queue, render_sync_token syncToken)
-{
-    // TODO(james): account for a wrapping 64-bit integer <-- how "correct" do we really need to be here?
-    return syncToken <= queue->currentSyncToken;
-}
-
 extern "C"
 LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
 {
@@ -210,52 +154,116 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     result = vgInitializeMemory(vb.device);
 
     // just temporary here until we have more framework in place
-    result = vgCreateScreenRenderPass(vb.device);
+    // result = vgCreateScreenRenderPass(vb.device);
 
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-    }
+    // if(result != VK_SUCCESS)
+    // {
+    //     ASSERT(false);
+    //     vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
+    // }
 
-    result = vgCreateDepthResources(vb.device);
+    // result = vgCreateDepthResources(vb.device);
 
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-    }
+    // if(result != VK_SUCCESS)
+    // {
+    //     ASSERT(false);
+    //     vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
+    // }
     
-    result = vgCreateFramebuffers(vb.device);
+    // result = vgCreateFramebuffers(vb.device);
 
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-    }
+    // if(result != VK_SUCCESS)
+    // {
+    //     ASSERT(false);
+    //     vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
+    // }
 
-    result = vgCreateCommandPool(vb.device);
+    // result = vgCreateCommandPool(vb.device);
 
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-    }
+    // if(result != VK_SUCCESS)
+    // {
+    //     ASSERT(false);
+    //     vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
+    // }
 
-    vgCreateStandardBuffers(vb.device);
+    // vgCreateStandardBuffers(vb.device);
 
     ps_graphics_backend backend = {};
     backend.instance = &g_VulkanBackend;
-
+    backend.device = DeviceObject::To(g_VulkanBackend.device);
     // WINDOWS SPECIFIC
     // TODO(james): Setup resource operation thread
     //backend.resourceQueue.semaphore = CreateSemaphore(0, 0, 1, 0);    // Only 1 resource operation thread will be active
     // ----------------
+    backend.AcquireNextSwapChainTarget = AcquireNextSwapChainTarget;
+    backend.gfx.CreateResourceHeap = CreateResourceHeap;
+    backend.gfx.DestroyResourceHeap = DestroyResourceHeap;
+    backend.gfx.CreateBuffer = CreateBuffer;
+    backend.gfx.DestroyBuffer = DestroyBuffer;
+    backend.gfx.GetBufferData = GetBufferData;
+    backend.gfx.CreateTexture = CreateTexture;
+    backend.gfx.DestroyTexture = DestroyTexture;
+    backend.gfx.CreateSampler = CreateSampler;
+    backend.gfx.DestroySampler = DestroySampler;
+    backend.gfx.CreateProgram = CreateProgram;
+    backend.gfx.DestroyProgram = DestroyProgram;
+    backend.gfx.SetProgramBuffer = SetProgramBuffer;
+    backend.gfx.SetProgramTexture = SetProgramTexture;
+    backend.gfx.SetProgramTextures = SetProgramTextures;
+    backend.gfx.SetProgramSampler = SetProgramSampler;
+    backend.gfx.SetProgramConstants = SetProgramConstants;
+    backend.gfx.CreateRenderTargetView = CreateRenderTargetView;
+    backend.gfx.DestroyRenderTargetView = DestroyRenderTargetView;
+    backend.gfx.CreateComputeKernel = CreateComputeKernel;
+    backend.gfx.CreateGraphicsKernel = CreateGraphicsKernel;
+    backend.gfx.DestroyKernel = DestroyKernel;
+    backend.gfx.CreateEncoderPool = CreateEncoderPool;
+    backend.gfx.DestroyCmdEncoderPool = DestroyCmdEncoderPool;
+    backend.gfx.CreateEncoderContext = CreateEncoderContext;
+    //backend.gfx.DestroyEncoderContext = DestroyEncoderContext;
+    backend.gfx.CreateEncoderContexts = CreateEncoderContexts;
+    //backend.gfx.DestroyEncoderContexts = DestroyEncoderContexts;
+    backend.gfx.ResetCmdEncoderPool = ResetCmdEncoderPool;
+    backend.gfx.BeginEncodingCmds = BeginEncodingCmds;
+    backend.gfx.EndEncodingCmds = EndEncodingCmds;
+    backend.gfx.CmdCopyBuffer = CmdCopyBuffer;
+    backend.gfx.CmdCopyBufferRange = CmdCopyBufferRange;
+    backend.gfx.CmdClearBuffer = CmdClearBuffer;
+    backend.gfx.CmdClearTexture = CmdClearTexture;
+    backend.gfx.CmdCopyTexture = CmdCopyTexture;
+    backend.gfx.CmdClearImage = CmdClearImage;
+    backend.gfx.CmdCopyBufferToTexture = CmdCopyBufferToTexture;
+    backend.gfx.CmdGenerateMips = CmdGenerateMips;
+    backend.gfx.CmdBindRenderTargets = CmdBindRenderTargets;
+    backend.gfx.CmdBindKernel = CmdBindKernel;
+    backend.gfx.CmdBindIndexBuffer = CmdBindIndexBuffer;
+    backend.gfx.CmdBindVertexBuffer = CmdBindVertexBuffer;
+    backend.gfx.CmdSetViewport = CmdSetViewport;
+    backend.gfx.CmdSetScissorRect = CmdSetScissorRect;
+    backend.gfx.CmdDraw = CmdDraw;
+    backend.gfx.CmdDrawIndexed = CmdDrawIndexed;
+    backend.gfx.CmdMultiDrawIndirect = CmdMultiDrawIndirect;
+    backend.gfx.CmdMultiDrawIndexedIndirect = CmdMultiDrawIndexedIndirect;
+    backend.gfx.CmdDispatch = CmdDispatch;
+    backend.gfx.CmdDispatchIndirect = CmdDispatchIndirect;
+    backend.gfx.CmdMultiDispatchIndirect = CmdMultiDispatchIndirect;
+    backend.gfx.SubmitCommands = SubmitCommands;
+    backend.gfx.Frame = Frame;
+    backend.gfx.Finish = Finish;
+    backend.gfx.CleanupUnusedRenderingResources = CleanupUnusedRenderingResources;
+    backend.gfx.CreateTimestampQuery = CreateTimestampQuery;
+    backend.gfx.DestroyTimestampQuery = DestroyTimestampQuery;
+    backend.gfx.GetTimestampQueryDuration = GetTimestampQueryDuration;
+    backend.gfx.BeginTimestampQuery = BeginTimestampQuery;
+    backend.gfx.EndTimestampQuery = EndTimestampQuery;
+    backend.gfx.BeginEvent = BeginEvent;
+    backend.gfx.BeginColorEvent = BeginColorEvent;
+    backend.gfx.EndEvent = EndEvent;
 
-    backend.api.BeginFrame = &VulkanGraphicsBeginFrame;
-    backend.api.EndFrame = &VulkanGraphicsEndFrame;
-    backend.api.AddResourceOperation = &PlatformAddResourceOperation;
-    backend.api.IsResourceOperationComplete = &PlatformIsResourceOperationComplete;
+    // backend.api.BeginFrame = &VulkanGraphicsBeginFrame;
+    // backend.api.EndFrame = &VulkanGraphicsEndFrame;
+    // backend.api.AddResourceOperation = &PlatformAddResourceOperation;
+    // backend.api.IsResourceOperationComplete = &PlatformIsResourceOperationComplete;
     
     //vgLoadApi(g_VulkanBackend, api.graphics);
 

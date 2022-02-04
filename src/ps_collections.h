@@ -132,6 +132,8 @@ struct array
     T* data() { return _data; }
     const T* data() const { return _data; }
 
+    void set_size(u32 size) { ASSERT(size <= _capacity); _size = size; }
+
     u32 size() const { return _size; }
     u32 capacity() const { return _capacity; }
     b32 empty() const { return _size == 0; }

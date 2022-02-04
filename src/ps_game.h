@@ -9,7 +9,7 @@
 #include "ps_collections.h"
 #include "ps_stream.h"
 #include "ps_image.h"
-#include "ps_graphics.h"
+// #include "ps_graphics.h"
 #include "ps_render.h"
 #include "ps_asset.h"
 
@@ -22,7 +22,7 @@ struct game_state
     temporary_memory temporaryFrameMemory;
 
     game_assets* assets;
-    render_resource_queue* resourceQueue;
+    // render_resource_queue* resourceQueue;
 
     m4 cameraProjection;
     camera camera;
