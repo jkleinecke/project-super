@@ -11,6 +11,9 @@ enum GfxConstants
     GFX_MAX_ANISOTROPY = 8,
     GFX_MAX_BINDLESSSLOTS = 1024,
     GFX_MAX_SHADER_ENTRYPOINT_NAME_LENGTH = 32,
+    GFX_MAX_PUSH_CONSTANT_COUNT = 32,
+    GFX_MAX_DESCRIPTOR_SETS = 16,
+    GFX_MAX_DESCRIPTOR_SET_BINDINGS = 32,
 };
 
 enum class GfxResult
@@ -20,7 +23,7 @@ enum class GfxResult
     InvalidOperation,
     OutOfMemory,
     OutOfHandles,
-    InternalError,
+    InternalError, 
 };
 
 struct GfxDevice { u64 id; };

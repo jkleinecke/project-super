@@ -2651,6 +2651,22 @@ ConvertBlendOp(GfxBlendOp op)
     return VK_BLEND_OP_ADD;
 }
 
+inline VkPrimitiveTopology
+ConvertPrimitiveTopology(GfxPrimitiveTopology topology)
+{
+    switch(topology)
+    {
+        case GfxPrimitiveTopology::TriangleList: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        case GfxPrimitiveTopology::TriangleStrip: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        case GfxPrimitiveTopology::PointList: return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+        case GfxPrimitiveTopology::LineList: return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+        case GfxPrimitiveTopology::LineStrip: return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+        InvalidDefaultCase;
+    }
+
+    return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+}
+
 VkResult CreateRenderPassForPipeline(VkDevice device, const GfxPipelineDesc& pipelineDesc, VkRenderPass* pRenderPass)
 {
     VkAttachmentDescription attachments[GFX_MAX_RENDERTARGETS + 1] = {}; // +1 in case depth/stencil is attached
@@ -3118,6 +3134,59 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
         result = CreateProgramShader(pHeap, device.handle, programDesc.fragment, program);
     }
 
+    if(result == VK_SUCCESS)
+    {
+        temporary_memory temp = BeginTemporaryMemory(pHeap->arena);
+        u32 pushConstantCount = 0;
+        VkPushConstantRange pushConstants[GFX_MAX_PUSH_CONSTANT_COUNT] = {};
+
+        u32 descriptorSetLayoutCount = 0;
+        VkDescriptorSetLayout descriptorSetLayouts[GFX_MAX_DESCRIPTOR_SETS] = {};
+
+        u32 bindingCount = 0;
+        VkDescriptorSetLayoutBinding descriptorBindings[GFX_MAX_DESCRIPTOR_SET_BINDINGS];
+
+        VkDescriptorSetLayoutCreateInfo descLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        descLayoutInfo.bindingCount = 0;
+        descLayoutInfo.pBindings = nullptr;
+
+        for(u32 shaderIdx = 0; shaderIdx < program->numShaders; ++shaderIdx)
+        {
+            SpvReflectShaderModule& module = *program->shaderReflections[shaderIdx];
+            SpvReflectEntryPoint& entrypoint = *program->entrypoints[shaderIdx];
+
+            for(u32 i = 0; i < entrypoint.descriptor_set_count; ++i)
+            {
+                SpvReflectDescriptorSet& set = *entrypoint.descriptor_sets[i];
+            }
+
+            for(u32 i = 0; i < entrypoint.used_push_constant_count; ++i)
+            {
+                SpvReflectBlockVariable& block = module.push_constant_blocks[entrypoint.used_push_constants[i]];
+                VkPushConstantRange& pushConstant = pushConstants[pushConstantCount++];
+                pushConstant.offset = block.offset;
+                pushConstant.size = block.size;
+                pushConstant.stageFlags = entrypoint.shader_stage;
+            }
+        }
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo = {VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        pipelineLayoutInfo.flags = 0;
+        pipelineLayoutInfo.setLayoutCount = 0;
+        pipelineLayoutInfo.pSetLayouts = nullptr;
+        pipelineLayoutInfo.pushConstantRangeCount = pushConstantCount;
+        pipelineLayoutInfo.pPushConstantRanges = pushConstants;
+
+        VkPipelineLayout pipelineLayout = nullptr;    
+        result = vkCreatePipelineLayout(device.handle, &pipelineLayoutInfo, nullptr, &pipelineLayout);
+
+        EndTemporaryMemory(temp);
+        if(result != VK_SUCCESS)
+        {
+            return GfxProgram{};
+        }
+    }
+
     if(result != VK_SUCCESS)
     {
         for(u32 i = 0; i < program->numShaders; ++i)
@@ -3125,7 +3194,7 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
             spvReflectDestroyShaderModule(program->shaderReflections[i]);
             vkDestroyShaderModule(device.handle, program->shaders[i], nullptr);
         }
-        return GfxProgram{GFX_INVALID_HANDLE};
+        return GfxProgram{};
     }
 
     u64 key = HASH(pHeap->programs.size()+1);
@@ -3331,8 +3400,9 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
         }
     }
 
-    // now that we have a renderpass and framebuffer object, we can create the graphics pipeline
-    VkPipelineLayout pipelineLayout = nullptr;    // TODO(james): create this object from the program layout
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    inputAssembly.primitiveRestartEnable = VK_FALSE;
+    inputAssembly.topology = ConvertPrimitiveTopology(pipelineDesc.primitiveTopology);
 
     VkPipelineViewportStateCreateInfo viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
     viewportState.flags = 0;
@@ -3430,7 +3500,7 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     pipelineInfo.stageCount = program->numShaders;  
     pipelineInfo.pStages = shaderStages; 
     pipelineInfo.pVertexInputState = &vertexInputInfo; 
-    pipelineInfo.pInputAssemblyState = nullptr; // TODO(james)
+    pipelineInfo.pInputAssemblyState = &inputAssembly; 
     pipelineInfo.pViewportState = &viewportState; 
     pipelineInfo.pRasterizationState = &rs; 
     pipelineInfo.pMultisampleState = &multisampleState;  
