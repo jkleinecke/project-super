@@ -114,8 +114,6 @@ struct vg_framedata
     VkSemaphore presentSemaphore;
     VkFence renderFence;
 
-    vg_descriptor_allocator dynamicDescriptorAllocator;
-
     // vg_buffer scene_buffer;
     // vg_buffer lighting_buffer;
     // vg_buffer instance_buffer;
@@ -206,6 +204,14 @@ struct vg_kernel
     VkSampleCountFlagBits sampleCount;
 };
 
+struct vg_transition_image
+{
+    VkImageLayout from;
+    VkImageLayout to;
+
+
+};
+
 struct vg_rendertargetview
 {
     VkImageView view;
@@ -245,7 +251,7 @@ struct vg_framebuffer
 
 struct vg_cmd_context
 {
-    VkCommandBuffer buffer;
+    VkCommandBuffer buffer[FRAME_OVERLAP];
 
     vg_renderpass* activeRenderpass;
     vg_framebuffer* activeFramebuffer;
@@ -256,7 +262,7 @@ struct vg_cmd_context
 
 struct vg_command_encoder_pool
 {
-    VkCommandPool   cmdPool;
+    VkCommandPool   cmdPool[FRAME_OVERLAP];
 
     hashtable<vg_cmd_context*>* cmdcontexts;
 };
@@ -287,8 +293,8 @@ struct vg_device
     vg_image* paSwapChainImages;
     // VkFramebuffer* paFramebuffers;
 
-    vg_descriptor_allocator descriptorAllocator;
-    vg_descriptorlayout_cache descriptorLayoutCache;
+    // vg_descriptor_allocator descriptorAllocator;
+    // vg_descriptorlayout_cache descriptorLayoutCache;
 
     // vg_transfer_buffer transferBuffer;
 

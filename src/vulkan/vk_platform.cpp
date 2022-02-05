@@ -196,7 +196,6 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     // TODO(james): Setup resource operation thread
     //backend.resourceQueue.semaphore = CreateSemaphore(0, 0, 1, 0);    // Only 1 resource operation thread will be active
     // ----------------
-    backend.AcquireNextSwapChainTarget = AcquireNextSwapChainTarget;
     backend.gfx.device = DeviceObject::To(g_VulkanBackend.device);
     backend.gfx.CreateResourceHeap = CreateResourceHeap;
     backend.gfx.DestroyResourceHeap = DestroyResourceHeap;
@@ -250,6 +249,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.CmdDispatch = CmdDispatch;
     backend.gfx.CmdDispatchIndirect = CmdDispatchIndirect;
     backend.gfx.CmdMultiDispatchIndirect = CmdMultiDispatchIndirect;
+    backend.gfx.AcquireNextSwapChainTarget = AcquireNextSwapChainTarget;
     backend.gfx.SubmitCommands = SubmitCommands;
     backend.gfx.Frame = Frame;
     backend.gfx.Finish = Finish;
@@ -318,6 +318,13 @@ UNLOAD_GRAPHICS_BACKEND(platform_unload_graphics_backend)
     vkDeviceWaitIdle(backend->instance->device.handle);
 
     vgDestroy(*backend->instance);
+
+    // release all the graphics memory arenas since it's possible that
+    // the graphics driver is just being unload and a new one will
+    // be loaded soon
+    EndTemporaryMemory(backend->instance->device.frameTemp);
+    Clear(*(backend->instance->device.frameArena));
+    Clear(backend->instance->device.arena);
 
     ZeroStruct(*backend->instance);
 }

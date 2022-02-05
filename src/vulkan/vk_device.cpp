@@ -1197,13 +1197,13 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
 internal
 VkResult vgInitializeMemory(vg_device& device)
 {
-    vgInitDescriptorAllocator(device.descriptorAllocator, device.handle);
-    vgInitDescriptorLayoutCache(device.descriptorLayoutCache, device.handle);
+    // vgInitDescriptorAllocator(device.descriptorAllocator, device.handle);
+    // vgInitDescriptorLayoutCache(device.descriptorLayoutCache, device.handle);
 
-    for(int i = 0; i < FRAME_OVERLAP; ++i)
-    {
-        vgInitDescriptorAllocator(device.frames[i].dynamicDescriptorAllocator, device.handle);
-    }
+    // for(int i = 0; i < FRAME_OVERLAP; ++i)
+    // {
+    //     vgInitDescriptorAllocator(device.frames[i].dynamicDescriptorAllocator, device.handle);
+    // }
 
     u32 numImages = FRAME_OVERLAP;
 
@@ -1569,41 +1569,6 @@ VkResult vgInitializeMemory(vg_device& device)
 //     return VK_SUCCESS;
 // }
 
-internal
-void vgDestroySwapChain(vg_device& device)
-{
-    for(u32 i = 0; i < FRAME_OVERLAP; ++i)
-    {
-        vg_framedata& frame = device.frames[i];
-        
-        vgCleanupDescriptorAllocator(frame.dynamicDescriptorAllocator);
-        vkFreeCommandBuffers(device.handle, frame.commandPool, 1, &frame.commandBuffer);
-        vkDestroyCommandPool(device.handle, frame.commandPool, nullptr);
-        vkDestroySemaphore(device.handle, frame.renderSemaphore, nullptr);
-        vkDestroySemaphore(device.handle, frame.presentSemaphore, nullptr);
-        vkDestroyFence(device.handle, frame.renderFence, nullptr);
-        // vgDestroyBuffer(device.handle, frame.scene_buffer);
-        // vgDestroyBuffer(device.handle, frame.lighting_buffer);
-        // vgDestroyBuffer(device.handle, frame.instance_buffer);
-    }
-
-    // IFF(device.screenRenderPass, vkDestroyRenderPass(device.handle, device.screenRenderPass, nullptr));
-    
-    for(size_t i = 0; i < arrlenu(device.paSwapChainImages); ++i)
-    {
-        vkDestroyImageView(device.handle, device.paSwapChainImages[i].view, nullptr);
-    }
-    arrfree(device.paSwapChainImages);
-
-    // for(size_t i = 0; i < arrlenu(device.paFramebuffers); ++i)
-    // {
-    //     vkDestroyFramebuffer(device.handle, device.paFramebuffers[i], nullptr);
-    // }
-    // arrfree(device.paFramebuffers);
-
-    vkDestroySwapchainKHR(device.handle, device.swapChain, nullptr);
-}
-
 
 // internal void
 // vgCleanupResourcePool(vg_device& device)
@@ -1652,6 +1617,107 @@ void vgDestroySwapChain(vg_device& device)
 //     pool.bufferCount = 0;
 // }
 
+internal VkResult
+vgDestroyCmdEncoderPool(vg_device& device, vg_command_encoder_pool* pool)
+{
+    // NOTE(james): Technically we're leaking the command contexts here, but since the application
+    //              shouldn't be willy-nilly allocating and destroying pools, we're ok with the
+    //              resource leak
+
+    u32 numBuffers = pool->cmdcontexts->size();
+    for(u32 i = 0; i < FRAME_OVERLAP; ++i)
+    {
+        VkCommandBuffer* pBuffers = PushArray(*device.frameArena, numBuffers, VkCommandBuffer);
+
+        // SparseCopyArray(
+        //     numBuffers, 
+        //     OffsetOf(hashtable<vg_cmd_context*>::entry, value) + OffsetOf(vg_cmd_context, buffer) + (i * sizeof(VkCommandBuffer)),
+        //     sizeof(VkCommandBuffer),
+        //     sizeof(hashtable<vg_cmd_context*>::entry)
+        //     pool->cmdcontexts[i]->begin(),
+        //     numBuffers * sizeof(VkCommandBuffer),
+        //     pBuffers
+        //     );
+
+        // vkFreeCommandBuffers(device.handle, pool->cmdPool[i], numBuffers, pBuffers);
+
+        vkDestroyCommandPool(device.handle, pool->cmdPool[i], nullptr);
+    }
+
+    return VK_SUCCESS;
+}
+
+internal VkResult 
+vgDestroyResourceHeap(vg_device& device, vg_resourceheap* pHeap)
+{
+// buffer
+    for(auto entry: *pHeap->buffers)
+    {
+        vg_buffer& buffer = **entry;
+        if(buffer.mapped)
+        {
+            vmaUnmapMemory(device.allocator, buffer.allocation);
+            buffer.mapped = nullptr;
+        }
+        vmaDestroyBuffer(device.allocator, buffer.handle, buffer.allocation);
+    }
+
+    // image
+    for(auto entry: *pHeap->textures)
+    {
+        vg_image& image = **entry;
+        vkDestroyImageView(device.handle, image.view, nullptr);
+        vmaDestroyImage(device.allocator, image.handle, image.allocation);
+    }
+    
+    // sampler
+    for(auto entry: *pHeap->samplers)
+    {
+        vg_sampler& sampler = **entry;
+        vkDestroySampler(device.handle, sampler.handle, nullptr);
+    }
+
+    for(auto entry: *pHeap->rtvs)
+    {
+        vg_rendertargetview& rtv = **entry;
+        vkDestroyImageView(device.handle, rtv.view, nullptr);
+    }
+
+    // kernel
+    for(auto entry: *pHeap->kernels)
+    {
+        vg_kernel& kernel = **entry;
+        
+        vkDestroyPipeline(device.handle, kernel.pipeline, nullptr);
+    }
+
+    // program
+    for(auto entry: *pHeap->programs)
+    {
+        vg_program& program = **entry;
+        for(u32 i = 0; i < program.numShaders; ++i)
+        {
+            spvReflectDestroyShaderModule(program.shaderReflections[i]);
+            vkDestroyShaderModule(device.handle, program.shaders[i], nullptr);
+        }
+        
+        if(program.pipelineLayout != nullptr)
+        {
+            vkDestroyPipelineLayout(device.handle, program.pipelineLayout, nullptr);
+        }
+
+        for(auto setLayout: *(program.descriptorSetLayouts))
+        {
+            vkDestroyDescriptorSetLayout(device.handle, setLayout, nullptr);
+        }
+    }
+
+    // now clear the heap memory
+    Clear(pHeap->arena);
+
+    return VK_SUCCESS;
+}
+
 internal
 void vgDestroy(vg_backend& vb)
 {
@@ -1660,16 +1726,72 @@ void vgDestroy(vg_backend& vb)
     {
         vg_device& device = vb.device;
         // vgCleanupResourcePool(device);
+        for(auto entry: *device.resourceHeaps)
+        {
+            vgDestroyResourceHeap(device, entry.value);
+        }
+        device.resourceHeaps->clear();
 
-        vgDestroySwapChain(device);
+        for(auto entry: *device.encoderPools)
+        {
+            vgDestroyCmdEncoderPool(device, entry.value);
+        }
+        device.encoderPools->clear();
+
+        for(auto entry: *device.mapFramebuffers)
+        {
+            vg_framebuffer& framebuffer = **entry;
+            vkDestroyFramebuffer(device.handle, framebuffer.handle, nullptr);
+        }
+        device.mapFramebuffers->clear();
+
+        for(auto entry: *device.mapRenderpasses)
+        {
+            vg_renderpass& renderpass = **entry;
+            vkDestroyRenderPass(device.handle, renderpass.handle, nullptr);
+        }
+        device.mapRenderpasses->clear();
+
+        // Swapchain
+        for(u32 i = 0; i < FRAME_OVERLAP; ++i)
+        {
+            vg_framedata& frame = device.frames[i];
+            
+            // vgCleanupDescriptorAllocator(frame.dynamicDescriptorAllocator);
+            vkDestroySemaphore(device.handle, frame.renderSemaphore, nullptr);
+            vkDestroySemaphore(device.handle, frame.presentSemaphore, nullptr);
+            vkDestroyFence(device.handle, frame.renderFence, nullptr);
+            frame.renderSemaphore = nullptr;
+            frame.presentSemaphore = nullptr;
+            frame.renderFence = nullptr;
+        }
+
+        // IFF(device.screenRenderPass, vkDestroyRenderPass(device.handle, device.screenRenderPass, nullptr));
+        
+        for(size_t i = 0; i < arrlenu(device.paSwapChainImages); ++i)
+        {
+            vkDestroyImageView(device.handle, device.paSwapChainImages[i].view, nullptr);
+        }
+        arrfree(device.paSwapChainImages);
+
+        // for(size_t i = 0; i < arrlenu(device.paFramebuffers); ++i)
+        // {
+        //     vkDestroyFramebuffer(device.handle, device.paFramebuffers[i], nullptr);
+        // }
+        // arrfree(device.paFramebuffers);
+
+        vkDestroySwapchainKHR(device.handle, device.swapChain, nullptr);
+        // end swapchain
 
         // TODO(james): Account for this in the window resize
         // vgDestroyImage(device.handle, device.depth_image);
         
         // vgDestroyTransferBuffer(device.transferBuffer);
 
-        vgCleanupDescriptorAllocator(device.descriptorAllocator);
-        vgCleanupDescriptorLayoutCache(device.descriptorLayoutCache);
+        // vgCleanupDescriptorAllocator(device.descriptorAllocator);
+        // vgCleanupDescriptorLayoutCache(device.descriptorLayoutCache);
+
+        vmaDestroyAllocator(device.allocator);
 
         vkDestroyDevice(device.handle, nullptr);
     }
@@ -2771,6 +2893,18 @@ FromGfxCmdContext(vg_device& device, GfxCmdContext cmds)
     return pool->cmdcontexts->get(cmds.id);
 }
 
+inline VkCommandPool
+CurrentFrameCmdPool(vg_device& device, vg_command_encoder_pool* pool)
+{
+    return pool->cmdPool[device.currentFrameIndex];
+}
+
+inline VkCommandBuffer
+CurrentFrameCmdBuffer(vg_device& device, vg_cmd_context* context)
+{
+    return context->buffer[device.currentFrameIndex];
+}
+
 internal
 VkResult CreateRenderPassForPipeline(VkDevice device, const GfxPipelineDesc& pipelineDesc, VkRenderPass* pRenderPass)
 {
@@ -2882,68 +3016,11 @@ GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource 
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.id);
 
-    // buffer
-    for(auto entry: *pHeap->buffers)
-    {
-        vg_buffer& buffer = **entry;
-        vmaDestroyBuffer(device.allocator, buffer.handle, buffer.allocation);
-    }
-
-    // image
-    for(auto entry: *pHeap->textures)
-    {
-        vg_image& image = **entry;
-        vkDestroyImageView(device.handle, image.view, nullptr);
-        vmaDestroyImage(device.allocator, image.handle, image.allocation);
-    }
+    VkResult result = vgDestroyResourceHeap(device, pHeap);
     
-    // sampler
-    for(auto entry: *pHeap->samplers)
-    {
-        vg_sampler& sampler = **entry;
-        vkDestroySampler(device.handle, sampler.handle, nullptr);
-    }
-
-    for(auto entry: *pHeap->rtvs)
-    {
-        vg_rendertargetview& rtv = **entry;
-        vkDestroyImageView(device.handle, rtv.view, nullptr);
-    }
-
-    // kernel
-    for(auto entry: *pHeap->kernels)
-    {
-        vg_kernel& kernel = **entry;
-        
-        vkDestroyPipeline(device.handle, kernel.pipeline, nullptr);
-    }
-
-    // program
-    for(auto entry: *pHeap->programs)
-    {
-        vg_program& program = **entry;
-        for(u32 i = 0; i < program.numShaders; ++i)
-        {
-            spvReflectDestroyShaderModule(program.shaderReflections[i]);
-            vkDestroyShaderModule(device.handle, program.shaders[i], nullptr);
-        }
-        
-        if(program.pipelineLayout != nullptr)
-        {
-            vkDestroyPipelineLayout(device.handle, program.pipelineLayout, nullptr);
-        }
-
-        for(auto setLayout: *(program.descriptorSetLayouts))
-        {
-            vkDestroyDescriptorSetLayout(device.handle, setLayout, nullptr);
-        }
-    }
-
-    // now clear the heap memory and erase the key
-    Clear(pHeap->arena);
     device.resourceHeaps->erase(resource.id);
 
-    return GfxResult::Ok;
+    return ToGfxResult(result);
 }
 
 internal
@@ -3782,9 +3859,12 @@ GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoder
     poolInfo.queueFamilyIndex = device.q_graphics.queue_family_index;
 
     vg_command_encoder_pool* pool = PushStruct(device.arena, vg_command_encoder_pool);
-    VkResult result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &pool->cmdPool);
-    if(result != VK_SUCCESS) return GfxCmdEncoderPool{};
 
+    for(u32 i = 0; i < FRAME_OVERLAP; ++i)
+    {
+        VkResult result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &pool->cmdPool[i]);
+        if(result != VK_SUCCESS) return GfxCmdEncoderPool{};
+    }
     pool->cmdcontexts = hashtable_create(device.arena, vg_cmd_context*, 32);
 
     u64 key = HASH(device.encoderPools->size()+1);
@@ -3798,11 +3878,8 @@ GfxResult DestroyCmdEncoderPool( GfxDevice deviceHandle, GfxCmdEncoderPool resou
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_command_encoder_pool* pool = device.encoderPools->get(resource.id);
 
-    // NOTE(james): Technically we're leaking the command contexts here, but since the application
-    //              shouldn't be willy-nilly allocating and destroying pools, we're ok with the
-    //              resource leak
+    vgDestroyCmdEncoderPool(device, pool);
 
-    vkDestroyCommandPool(device.handle, pool->cmdPool, nullptr);
     device.encoderPools->erase(resource.id);
 
     return GfxResult::Ok;
@@ -3816,17 +3893,25 @@ GfxCmdContext CreateEncoderContext( GfxCmdEncoderPool resource)
 
     if(pool->cmdcontexts->full()) return GfxCmdContext{};
 
-    VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    allocInfo.commandBufferCount = 1;
-    allocInfo.commandPool = pool->cmdPool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-    VkCommandBuffer buffer;
-    VkResult result = vkAllocateCommandBuffers(device.handle, &allocInfo, &buffer);
-    if(result != VK_SUCCESS) return GfxCmdContext{};
-
+    temporary_memory scoped = BeginTemporaryMemory(device.arena);
     vg_cmd_context* context = PushStruct(device.arena, vg_cmd_context);
-    context->buffer = buffer;
+
+    for(u32 i = 0; i < FRAME_OVERLAP; ++i)
+    {
+        VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocInfo.commandBufferCount = 1;
+        allocInfo.commandPool = pool->cmdPool[i];
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+        VkResult result = vkAllocateCommandBuffers(device.handle, &allocInfo, &context->buffer[i]);
+        if(result != VK_SUCCESS)
+        {
+            EndTemporaryMemory(scoped);
+            return GfxCmdContext{};
+        }
+    }
+
+    KeepTemporaryMemory(scoped);
 
     u64 key = HASH(pool->cmdcontexts->size()+1);
     pool->cmdcontexts->set(key, context);
@@ -3840,30 +3925,43 @@ GfxResult CreateEncoderContexts(GfxCmdEncoderPool resource, u32 numContexts, Gfx
     vg_device& device = DeviceObject::From(resource.deviceId);
     vg_command_encoder_pool* pool = device.encoderPools->get(resource.id);
 
-    ASSERT(numContexts < 32);
-    VkCommandBuffer buffers[32];
+    temporary_memory scoped = BeginTemporaryMemory(device.arena);
 
-    VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    allocInfo.commandBufferCount = numContexts;
-    allocInfo.commandPool = pool->cmdPool;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-    VkResult result = vkAllocateCommandBuffers(device.handle, &allocInfo, buffers);
-    if(result != VK_SUCCESS) return ToGfxResult(result);
-
-    for(u32 i = 0; i < numContexts; ++i)
+    for(u32 frameIdx = 0; frameIdx < FRAME_OVERLAP; ++frameIdx)
     {
-        if(pool->cmdcontexts->full()) return GfxResult::OutOfHandles;
+        VkCommandBuffer* buffers = PushArray(*device.frameArena, numContexts, VkCommandBuffer);
+        VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocInfo.commandBufferCount = numContexts;
+        allocInfo.commandPool = pool->cmdPool[frameIdx];
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-        vg_cmd_context* context = PushStruct(device.arena, vg_cmd_context);
-        context->buffer = buffers[i];
+        VkResult result = vkAllocateCommandBuffers(device.handle, &allocInfo, buffers);
+        if(result != VK_SUCCESS) 
+        {
+            EndTemporaryMemory(scoped);
+            return ToGfxResult(result);
+        }
 
-        u64 key = HASH(pool->cmdcontexts->size()+1);
-        pool->cmdcontexts->set(key, context);
-        pContexts[i].deviceId = resource.deviceId;
-        pContexts[i].poolId = resource.id;
-        pContexts[i].id = key;
+        for(u32 i = 0; i < numContexts; ++i)
+        {
+            if(pool->cmdcontexts->full()) 
+            {
+                EndTemporaryMemory(scoped);
+                return GfxResult::OutOfHandles;
+            }
+
+            vg_cmd_context* context = PushStruct(device.arena, vg_cmd_context);
+            context->buffer[frameIdx] = buffers[i];
+
+            u64 key = HASH(pool->cmdcontexts->size()+1);
+            pool->cmdcontexts->set(key, context);
+            pContexts[i].deviceId = resource.deviceId;
+            pContexts[i].poolId = resource.id;
+            pContexts[i].id = key;
+        }
     }
+
+    KeepTemporaryMemory(scoped);
 
     return GfxResult::Ok;
 }
@@ -3874,7 +3972,7 @@ GfxResult ResetCmdEncoderPool( GfxCmdEncoderPool resource)
     vg_device& device = DeviceObject::From(resource.deviceId);
     vg_command_encoder_pool* pool = device.encoderPools->get(resource.id);
     
-    vkResetCommandPool(device.handle, pool->cmdPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+    vkResetCommandPool(device.handle, CurrentFrameCmdPool(device, pool), VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     return GfxResult::Ok;
 }
@@ -3887,7 +3985,7 @@ GfxResult BeginEncodingCmds(GfxCmdContext cmds)
 
     VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VkResult result = vkBeginCommandBuffer(context->buffer, &beginInfo);
+    VkResult result = vkBeginCommandBuffer(CurrentFrameCmdBuffer(device, context), &beginInfo);
 
     return ToGfxResult(result);
 }
@@ -3897,10 +3995,11 @@ GfxResult EndEncodingCmds(GfxCmdContext cmds)
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer buffer = CurrentFrameCmdBuffer(device, context);
 
     if(context->activeRenderpass || context->activeFramebuffer)
     {
-        vkCmdEndRenderPass(context->buffer);
+        vkCmdEndRenderPass(buffer);
         context->activeFramebuffer = 0;
         context->activeRenderpass = 0;
         context->activeKernel = 0;
@@ -3908,7 +4007,7 @@ GfxResult EndEncodingCmds(GfxCmdContext cmds)
         context->activeVB = 0;
     }
 
-    VkResult result = vkEndCommandBuffer(context->buffer);
+    VkResult result = vkEndCommandBuffer(buffer);
 
     return ToGfxResult(result);
 }
@@ -3984,6 +4083,7 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
     // vkCmdBeginRenderPass / vkCmdEndRenderPass if numRenderTargets is 0
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
     
     if(numRenderTargets || pDepthStencilRTV)
     {
@@ -4038,8 +4138,8 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
                 attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                 attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
                 attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-                attachments[i].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                attachments[i].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                attachments[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                attachments[i].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;   // TODO(james): Make VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
 
                 colorRefs[i].attachment = i;
                 colorRefs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -4062,6 +4162,16 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
                 depthStencilRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             }
 
+            // TODO(james): Remove dependency once image barriers are worked out better
+            VkSubpassDependency dependency{};
+            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+            dependency.dstSubpass = 0;
+            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT ;
+            dependency.srcAccessMask = 0;
+            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT ;
+            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT ;
+            ////////
+
             // ugh.. silly subpass needs to redefine all the same crap
             VkSubpassDescription subpass = {};
             subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -4074,8 +4184,8 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
             renderPassInfo.pAttachments = attachments;
             renderPassInfo.subpassCount = 1;
             renderPassInfo.pSubpasses = &subpass;
-            renderPassInfo.dependencyCount = 0;
-            renderPassInfo.pDependencies = nullptr;
+            renderPassInfo.dependencyCount = 1;
+            renderPassInfo.pDependencies = &dependency;
 
             if(device.freelist_renderpass)
             {
@@ -4146,11 +4256,11 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
         renderPassBegin.framebuffer = framebuffer->handle;
         renderPassBegin.clearValueCount = numClearValues;
         renderPassBegin.pClearValues = clearValues;
-        vkCmdBeginRenderPass(context->buffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBeginRenderPass(cmdBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
     }
     else
     {
-        vkCmdEndRenderPass(context->buffer);
+        vkCmdEndRenderPass(cmdBuffer);
 
         context->activeRenderpass = 0;
         context->activeFramebuffer = 0;
@@ -4165,11 +4275,12 @@ GfxResult CmdBindKernel( GfxCmdContext cmds, GfxKernel resource)
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
 
     vg_kernel* kernel = FromGfxKernel(device, resource);
 
     context->activeKernel = kernel;
-    vkCmdBindPipeline(context->buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, kernel->pipeline);
+    vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, kernel->pipeline);
     
     return GfxResult::Ok;
 }
@@ -4179,10 +4290,11 @@ GfxResult CmdBindIndexBuffer( GfxCmdContext cmds, GfxBuffer indexBuffer)
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
     vg_buffer* ib = FromGfxBuffer(device, indexBuffer);
 
     context->activeIB = ib;
-    vkCmdBindIndexBuffer(context->buffer, ib->handle, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(cmdBuffer, ib->handle, 0, VK_INDEX_TYPE_UINT32);
     return GfxResult::Ok;
 }
 
@@ -4191,11 +4303,12 @@ GfxResult CmdBindVertexBuffer( GfxCmdContext cmds, GfxBuffer vertexBuffer)
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
     vg_buffer* vb = FromGfxBuffer(device, vertexBuffer);
 
     context->activeVB = vb;
     VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(context->buffer, 0, 1, &vb->handle, offsets);
+    vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vb->handle, offsets);
     return GfxResult::Ok;
 }
 
@@ -4204,9 +4317,10 @@ GfxResult CmdSetViewport( GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 heigh
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
 
     VkViewport vp = {x, y, width, height, 0, 1};   
-    vkCmdSetViewport(context->buffer, 0, 1, &vp);
+    vkCmdSetViewport(cmdBuffer, 0, 1, &vp);
     return GfxResult::Ok;
 }
 
@@ -4215,9 +4329,10 @@ GfxResult CmdSetScissorRect( GfxCmdContext cmds, i32 x, i32 y, u32 width, u32 he
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
     
     VkRect2D rc = {x, y, width, height};
-    vkCmdSetScissor(context->buffer, 0, 1, &rc);
+    vkCmdSetScissor(cmdBuffer, 0, 1, &rc);
     return GfxResult::Ok;
 }
 
@@ -4226,8 +4341,9 @@ GfxResult CmdDraw( GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 b
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
     
-    vkCmdDraw(context->buffer, vertexCount, instanceCount, 0, 0);
+    vkCmdDraw(cmdBuffer, vertexCount, instanceCount, 0, 0);
     return GfxResult::Ok;
 }
 
@@ -4236,8 +4352,9 @@ GfxResult CmdDrawIndexed( GfxCmdContext cmds, u32 indexCount, u32 instanceCount,
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
     
-    vkCmdDrawIndexed(context->buffer, indexCount, instanceCount, firstIndex, baseVertex, baseInstance);
+    vkCmdDrawIndexed(cmdBuffer, indexCount, instanceCount, firstIndex, baseVertex, baseInstance);
     return GfxResult::Ok;
 }
 
@@ -4294,7 +4411,7 @@ GfxResult SubmitCommands( GfxDevice deviceHandle, u32 count, GfxCmdContext* pCon
     for(u32 i = 0; i < count; ++i)
     {
         vg_cmd_context* context = FromGfxCmdContext(device, pContexts[i]);
-        pCmdBuffers[i] = context->buffer;
+        pCmdBuffers[i] = CurrentFrameCmdBuffer(device, context);
     }
 
     VkSubmitInfo submitInfo{};

@@ -39,6 +39,37 @@ Copy(umm size, const void* src, void* dst)
     return dst;
 }
 
+// NOTE(james): This is a special copy helper specifically to pull a member of struct in an array
+//  into an array of single values.
+//  To use:
+//      count       - The number of elements in each array
+//      offset      - The memory offset of the member in the struct
+//      elementSize - The size of the member in bytes
+//      stride      - The size of the struct
+//      src         - pointer to the source array
+//      dstSize     - The total size of the dst array in bytes
+//      dst         - pointer to the destination array
+//
+//      returns - pointer to the destination array
+internal void*
+SparseCopyArray(u32 count, umm offset, umm elementSize, umm stride, const void* src, umm dstSize, void* dst)
+{
+    ASSERT(elementSize * count <= dstSize);
+
+    u8* s = (u8*)src;
+    u8* d = (u8*)dst;
+    s += offset;
+
+    for(u32 i = 0; i < count; ++i)
+    {
+        Copy(elementSize, s, d);
+        d += elementSize;
+        s += stride;
+    }
+
+    return dst;
+}
+
 internal b32
 MemCompare(umm size, const void* a, const void* b)
 {

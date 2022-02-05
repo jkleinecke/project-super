@@ -391,6 +391,7 @@ RenderFrame(game_state& state, render_context& rc)
 
     GfxCmdContext& cmds = state.cmds;
 
+    gfx.ResetCmdEncoderPool(state.cmdpool);
     gfx.BeginEncodingCmds(cmds);
 
     gfx.CmdSetViewport(cmds, 0, 0, rc.renderDimensions.Width, rc.renderDimensions.Height);
