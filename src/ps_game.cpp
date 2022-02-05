@@ -406,9 +406,6 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.EndEncodingCmds(cmds);
 
     gfx.SubmitCommands(gfx.device, 1, &cmds);
-
-    b32 vsync = true;
-    gfx.Frame(gfx.device, vsync);
 }
 
 internal void
@@ -455,6 +452,23 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //gameState.rotationAngle = 120.188347f;
 
         {
+            render_mesh_vertex vertices[] = {
+                { -0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f },
+                { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f },
+                {  0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f },
+                {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f },
+            };
+            u32 indices[] = { 0, 1, 2, 0, 2, 3 };
+
+            GfxBufferDesc vb = MeshVertexBuffer(ARRAY_COUNT(vertices));
+            GfxBufferDesc ib = IndexBuffer(ARRAY_COUNT(indices));
+
+            gameState.box.geometry.indexBuffer = gfx.CreateBuffer(gfx.device, ib, indices);
+            gameState.box.geometry.vertexBuffer = gfx.CreateBuffer(gfx.device, vb, vertices);
+
+            // CopyArray(ARRAY_COUNT(indices), indices, gfx.GetBufferData(gfx.device, gameState.box.geometry.indexBuffer));
+            // CopyArray(ARRAY_COUNT(vertices), vertices, gfx.GetBufferData(gfx.device, gameState.box.geometry.vertexBuffer));
+
             gameState.shaderProgram = LoadProgram(*gameState.frameArena, "shader.vert.spv", "shader.frag.spv");
             gameState.mainKernel = gfx.CreateGraphicsKernel(gfx.device, gameState.shaderProgram, DefaultPipeline());
             gameState.cmdpool = gfx.CreateEncoderPool(gfx.device, {GfxQueueType::Graphics});

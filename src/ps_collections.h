@@ -82,10 +82,12 @@ struct array
 
     static array<T>* create(memory_arena& arena, u32 capacity)
     {
-        ASSERT(capacity > 0);
         array<T>* arr = PushStruct(arena, array<T>);
-        arr->_data = PushArray(arena, capacity, T);
         arr->_capacity = capacity;
+        if(capacity) 
+        {
+            arr->_data = PushArray(arena, capacity, T);
+        }
         return arr;
     }
 
@@ -93,7 +95,10 @@ struct array
     {
         array<T>* arr = PushStruct(arena, array<T>);
         arr->capacity = capacity ? capacity : src->_capacity;
-        arr->_data = PushArray(arena, arr->_capacity, T);
+        if(arr->capacity) 
+        {
+            arr->_data = PushArray(arena, capacity, T);
+        }
         arr->_size = src->_size;
         CopyArray(arr->_size, src->_data, arr->_data);
         return arr;
@@ -104,7 +109,10 @@ struct array
     {
         ASSERT(capacity >= N);
         array<T>* arr = PushStruct(arena, array<T>);
-        arr->_data = PushArray(arena, capacity, T);
+        if(capacity)
+        {
+            arr->_data = PushArray(arena, capacity, T);
+        }
         arr->_capacity = capacity;
         CopyArray(N, init, arr->_data);
         arr->_size = N;

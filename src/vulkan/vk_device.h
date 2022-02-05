@@ -23,11 +23,10 @@ struct vg_image
     VkImageView view;
     VmaAllocation allocation;
 
-    // VkFormat format;
-
-    // u32 width;
-    // u32 height;
-    // u32 layers;
+    VkFormat format;
+    u32 width;
+    u32 height;
+    u32 layers;
 };
 
 struct vg_sampler
@@ -179,18 +178,6 @@ struct vg_framedata
 // };
 
 
-struct vg_cmd_context
-{
-    VkCommandBuffer buffer;
-
-};
-
-struct vg_command_encoder_pool
-{
-    VkCommandPool   cmdPool;
-
-    hashtable<vg_cmd_context*>* cmdcontexts;
-};
 
 struct vg_program_binding_desc
 {
@@ -216,11 +203,14 @@ struct vg_kernel
 {
     VkPipeline pipeline;
     vg_program* program;
+    VkSampleCountFlagBits sampleCount;
 };
 
 struct vg_rendertargetview
 {
     VkImageView view;
+    VkFormat format;
+    VkSampleCountFlagBits sampleCount;
     VkAttachmentLoadOp loadOp;
     v4 clearValue;
 };
@@ -250,7 +240,23 @@ struct vg_framebuffer
     u32 lastUsedInFrameIndex;
     VkFramebuffer handle;
 
-    vg_renderpass* next;    // used when maintaining a freelist
+    vg_framebuffer* next;    // used when maintaining a freelist
+};
+
+struct vg_cmd_context
+{
+    VkCommandBuffer buffer;
+
+    vg_renderpass* activeRenderpass;
+    vg_framebuffer* activeFramebuffer;
+    vg_kernel* activeKernel;
+};
+
+struct vg_command_encoder_pool
+{
+    VkCommandPool   cmdPool;
+
+    hashtable<vg_cmd_context*>* cmdcontexts;
 };
 
 struct vg_device
@@ -286,7 +292,7 @@ struct vg_device
 
     // vg_device_resource_pool resource_pool;
     
-    // VkExtent2D extent;
+    VkExtent2D extent;
     // VkRenderPass screenRenderPass;
     // vg_image depth_image;
 

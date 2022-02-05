@@ -1150,7 +1150,7 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
 
     device.swapChain = swapChain;
     device.swapChainFormat = surfaceFormat.format;
-    //device.extent = extent; // is this needed?
+    device.extent = extent; 
     
     vkGetSwapchainImagesKHR(device.handle, swapChain, &imageCount, nullptr);
     std::vector<VkImage> images(imageCount);
@@ -1180,7 +1180,9 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
         VERIFY_SUCCESS(result);
         pRTV->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         pRTV->clearValue = Vec4(0.0f,0.0f,0.0f,0.0f);   // black
-
+        pRTV->sampleCount = VK_SAMPLE_COUNT_1_BIT;  // TODO(james): This should come from a graphics init config or something
+        pRTV->format = device.swapChainFormat;
+ 
         u64 key = pHeap->rtvs->size()+1;
         pHeap->rtvs->set(key, pRTV);
     }
@@ -2720,6 +2722,56 @@ ConvertPrimitiveTopology(GfxPrimitiveTopology topology)
     return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 }
 
+inline vg_buffer*
+FromGfxBuffer(vg_device& device, GfxBuffer resource)
+{
+    vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
+    return pHeap->buffers->get(resource.id);
+}
+
+inline vg_image*
+FromGfxTexture(vg_device& device, GfxTexture resource)
+{
+    vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
+    return pHeap->textures->get(resource.id);
+}
+
+inline vg_sampler*
+FromGfxSampler(vg_device& device, GfxSampler resource)
+{
+    vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
+    return pHeap->samplers->get(resource.id);
+}
+
+inline vg_rendertargetview* 
+FromGfxRenderTargetView(vg_device& device, GfxRenderTargetView resource)
+{
+    vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
+    return pHeap->rtvs->get(resource.id);
+}
+
+inline vg_program*
+FromGfxProgram(vg_device& device, GfxProgram resource)
+{
+    vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
+    return pHeap->programs->get(resource.id);
+}
+
+inline vg_kernel*
+FromGfxKernel(vg_device& device, GfxKernel resource)
+{
+    vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
+    return pHeap->kernels->get(resource.id);
+}
+
+inline vg_cmd_context* 
+FromGfxCmdContext(vg_device& device, GfxCmdContext cmds)
+{
+    vg_command_encoder_pool* pool = device.encoderPools->get(cmds.poolId);
+    return pool->cmdcontexts->get(cmds.id);
+}
+
+internal
 VkResult CreateRenderPassForPipeline(VkDevice device, const GfxPipelineDesc& pipelineDesc, VkRenderPass* pRenderPass)
 {
     VkAttachmentDescription attachments[GFX_MAX_RENDERTARGETS + 1] = {}; // +1 in case depth/stencil is attached
@@ -2780,6 +2832,7 @@ VkResult CreateRenderPassForPipeline(VkDevice device, const GfxPipelineDesc& pip
     return vkCreateRenderPass(device, &renderPassInfo, nullptr, pRenderPass);
 }
 
+internal
 GfxRenderTargetView AcquireNextSwapChainTarget(GfxDevice deviceHandle)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -2800,6 +2853,7 @@ GfxRenderTargetView AcquireNextSwapChainTarget(GfxDevice deviceHandle)
     return GfxRenderTargetView{0, device.curSwapChainIndex+1};
 }
 
+internal
 GfxResourceHeap CreateResourceHeap( GfxDevice deviceHandle )
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -2818,6 +2872,7 @@ GfxResourceHeap CreateResourceHeap( GfxDevice deviceHandle )
     return GfxResourceHeap{deviceHandle.id, key};
 }
 
+internal
 GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource )
 {
     ASSERT(resource.id != GFX_INVALID_HANDLE);
@@ -2891,6 +2946,7 @@ GfxResult DestroyResourceHeap( GfxDevice deviceHandle, GfxResourceHeap resource 
     return GfxResult::Ok;
 }
 
+internal
 GfxBuffer CreateBuffer( GfxDevice deviceHandle, const GfxBufferDesc& bufferDesc, void const* data)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -2948,6 +3004,7 @@ GfxBuffer CreateBuffer( GfxDevice deviceHandle, const GfxBufferDesc& bufferDesc,
     return GfxBuffer{ bufferDesc.heap.id, key };
 }
 
+internal
 void* GetBufferData( GfxDevice deviceHandle, GfxBuffer resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -2962,6 +3019,7 @@ void* GetBufferData( GfxDevice deviceHandle, GfxBuffer resource)
     return buffer->mapped;
 }
 
+internal
 GfxResult DestroyBuffer( GfxDevice deviceHandle, GfxBuffer resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -2980,6 +3038,7 @@ GfxResult DestroyBuffer( GfxDevice deviceHandle, GfxBuffer resource)
     return GfxResult::Ok;
 }
 
+internal
 GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3070,6 +3129,7 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
     return GfxTexture{textureDesc.heap.id, key};
 }
 
+internal
 GfxResult DestroyTexture( GfxDevice deviceHandle, GfxTexture resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3083,6 +3143,7 @@ GfxResult DestroyTexture( GfxDevice deviceHandle, GfxTexture resource)
     return GfxResult::Ok;
 }
 
+internal
 GfxSampler CreateSampler( GfxDevice deviceHandle, const GfxSamplerDesc samplerDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3122,6 +3183,7 @@ GfxSampler CreateSampler( GfxDevice deviceHandle, const GfxSamplerDesc samplerDe
     return GfxSampler{samplerDesc.heap.id, key};
 }
 
+internal
 GfxResult DestroySampler( GfxDevice deviceHandle, GfxSampler resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3133,8 +3195,6 @@ GfxResult DestroySampler( GfxDevice deviceHandle, GfxSampler resource)
 
     return GfxResult::Ok;
 }
-
-
 
 internal VkResult 
 CreateProgramShader(vg_resourceheap* pHeap, VkDevice device, GfxShaderDesc* shaderDesc, vg_program* program)
@@ -3178,6 +3238,7 @@ CreateProgramShader(vg_resourceheap* pHeap, VkDevice device, GfxShaderDesc* shad
     return result;
 }
 
+internal
 GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programDesc)
 {
     VkResult result = VK_SUCCESS;
@@ -3225,6 +3286,7 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
         {
             descriptorSetLayoutCount += program->entrypoints[shaderIdx]->descriptor_set_count;
         }
+        
         program->descriptorSetLayouts = array_create(pHeap->arena, VkDescriptorSetLayout, descriptorSetLayoutCount);
         program->mapBindingDesc = hashtable_create(pHeap->arena, vg_program_binding_desc, 1024); // NOTE(james): 1024 bindings is waaay overkill, but it's just a pointer...
 
@@ -3327,6 +3389,7 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
     return GfxProgram{programDesc.heap.id, key};
 }
 
+internal
 GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3351,42 +3414,49 @@ GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram resource)
     return GfxResult::Ok;
 }
 
+internal
 GfxResult SetProgramBuffer( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxBuffer buffer)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxResult SetProgramTexture( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxResult SetProgramTextures( GfxDevice deviceHandle, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxResult SetProgramSampler( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxSampler sampler)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxResult SetProgramConstants( GfxDevice deviceHandle, GfxProgram program, const char* param_name, const void* data, u32 size)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxKernel CreateComputeKernel( GfxDevice deviceHandle, GfxProgram program)
 {
     NotImplemented;
     return GfxKernel{};
 }
 
+internal
 VkImageAspectFlags DetermineAspectMaskFromFormat(VkFormat format, bool includeStencilBit)
 {
 	VkImageAspectFlags result = 0;
@@ -3416,6 +3486,7 @@ VkImageAspectFlags DetermineAspectMaskFromFormat(VkFormat format, bool includeSt
 	return result;
 }
 
+internal
 GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRenderTargetViewDesc& rtvDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3448,6 +3519,8 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
     rtv->view = imageview;
     rtv->loadOp = ConvertLoadOp(rtvDesc.loadOp);
     rtv->clearValue = rtvDesc.clearValue;
+    rtv->format = viewInfo.format;
+    rtv->sampleCount = ConvertSampleCount(rtvDesc.sampleCount);
 
     u64 key = HASH(pHeap->rtvs->size() + 1);
     pHeap->rtvs->set(key, rtv);
@@ -3455,6 +3528,7 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
     return GfxRenderTargetView{rtvDesc.texture.heap, key};
 }
 
+internal
 GfxResult DestroyRenderTargetView( GfxDevice deviceHandle, GfxRenderTargetView resource )
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3467,6 +3541,7 @@ GfxResult DestroyRenderTargetView( GfxDevice deviceHandle, GfxRenderTargetView r
     return GfxResult::Ok;
 }
 
+internal
 TinyImageFormat GetDeviceBackBufferFormat( GfxDevice deviceHandle )
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3474,6 +3549,7 @@ TinyImageFormat GetDeviceBackBufferFormat( GfxDevice deviceHandle )
     return TinyImageFormat_FromVkFormat((TinyImageFormat_VkFormat)device.swapChainFormat);
 }
 
+internal
 GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, const GfxPipelineDesc& pipelineDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3682,6 +3758,7 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     return GfxKernel{pipelineDesc.heap.id, key};
 }
 
+internal
 GfxResult DestroyKernel( GfxDevice deviceHandle, GfxKernel resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3694,6 +3771,7 @@ GfxResult DestroyKernel( GfxDevice deviceHandle, GfxKernel resource)
     return GfxResult::Ok;
 }
 
+internal
 GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoderPoolDesc& poolDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3714,6 +3792,7 @@ GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoder
     return GfxCmdEncoderPool{deviceHandle.id, key};
 }
 
+internal
 GfxResult DestroyCmdEncoderPool( GfxDevice deviceHandle, GfxCmdEncoderPool resource)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3729,6 +3808,7 @@ GfxResult DestroyCmdEncoderPool( GfxDevice deviceHandle, GfxCmdEncoderPool resou
     return GfxResult::Ok;
 }
 
+internal
 GfxCmdContext CreateEncoderContext( GfxCmdEncoderPool resource)
 {
     vg_device& device = DeviceObject::From(resource.deviceId);
@@ -3754,6 +3834,7 @@ GfxCmdContext CreateEncoderContext( GfxCmdEncoderPool resource)
     return GfxCmdContext{resource.deviceId, resource.id, key};
 }
 
+internal
 GfxResult CreateEncoderContexts(GfxCmdEncoderPool resource, u32 numContexts, GfxCmdContext* pContexts)
 {
     vg_device& device = DeviceObject::From(resource.deviceId);
@@ -3787,6 +3868,7 @@ GfxResult CreateEncoderContexts(GfxCmdEncoderPool resource, u32 numContexts, Gfx
     return GfxResult::Ok;
 }
 
+internal
 GfxResult ResetCmdEncoderPool( GfxCmdEncoderPool resource)
 {
     vg_device& device = DeviceObject::From(resource.deviceId);
@@ -3797,11 +3879,11 @@ GfxResult ResetCmdEncoderPool( GfxCmdEncoderPool resource)
     return GfxResult::Ok;
 }
 
+internal
 GfxResult BeginEncodingCmds(GfxCmdContext cmds)
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
-    vg_command_encoder_pool* pool = device.encoderPools->get(cmds.poolId);
-    vg_cmd_context* context = pool->cmdcontexts->get(cmds.id);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
 
     VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -3810,17 +3892,18 @@ GfxResult BeginEncodingCmds(GfxCmdContext cmds)
     return ToGfxResult(result);
 }
 
+internal
 GfxResult EndEncodingCmds(GfxCmdContext cmds)
 {
     vg_device& device = DeviceObject::From(cmds.deviceId);
-    vg_command_encoder_pool* pool = device.encoderPools->get(cmds.poolId);
-    vg_cmd_context* context = pool->cmdcontexts->get(cmds.id);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
 
     VkResult result = vkEndCommandBuffer(context->buffer);
 
     return ToGfxResult(result);
 }
 
+internal
 GfxResult CmdCopyBuffer( GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest)
 {
     NotImplemented;
@@ -3828,6 +3911,7 @@ GfxResult CmdCopyBuffer( GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest)
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdCopyBufferRange( GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size)
 {
     NotImplemented;
@@ -3835,6 +3919,7 @@ GfxResult CmdCopyBufferRange( GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, 
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
 {
     NotImplemented;
@@ -3842,6 +3927,7 @@ GfxResult CmdClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdClearTexture( GfxCmdContext cmds, GfxTexture texture)
 {
     NotImplemented;
@@ -3849,6 +3935,7 @@ GfxResult CmdClearTexture( GfxCmdContext cmds, GfxTexture texture)
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdCopyTexture( GfxCmdContext cmds, GfxTexture src, GfxTexture dest)
 {
     NotImplemented;
@@ -3856,6 +3943,7 @@ GfxResult CmdCopyTexture( GfxCmdContext cmds, GfxTexture src, GfxTexture dest)
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice)
 {
     NotImplemented;
@@ -3863,6 +3951,7 @@ GfxResult CmdClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture dest)
 {
     NotImplemented;
@@ -3870,6 +3959,7 @@ GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture 
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdGenerateMips( GfxCmdContext cmds, GfxTexture texture)
 {
     NotImplemented;
@@ -3877,63 +3967,263 @@ GfxResult CmdGenerateMips( GfxCmdContext cmds, GfxTexture texture)
     return GfxResult::Ok;
 }
 
-GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDpthStencilRTV)
+internal
+GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDepthStencilRTV)
 {
     // Need to lookup or create a valid renderpass / framebuffer combo OR use the fancy vk_KHR_dynamic_rendering extension
     // vkCmdBeginRenderPass / vkCmdEndRenderPass if numRenderTargets is 0
-    NotImplemented;
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    
+    if(numRenderTargets || pDepthStencilRTV)
+    {
+        vg_rendertargetview* rtvList[GFX_MAX_RENDERTARGETS];
+        u32 numClearValues = 0;
+        VkClearValue clearValues[GFX_MAX_RENDERTARGETS+1];
+        
+        for(u32 rtIdx = 0; rtIdx < numRenderTargets; ++rtIdx)
+        {
+            rtvList[rtIdx] = FromGfxRenderTargetView(device, pColorRTVs[rtIdx]);
+
+            if(rtvList[rtIdx]->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR)
+            {
+                VkClearValue clear;
+                CopyArray(4, rtvList[rtIdx]->clearValue.Elements, clear.color.float32);
+                clearValues[numClearValues++] = clear;
+            }
+        }
+        u64 renderpassKey = MurmurHash64(rtvList, numRenderTargets * sizeof(vg_rendertargetview), numRenderTargets);
+        
+        vg_rendertargetview* dsRTV = nullptr;  
+        if(pDepthStencilRTV)
+        {
+            dsRTV = FromGfxRenderTargetView(device, *pDepthStencilRTV);
+            renderpassKey = MurmurHash64(dsRTV, sizeof(vg_rendertargetview), renderpassKey);
+
+            if(dsRTV->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR)
+            {
+                VkClearValue clear;
+                clear.depthStencil.depth = dsRTV->clearValue[0];
+                clear.depthStencil.stencil = (u32)dsRTV->clearValue[1];
+                clearValues[numClearValues++] = clear;
+            }
+        }
+
+        vg_renderpass* renderpass = nullptr;
+        if(!device.mapRenderpasses->try_get(renderpassKey, &renderpass))
+        {
+            // Create the render pass here
+            VkAttachmentDescription attachments[GFX_MAX_RENDERTARGETS + 1] = {}; // +1 in case depth/stencil is attached
+            VkAttachmentReference colorRefs[GFX_MAX_RENDERTARGETS] = {};
+            VkAttachmentReference depthStencilRef = {};
+
+            b32 hasDepthStencilAttachment = dsRTV ? true : false;
+
+            for(u32 i = 0; i < numRenderTargets; ++i)
+            {
+                attachments[i].flags = 0;
+                attachments[i].format = rtvList[i]->format;
+                attachments[i].samples = rtvList[i]->sampleCount;
+                attachments[i].loadOp = rtvList[i]->loadOp;
+                attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+                attachments[i].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                attachments[i].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+                colorRefs[i].attachment = i;
+                colorRefs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            }
+
+            if(hasDepthStencilAttachment)
+            {
+                uint32_t idx = numRenderTargets;
+                attachments[idx].flags = 0;
+                attachments[idx].format = dsRTV->format;
+                attachments[idx].samples = dsRTV->sampleCount;
+                attachments[idx].loadOp = dsRTV->loadOp;
+                attachments[idx].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                attachments[idx].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                attachments[idx].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+                attachments[idx].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                attachments[idx].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+                depthStencilRef.attachment = idx;    
+                depthStencilRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            }
+
+            // ugh.. silly subpass needs to redefine all the same crap
+            VkSubpassDescription subpass = {};
+            subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+            subpass.colorAttachmentCount = numRenderTargets;
+            subpass.pColorAttachments = colorRefs;
+            subpass.pDepthStencilAttachment = hasDepthStencilAttachment ? &depthStencilRef : nullptr;
+
+            VkRenderPassCreateInfo renderPassInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+            renderPassInfo.attachmentCount = numRenderTargets + (hasDepthStencilAttachment ? 1 : 0);
+            renderPassInfo.pAttachments = attachments;
+            renderPassInfo.subpassCount = 1;
+            renderPassInfo.pSubpasses = &subpass;
+            renderPassInfo.dependencyCount = 0;
+            renderPassInfo.pDependencies = nullptr;
+
+            if(device.freelist_renderpass)
+            {
+                renderpass = device.freelist_renderpass;
+                device.freelist_renderpass = renderpass->next;
+            }
+            else
+            {
+                renderpass = PushStruct(device.arena, vg_renderpass);
+            }
+            
+            VkResult result = vkCreateRenderPass(device.handle, &renderPassInfo, nullptr, &renderpass->handle);
+            ASSERT(result == VK_SUCCESS);
+            
+            // cache the renderpass since it will likely be used again on the next frame
+            device.mapRenderpasses->set(renderpassKey, renderpass);
+        }
+
+        vg_framebuffer* framebuffer = nullptr;
+        if(!device.mapFramebuffers->try_get(renderpassKey, &framebuffer))
+        {
+            // Create the framebuffer here
+            VkImageView attachments[GFX_MAX_RENDERTARGETS + 1];
+
+            for(u32 i = 0; i < numRenderTargets; ++i)
+            {
+                attachments[i] = rtvList[i]->view;
+            }
+            if(dsRTV)
+            {
+                attachments[numRenderTargets] = dsRTV->view;
+            }
+            
+            VkFramebufferCreateInfo info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+            info.renderPass = renderpass->handle;
+            info.attachmentCount = numRenderTargets + (dsRTV ? 1 : 0);
+            info.width = device.extent.width;
+            info.height = device.extent.height;
+            info.layers = 1;
+            info.pAttachments = attachments;
+
+            if(device.freelist_framebuffer)
+            {
+                framebuffer = device.freelist_framebuffer;
+                device.freelist_framebuffer = framebuffer->next;
+            }
+
+            VkResult result = vkCreateFramebuffer(device.handle, &info, nullptr, &framebuffer->handle);
+
+            device.mapFramebuffers->set(renderpassKey, framebuffer);
+        }
+
+        renderpass->lastUsedInFrameIndex = device.curSwapChainIndex;
+        framebuffer->lastUsedInFrameIndex = device.curSwapChainIndex;
+
+        context->activeRenderpass = renderpass;
+        context->activeFramebuffer = framebuffer;
+
+        VkRenderPassBeginInfo renderPassBegin = {VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+        renderPassBegin.renderPass = renderpass->handle;
+        renderPassBegin.renderArea.offset.x = 0;
+        renderPassBegin.renderArea.offset.y = 0;
+        renderPassBegin.renderArea.extent = device.extent;
+        renderPassBegin.framebuffer = framebuffer->handle;
+        renderPassBegin.clearValueCount = numClearValues;
+        renderPassBegin.pClearValues = clearValues;
+        vkCmdBeginRenderPass(context->buffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+    }
+    else
+    {
+        vkCmdEndRenderPass(context->buffer);
+
+        context->activeRenderpass = 0;
+        context->activeFramebuffer = 0;
+        context->activeKernel = 0;
+    }
+
     return GfxResult::Ok;
 }
 
-GfxResult CmdBindKernel( GfxCmdContext cmds, GfxKernel kernel)
+internal
+GfxResult CmdBindKernel( GfxCmdContext cmds, GfxKernel resource)
 {
-    NotImplemented;
-    // vkCmdBindPipeline
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+
+    vg_kernel* kernel = FromGfxKernel(device, resource);
+
+    vkCmdBindPipeline(context->buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, kernel->pipeline);
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdBindIndexBuffer( GfxCmdContext cmds, GfxBuffer indexBuffer)
 {
-    NotImplemented;
-    // vkCmdBindIndexBuffer
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    vg_buffer* ib = FromGfxBuffer(device, indexBuffer);
+
+    vkCmdBindIndexBuffer(context->buffer, ib->handle, 0, VK_INDEX_TYPE_UINT32);
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdBindVertexBuffer( GfxCmdContext cmds, GfxBuffer vertexBuffer)
 {
-    NotImplemented;
-    // vkCmdBindVertexBuffers
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    vg_buffer* vb = FromGfxBuffer(device, vertexBuffer);
+
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(context->buffer, 0, 1, &vb->handle, offsets);
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdSetViewport( GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height)
 {
-    NotImplemented;
-    // vkCmdSetViewport
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+
+    VkViewport vp = {x, y, width, height, 0, 1};   
+    vkCmdSetViewport(context->buffer, 0, 1, &vp);
     return GfxResult::Ok;
 }
 
-GfxResult CmdSetScissorRect( GfxCmdContext cmds, i32 x, i32 y, i32 width, i32 height)
+internal
+GfxResult CmdSetScissorRect( GfxCmdContext cmds, i32 x, i32 y, u32 width, u32 height)
 {
-    NotImplemented;
-    // vkCmdSetScissor
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    
+    VkRect2D rc = {x, y, width, height};
+    vkCmdSetScissor(context->buffer, 0, 1, &rc);
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdDraw( GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 baseVertex, u32 baseInstance)
 {
-    NotImplemented;
-    // vkCmdDraw
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    
+    vkCmdDraw(context->buffer, vertexCount, instanceCount, 0, 0);
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdDrawIndexed( GfxCmdContext cmds, u32 indexCount, u32 instanceCount, u32 firstIndex, u32 baseVertex, u32 baseInstance)
 {
-    NotImplemented;
-    // vkCmdDrawIndexed
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    
+    vkCmdDrawIndexed(context->buffer, indexCount, instanceCount, firstIndex, baseVertex, baseInstance);
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdMultiDrawIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
 {
     NotImplemented;
@@ -3941,6 +4231,7 @@ GfxResult CmdMultiDrawIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 ar
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdMultiDrawIndexedIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
 {
     NotImplemented;
@@ -3948,6 +4239,7 @@ GfxResult CmdMultiDrawIndexedIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer,
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdDispatch( GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 numGroupsZ)
 {
     NotImplemented;
@@ -3955,6 +4247,7 @@ GfxResult CmdDispatch( GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 n
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdDispatchIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer)
 {
     NotImplemented;
@@ -3962,6 +4255,7 @@ GfxResult CmdDispatchIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer)
     return GfxResult::Ok;
 }
 
+internal
 GfxResult CmdMultiDispatchIndirect(  GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
 {
     NotImplemented;
@@ -3969,17 +4263,66 @@ GfxResult CmdMultiDispatchIndirect(  GfxCmdContext cmds, GfxBuffer argsBuffer, u
     return GfxResult::Ok;
 }
 
+internal
 GfxResult SubmitCommands( GfxDevice deviceHandle, u32 count, GfxCmdContext* pContexts)
 {
-    NotImplemented;
-    return GfxResult::Ok;
+    vg_device& device = DeviceObject::From(deviceHandle);
+    
+    VkSemaphore waitSemaphores[] = { device.pCurFrame->presentSemaphore };
+    VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+    VkSemaphore signalSemaphores[] = { device.pCurFrame->renderSemaphore };
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 1;
+    submitInfo.pWaitSemaphores = waitSemaphores;
+    submitInfo.pWaitDstStageMask = waitStages;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &device.pCurFrame->commandBuffer;
+    submitInfo.signalSemaphoreCount = 1;
+    submitInfo.pSignalSemaphores = signalSemaphores;
+
+    vkResetFences(device.handle, 1, &device.pCurFrame->renderFence);
+    VkResult result = vkQueueSubmit(device.q_graphics.handle, 1, &submitInfo, device.pCurFrame->renderFence);
+    if(DIDFAIL(result))
+    {
+        LOG_ERROR("Vulkan Submit Error: %X", result);
+        ASSERT(false);
+    }
+
+    return ToGfxResult(result);
 }
 
+internal
 GfxResult Frame( GfxDevice deviceHandle, b32 vsync)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
 
-    NotImplemented;
+    u32 imageIndex = device.curSwapChainIndex;
+    
+    VkSemaphore signalSemaphores[] = { device.pCurFrame->renderSemaphore };
+
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores = signalSemaphores;
+    presentInfo.swapchainCount = 1;
+    presentInfo.pSwapchains = &device.swapChain;
+    presentInfo.pImageIndices = &device.curSwapChainIndex;
+    presentInfo.pResults = nullptr;
+
+    VkResult result = vkQueuePresentKHR(device.q_present.handle, &presentInfo);
+
+    if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+    {
+        //Win32RecreateSwapChain(graphics);
+        ASSERT(false);
+    }
+    else if(DIDFAIL(result))
+    {
+        LOG_ERROR("Vulkan Present Error: %X", result);
+        ASSERT(false);
+    }
 
     // Now move to the next frame...
 
@@ -3987,15 +4330,18 @@ GfxResult Frame( GfxDevice deviceHandle, b32 vsync)
     device.pPrevFrame = device.pCurFrame;
     device.pCurFrame = &device.frames[device.currentFrameIndex];
 
-    return GfxResult::Ok;
+    return ToGfxResult(result);
 }
 
-GfxResult Finish( GfxDevice deviceHandle)
+internal
+GfxResult Finish(GfxDevice deviceHandle)
 {
-    NotImplemented;
-    return GfxResult::Ok;
+    vg_device& device = DeviceObject::From(deviceHandle);
+    VkResult result = vkDeviceWaitIdle(device.handle);
+    return ToGfxResult(result);
 }
 
+internal
 GfxResult CleanupUnusedRenderingResources(GfxDevice deviceHandle)
 {
     NotImplemented;
@@ -4004,48 +4350,56 @@ GfxResult CleanupUnusedRenderingResources(GfxDevice deviceHandle)
     return GfxResult::Ok;
 }
 
+internal
 GfxTimestampQuery CreateTimestampQuery( GfxDevice deviceHandle)
 {
     NotImplemented;
     return GfxTimestampQuery{};
 }
 
+internal
 GfxResult DestroyTimestampQuery( GfxDevice deviceHandle, GfxTimestampQuery timestampQuery)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 f32 GetTimestampQueryDuration( GfxDevice deviceHandle, GfxTimestampQuery timestampQuery)
 {
     NotImplemented;
     return 0.0f;
 }
 
+internal
 GfxResult BeginTimestampQuery( GfxCmdContext cmds, GfxTimestampQuery query)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxResult EndTimestampQuery( GfxCmdContext cmds, GfxTimestampQuery query)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxResult BeginEvent( GfxCmdContext cmds, const char* name)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxResult BeginColorEvent( GfxCmdContext cmds, const char* name)
 {
     NotImplemented;
     return GfxResult::Ok;
 }
 
+internal
 GfxResult EndEvent( GfxCmdContext cmds)
 {
     NotImplemented;

@@ -877,7 +877,9 @@ extern "C" int __stdcall WinMainCRTStartup()
         }
 
         Win32CopyAudioBuffer(audio, targetFrameRateSeconds);
-
+            
+        b32 vsync = true;
+        gfx.Frame(gfx.device, vsync);
         // graphicsApi.EndFrame(graphicsDriver.instance, &gameRender.commands);
 
         ++input.clock.frameCounter;

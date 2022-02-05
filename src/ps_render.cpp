@@ -90,14 +90,16 @@ LoadProgram(memory_arena& memory, const char* vert_file, const char* frag_file)
     return program;
 }
 
-GfxRenderTargetBlendState OpaqueRenderTarget()
+internal GfxRenderTargetBlendState
+OpaqueRenderTarget()
 {
     GfxRenderTargetBlendState bs = {};
     bs.blendEnable = false;
     return bs;
 }
 
-GfxRenderTargetBlendState TransparentRenderTarget()
+internal GfxRenderTargetBlendState
+TransparentRenderTarget()
 {
     GfxRenderTargetBlendState bs = {};
     bs.blendEnable = true;
@@ -131,5 +133,30 @@ DefaultPipeline()
     desc.primitiveTopology = GfxPrimitiveTopology::TriangleList;
     desc.numColorTargets = 1;
     desc.colorTargets[0] = gfx.GetDeviceBackBufferFormat(gfx.device);
+    return desc;
+}
+
+internal GfxBufferDesc
+MeshVertexBuffer(u32 count)
+{
+    GfxBufferDesc desc = {};
+    desc.usageFlags = GfxBufferUsageFlags::Vertex;
+    desc.access = GfxMemoryAccess::CpuToGpu;    // TODO(james): use a staging buffer instead
+    desc.size = count * sizeof(render_mesh_vertex);
+    // desc.stride = sizeof(render_mesh_vertex);
+    // desc.numElements = count;
+
+    return desc;
+}
+
+internal GfxBufferDesc
+IndexBuffer(u32 count)
+{
+    GfxBufferDesc desc = {};
+    desc.usageFlags = GfxBufferUsageFlags::Index;
+    desc.access = GfxMemoryAccess::CpuToGpu;    // TODO(james): use a staging buffer instead
+    desc.size = count * sizeof(u32);
+    // desc.stride = sizeof(u32);
+    // desc.numElements = count;
     return desc;
 }

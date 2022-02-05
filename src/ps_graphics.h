@@ -61,8 +61,8 @@ struct GfxBufferDesc
     GfxBufferUsageFlags usageFlags;
     GfxMemoryAccess access;
     u64 size;
-    u32 stride;
-    u32 numElements;
+    // u32 stride;
+    // u32 numElements;
     GfxResourceHeap heap;
 };  
 
@@ -350,6 +350,7 @@ struct GfxRenderTargetViewDesc
 {
     GfxTexture texture;
     GfxLoadAction loadOp;
+    GfxSampleCount sampleCount;
     v4 clearValue;
     TinyImageFormat format;
     u32 mipLevel;
@@ -445,13 +446,13 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdCopyBufferToTexture, GfxCmdContext cmds, GfxBuffer src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdGenerateMips, GfxCmdContext cmds, GfxTexture texture);
 
-    API_FUNCTION(GfxResult, CmdBindRenderTargets, GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDpthStencilRTV);
+    API_FUNCTION(GfxResult, CmdBindRenderTargets, GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDepthStencilRTV);
     API_FUNCTION(GfxResult, CmdBindKernel, GfxCmdContext cmds, GfxKernel kernel);
     API_FUNCTION(GfxResult, CmdBindIndexBuffer, GfxCmdContext cmds, GfxBuffer indexBuffer);
     API_FUNCTION(GfxResult, CmdBindVertexBuffer, GfxCmdContext cmds, GfxBuffer vertexBuffer);
 
     API_FUNCTION(GfxResult, CmdSetViewport, GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height);
-    API_FUNCTION(GfxResult, CmdSetScissorRect, GfxCmdContext cmds, i32 x, i32 y, i32 width, i32 height);
+    API_FUNCTION(GfxResult, CmdSetScissorRect, GfxCmdContext cmds, i32 x, i32 y, u32 width, u32 height);
 
     API_FUNCTION(GfxResult, CmdDraw, GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 baseVertex, u32 baseInstance);
     API_FUNCTION(GfxResult, CmdDrawIndexed, GfxCmdContext cmds, u32 indexCount, u32 instanceCount, u32 firstIndex, u32 baseVertex, u32 baseInstance);
