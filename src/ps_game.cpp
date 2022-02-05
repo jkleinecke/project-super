@@ -387,13 +387,16 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 internal void
 RenderFrame(game_state& state, render_context& rc)
 {
+    GfxRenderTargetView screenRTV = gfx.AcquireNextSwapChainTarget(gfx.device);
+
     GfxCmdContext& cmds = state.cmds;
 
     gfx.BeginEncodingCmds(cmds);
 
     gfx.CmdSetViewport(cmds, 0, 0, rc.renderDimensions.Width, rc.renderDimensions.Height);
+    gfx.CmdSetScissorRect(cmds, 0, 0, (u32)rc.renderDimensions.Width, (u32)rc.renderDimensions.Height);
 
-    gfx.CmdBindRenderTargets(cmds, 1, &rc.screenRTV, nullptr);
+    gfx.CmdBindRenderTargets(cmds, 1, &screenRTV, nullptr);
     gfx.CmdBindKernel(cmds, state.mainKernel);
 
     // TODO(james): send the position of the geometry
@@ -406,6 +409,9 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.EndEncodingCmds(cmds);
 
     gfx.SubmitCommands(gfx.device, 1, &cmds);
+
+    b32 vsync = true;
+    gfx.Frame(gfx.device, vsync);
 }
 
 internal void
@@ -429,7 +435,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         gameMemory.state = BootstrapPushStructMember(game_state, totalArena);
         game_state& gameState = *gameMemory.state;
-        gameState.frameArena = (memory_arena*)BootstrapPushSize_(DEBUG_MEMORY_NAME("FrameArena") sizeof(memory_arena), 0, NonRestoredArena());
+        gameState.frameArena = BootstrapScratchArena("FrameArena", NonRestoredArena(Megabytes(1)));
         gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
 
         // gameState.resourceQueue = render.resourceQueue;   

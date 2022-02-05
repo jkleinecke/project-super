@@ -108,6 +108,8 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         }
 
         // TODO(james): Tune these limits
+        vb.device.frameArena = BootstrapScratchArena("VkDeviceFrameArena", NonRestoredArena(Megabytes(1)));
+        vb.device.frameTemp = BeginTemporaryMemory(*vb.device.frameArena);
         vb.device.resourceHeaps = hashtable_create(vb.device.arena, vg_resourceheap*, 32); // TODO(james): tune this to the actual application
 
         // NOTE(james): default resource heap is always at key 0

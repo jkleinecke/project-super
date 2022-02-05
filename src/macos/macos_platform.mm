@@ -7,7 +7,7 @@
 #include "ps_math.h"
 #include "ps_memory.h"
 #include "ps_collections.h"
-#include "ps_graphics.h"
+// #include "ps_graphics.h"
 
 #include "macos_platform.h"
 
@@ -725,14 +725,11 @@ int main(int argc, const char* argv[])
 
 		gameMemory.platformApi = Platform;
 
+		ps_graphics_backend graphicsDriver = platform_load_graphics_backend(layer, windowWidth, windowHeight);
+		gfx_api& gfx = graphicsDriver.gfx; 
 		gameRender.renderDimensions.Width = windowWidth;
 		gameRender.renderDimensions.Height = windowHeight;
-		ps_graphics_backend graphicsDriver = platform_load_graphics_backend(layer, windowWidth, windowHeight);
-		ps_graphics_backend_api graphicsApi = graphicsDriver.api; 
-		gameRender.resourceQueue = &graphicsDriver.resourceQueue;
-		gameRender.AddResourceOperation = graphicsApi.AddResourceOperation;
-		gameRender.IsResourceOperationComplete = graphicsApi.IsResourceOperationComplete;
-
+		gameRender.gfx = gfx;
 
 		macos_game_function_table gameFunctions = {};
 		macos_loaded_code gameCode = {};
@@ -757,8 +754,6 @@ int main(int argc, const char* argv[])
 
             MacosProcessMessages(state);
 
-			graphicsApi.BeginFrame(graphicsDriver.instance, &gameRender.commands);
-
 			if(gameFunctions.UpdateAndRender)
 			{
 				gameFunctions.UpdateAndRender(gameMemory, gameRender, input, audio);
@@ -774,8 +769,6 @@ int main(int argc, const char* argv[])
 			// TODO(james): Sleep if we are running faster than the target framerate??
 
 			LOG_DEBUG("Frame Time: %.2f ms, Total Time: %.2f ms", elapsedFrameTime * 1000.0f, elapsedFrameTime * 1000.0f);
-
-			graphicsApi.EndFrame(graphicsDriver.instance, &gameRender.commands);
 
 			++input.clock.frameCounter;
         }

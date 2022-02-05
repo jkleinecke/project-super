@@ -215,7 +215,6 @@ struct render_context
 {
     v2 renderDimensions;
 
-    GfxRenderTargetView screenRTV;
     gfx_api gfx;
 };
 

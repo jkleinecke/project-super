@@ -250,6 +250,8 @@ struct vg_cmd_context
     vg_renderpass* activeRenderpass;
     vg_framebuffer* activeFramebuffer;
     vg_kernel* activeKernel;
+    vg_buffer* activeIB;
+    vg_buffer* activeVB;
 };
 
 struct vg_command_encoder_pool
@@ -299,6 +301,8 @@ struct vg_device
     // Managed Resources
     VmaAllocator allocator;
     memory_arena arena;
+    memory_arena* frameArena;    // use for transient memory only valid for the current frame
+    temporary_memory frameTemp;
 
     hashtable<vg_resourceheap*>* resourceHeaps;
     hashtable<vg_command_encoder_pool*>* encoderPools;

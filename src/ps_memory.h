@@ -97,6 +97,7 @@ NoClear()
 struct arena_bootstrap_params
 {
     PlatformMemoryFlags allocationFlags;
+    umm initialAllocatedSize;
     umm minimumBlockSize;
 };
 
@@ -108,10 +109,12 @@ DefaultBootstrapParams(void)
 }
 
 inline arena_bootstrap_params
-NonRestoredArena(void)
+NonRestoredArena(umm initialSize = 0, umm minBlockSize = 0)
 {
     arena_bootstrap_params Params = DefaultBootstrapParams();
     Params.allocationFlags = PlatformMemoryFlags::NotRestored;
+    Params.initialAllocatedSize = initialSize;
+    Params.minimumBlockSize = minBlockSize;
     return(Params);
 }
 
@@ -141,6 +144,7 @@ NonRestoredArena(void)
 #define PushBuffer(...) PushBuffer_(DEBUG_MEMORY_NAME("PushBuffer") __VA_ARGS__)
 #define PushAndNullTerminate(...) PushAndNullTerminate_(DEBUG_MEMORY_NAME("PushAndNullTerminate") __VA_ARGS__)
 #define BootstrapPushStructMember(type, Member, ...) (type *)BootstrapPushSize_(DEBUG_MEMORY_NAME("BootstrapPushStructMember") sizeof(type), OffsetOf(type, Member), ## __VA_ARGS__)
+#define BootstrapScratchArena(memName, ...) (memory_arena *)BootstrapPushSize_(DEBUG_MEMORY_NAME(memName) sizeof(memory_arena), 0, ## __VA_ARGS__)
 
 inline memory_index
 GetEffectiveSizeFor(const memory_arena& arena, memory_index sizeInit, arena_push_params params = DefaultArenaParams())
@@ -180,7 +184,7 @@ PushSize_(INTERNAL_MEMORY_PARAM
         else if(!arena.minimumBlockSize)
         {
             // TODO(james): Tune default block size eventually?
-            arena.minimumBlockSize = Megabytes(1);
+            arena.minimumBlockSize = Kilobytes(64);
         }
         
         memory_index blockSize = Maximum(size, arena.minimumBlockSize);
@@ -379,8 +383,14 @@ BootstrapPushSize_(INTERNAL_MEMORY_PARAM umm structSize, umm offsetToArena,
 {
     memory_arena bootstrap = {};
     bootstrap.allocationFlags = bootstrapParams.allocationFlags;
-    bootstrap.minimumBlockSize = bootstrapParams.minimumBlockSize;
+    // NOTE(james): can be beneficially to allocate a bigger/smaller block than the 
+    //   normal min block size initially
+    bootstrap.minimumBlockSize = bootstrapParams.initialAllocatedSize; 
+
     void *structptr = PushSize_(INTERNAL_MEMORY_PASS bootstrap, structSize, params);
+    
+    // After the initial allocation, resume normal practices
+    bootstrap.minimumBlockSize = bootstrapParams.minimumBlockSize;
     *(memory_arena *)((u8 *)structptr + offsetToArena) = bootstrap;
     
     return structptr;

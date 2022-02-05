@@ -32,15 +32,15 @@ global const std::vector<const char*> g_validationLayers = {
 
 // UBOs have alignment requirements depending on the data being uploaded
 // so it is always good to be specific about the alignment for a UBO
-struct FrameObject
-{
-    alignas(16) m4 viewProj;
-};
+// struct FrameObject
+// {
+//     alignas(16) m4 viewProj;
+// };
 
-struct InstanceObject
-{
-    alignas(16) m4 mvp;
-};
+// struct InstanceObject
+// {
+//     alignas(16) m4 mvp;
+// };
 
 
 
@@ -3898,6 +3898,16 @@ GfxResult EndEncodingCmds(GfxCmdContext cmds)
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
 
+    if(context->activeRenderpass || context->activeFramebuffer)
+    {
+        vkCmdEndRenderPass(context->buffer);
+        context->activeFramebuffer = 0;
+        context->activeRenderpass = 0;
+        context->activeKernel = 0;
+        context->activeIB = 0;
+        context->activeVB = 0;
+    }
+
     VkResult result = vkEndCommandBuffer(context->buffer);
 
     return ToGfxResult(result);
@@ -4112,6 +4122,10 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
                 framebuffer = device.freelist_framebuffer;
                 device.freelist_framebuffer = framebuffer->next;
             }
+            else
+            {
+                framebuffer = PushStruct(device.arena, vg_framebuffer);
+            }
 
             VkResult result = vkCreateFramebuffer(device.handle, &info, nullptr, &framebuffer->handle);
 
@@ -4154,7 +4168,9 @@ GfxResult CmdBindKernel( GfxCmdContext cmds, GfxKernel resource)
 
     vg_kernel* kernel = FromGfxKernel(device, resource);
 
+    context->activeKernel = kernel;
     vkCmdBindPipeline(context->buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, kernel->pipeline);
+    
     return GfxResult::Ok;
 }
 
@@ -4165,6 +4181,7 @@ GfxResult CmdBindIndexBuffer( GfxCmdContext cmds, GfxBuffer indexBuffer)
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
     vg_buffer* ib = FromGfxBuffer(device, indexBuffer);
 
+    context->activeIB = ib;
     vkCmdBindIndexBuffer(context->buffer, ib->handle, 0, VK_INDEX_TYPE_UINT32);
     return GfxResult::Ok;
 }
@@ -4176,6 +4193,7 @@ GfxResult CmdBindVertexBuffer( GfxCmdContext cmds, GfxBuffer vertexBuffer)
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
     vg_buffer* vb = FromGfxBuffer(device, vertexBuffer);
 
+    context->activeVB = vb;
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(context->buffer, 0, 1, &vb->handle, offsets);
     return GfxResult::Ok;
@@ -4272,13 +4290,20 @@ GfxResult SubmitCommands( GfxDevice deviceHandle, u32 count, GfxCmdContext* pCon
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
     VkSemaphore signalSemaphores[] = { device.pCurFrame->renderSemaphore };
 
+    VkCommandBuffer* pCmdBuffers = PushArray(*device.frameArena, count, VkCommandBuffer);
+    for(u32 i = 0; i < count; ++i)
+    {
+        vg_cmd_context* context = FromGfxCmdContext(device, pContexts[i]);
+        pCmdBuffers[i] = context->buffer;
+    }
+
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &device.pCurFrame->commandBuffer;
+    submitInfo.commandBufferCount = count;
+    submitInfo.pCommandBuffers = pCmdBuffers;
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
@@ -4329,6 +4354,9 @@ GfxResult Frame( GfxDevice deviceHandle, b32 vsync)
     device.currentFrameIndex = (device.currentFrameIndex + 1) % FRAME_OVERLAP;
     device.pPrevFrame = device.pCurFrame;
     device.pCurFrame = &device.frames[device.currentFrameIndex];
+
+    EndTemporaryMemory(device.frameTemp);
+    device.frameTemp = BeginTemporaryMemory(*device.frameArena);
 
     return ToGfxResult(result);
 }
