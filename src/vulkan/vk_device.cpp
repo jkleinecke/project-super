@@ -1009,18 +1009,35 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
 
         u32 graphicsQueueIndex = 0;
         u32 presentQueueIndex = 0;
+        u32 computeQueueIndex = 0;
+        u32 transferQueueIndex = 0;
         vgFindQueueFamily(device.physicalDevice, VK_QUEUE_GRAPHICS_BIT, &graphicsQueueIndex);
+        vgFindQueueFamily(device.physicalDevice, VK_QUEUE_COMPUTE_BIT, &computeQueueIndex);
+        vgFindQueueFamily(device.physicalDevice, VK_QUEUE_TRANSFER_BIT, &transferQueueIndex);
 
-        std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        u32 numQueueCreates = 0;
+        u32 queueIdx = 0;
+        VkDeviceQueueCreateInfo queueCreateInfos[4]; 
         // setup graphics queue
 
         f32 queuePriority = 1.0f;
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = graphicsQueueIndex;
-        queueCreateInfo.queueCount = 1;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
-        queueCreateInfos.push_back(queueCreateInfo);
+        queueIdx = numQueueCreates++;
+        queueCreateInfos[queueIdx] = VkDeviceQueueCreateInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+        queueCreateInfos[queueIdx].queueFamilyIndex = graphicsQueueIndex;
+        queueCreateInfos[queueIdx].queueCount = 1;
+        queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
+
+        queueIdx = numQueueCreates++;
+        queueCreateInfos[queueIdx] = VkDeviceQueueCreateInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+        queueCreateInfos[queueIdx].queueFamilyIndex = computeQueueIndex;
+        queueCreateInfos[queueIdx].queueCount = 1;
+        queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
+
+        queueIdx = numQueueCreates++;
+        queueCreateInfos[queueIdx] = VkDeviceQueueCreateInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+        queueCreateInfos[queueIdx].queueFamilyIndex = transferQueueIndex;
+        queueCreateInfos[queueIdx].queueCount = 1;
+        queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
 
         VkBool32 presentSupport = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device.physicalDevice, graphicsQueueIndex, device.platform_surface, &presentSupport);
@@ -1035,11 +1052,11 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
             vgFindPresentQueueFamily(device.physicalDevice, device.platform_surface, &presentQueueIndex);
 
             VkDeviceQueueCreateInfo presentQueueInfo{};
-            presentQueueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            presentQueueInfo.queueFamilyIndex = presentQueueIndex;
-            presentQueueInfo.queueCount = 1;
-            presentQueueInfo.pQueuePriorities = &queuePriority;
-            queueCreateInfos.push_back(presentQueueInfo);
+            queueIdx = numQueueCreates++;
+            queueCreateInfos[queueIdx] = VkDeviceQueueCreateInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+            queueCreateInfos[queueIdx].queueFamilyIndex = presentQueueIndex;
+            queueCreateInfos[queueIdx].queueCount = 1;
+            queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
         }
         
         VkPhysicalDeviceFeatures deviceFeatures{};
@@ -1047,8 +1064,8 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
 
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        createInfo.queueCreateInfoCount = (u32)queueCreateInfos.size();
-        createInfo.pQueueCreateInfos = queueCreateInfos.data();
+        createInfo.queueCreateInfoCount = numQueueCreates;
+        createInfo.pQueueCreateInfos = queueCreateInfos;
         createInfo.pEnabledFeatures = &deviceFeatures;
         createInfo.enabledExtensionCount = (u32)deviceExtensions.size();
         createInfo.ppEnabledExtensionNames = deviceExtensions.data();
@@ -1068,9 +1085,13 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
 
         device.q_graphics.queue_family_index = graphicsQueueIndex;
         device.q_present.queue_family_index = presentQueueIndex;
+        device.q_compute.queue_family_index = computeQueueIndex;
+        device.q_transfer.queue_family_index = transferQueueIndex;
 
         vkGetDeviceQueue(device.handle, graphicsQueueIndex, 0, &device.q_graphics.handle);
         vkGetDeviceQueue(device.handle, presentQueueIndex, 0, &device.q_present.handle);
+        vkGetDeviceQueue(device.handle, computeQueueIndex, 0, &device.q_compute.handle);
+        vkGetDeviceQueue(device.handle, transferQueueIndex, 0, &device.q_transfer.handle);
     }
 
     // Create the Vulkan Memory Allocator
@@ -1084,6 +1105,22 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
         allocInfo.flags = VMA_ALLOCATOR_CREATE_EXTERNALLY_SYNCHRONIZED_BIT; 
 
         vmaCreateAllocator(&allocInfo, &device.allocator);
+    }
+
+    // create internal command pool here so that we can do an initial transition of the swap chain images for the user
+    {
+        VkCommandPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+        poolInfo.queueFamilyIndex = device.q_graphics.queue_family_index;
+        result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &device.internal_cmd_pool);
+        VERIFY_SUCCESS(result);
+
+        VkCommandBufferAllocateInfo allocInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+        allocInfo.commandBufferCount = 1;
+        allocInfo.commandPool = device.internal_cmd_pool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+        result = vkAllocateCommandBuffers(device.handle, &allocInfo, &device.internal_cmd_buffer);
+        VERIFY_SUCCESS(result);
     }
 
 #undef VERIFY_SUCCESS
@@ -1153,43 +1190,96 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
     device.extent = extent; 
     
     vkGetSwapchainImagesKHR(device.handle, swapChain, &imageCount, nullptr);
-    std::vector<VkImage> images(imageCount);
-    vkGetSwapchainImagesKHR(device.handle, swapChain, &imageCount, images.data());
+    VkImage* pImages = PushArray(*device.frameArena, imageCount, VkImage);
+    vkGetSwapchainImagesKHR(device.handle, swapChain, &imageCount, pImages);
 
-    arrsetlen(device.paSwapChainImages, imageCount);
+    device.swapChainImages = array_create(device.arena, vg_image*, imageCount);
+
+    u32 numBarriers = 0;
+    VkImageMemoryBarrier* pImgBarriers = PushArray(*device.frameArena, imageCount, VkImageMemoryBarrier);
 
     vg_resourceheap* pHeap = device.resourceHeaps->get(0);
     //device.swapChainImages.resize(imageCount);
     for(u32 index = 0; index < imageCount; ++index)
     {
-        vg_image& swapChainImg = device.paSwapChainImages[index];
-        swapChainImg.handle = images[index];
-        swapChainImg.format = device.swapChainFormat;
-        swapChainImg.width = extent.width;
-        swapChainImg.height = extent.height;
-        swapChainImg.layers = 1;
+        vg_image* swapChainImg = PushStruct(pHeap->arena, vg_image); 
+        swapChainImg->handle = pImages[index];
+        swapChainImg->format = device.swapChainFormat;
+        swapChainImg->width = extent.width;
+        swapChainImg->height = extent.height;
+        swapChainImg->layers = 1;
+
+        u64 imgKey = pHeap->textures->size()+1;
+        pHeap->textures->set(imgKey, swapChainImg);
+        device.swapChainImages->push_back(swapChainImg);    // store for easy reference later
 
         // now setup the image view for use in the swap chain
-        VkImageViewCreateInfo viewInfo = vkInit_imageview_create_info(
-            swapChainImg.format, swapChainImg.handle, VK_IMAGE_ASPECT_COLOR_BIT
-        );
+        VkImageViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.image = pImages[index];
+        viewInfo.format = device.swapChainFormat;
+        viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+        viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+        viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+        viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
+        viewInfo.subresourceRange.baseMipLevel = 0;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
-        result = vkCreateImageView(device.handle, &viewInfo, nullptr, &swapChainImg.view);
-        // result = vgCreateImageView(device, device.paSwapChainImages[index].handle, surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, &device.paSwapChainImages[index].view);
+        result = vkCreateImageView(device.handle, &viewInfo, nullptr, &swapChainImg->view);
         VERIFY_SUCCESS(result);
 
         vg_rendertargetview* pRTV = PushStruct(pHeap->arena, vg_rendertargetview);
         result = vkCreateImageView(device.handle, &viewInfo, nullptr, &pRTV->view); // NOTE(james): rtv is managed separately from the image view on the swap chain...
         VERIFY_SUCCESS(result);
-        pRTV->image = &swapChainImg;
+        pRTV->image = swapChainImg;
         pRTV->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         pRTV->clearValue = VkClearValue{0.2f,0.2f,0.2f,0.0f} ;   // gray
         pRTV->sampleCount = VK_SAMPLE_COUNT_1_BIT;  // TODO(james): This should come from a graphics init config or something
  
         u64 key = pHeap->rtvs->size()+1;
         pHeap->rtvs->set(key, pRTV);
+
+        VkImageMemoryBarrier& imgBarrier = *pImgBarriers[numBarriers++];
+        imgBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        imgBarrier.image = pImages[index];
+        imgBarrier.srcAccessMask = 0;
+        imgBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        imgBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        imgBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        imgBarrier.subresourceRange.baseMipLevel = 0;
+        imgBarrier.subresourceRange.levelCount = 1;
+        imgBarrier.subresourceRange.baseArrayLayer = 0;
+        imgBarrier.subresourceRange.layerCount = 1;
+        imgBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        imgBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        imgBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     }
-    
+
+    VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkResult result = vkBeginCommandBuffer(device.internal_cmd_buffer, &beginInfo);
+    vkCmdPipelineBarrier(device.internal_cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, numBarriers, pImgBarriers);
+    vkEndCommandBuffer(device.internal_cmd_buffer);
+    // submit and wait for the device to transition the images
+    VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+	info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	info.waitSemaphoreCount = 0;
+	info.pWaitSemaphores = nullptr;
+	info.pWaitDstStageMask = nullptr;
+	info.commandBufferCount = 1;
+	info.pCommandBuffers = device.internal_cmd_buffer;
+	info.signalSemaphoreCount = 0;
+	info.pSignalSemaphores = nullptr;
+
+    // TODO(james): give it a fence so we can tell when it is done?
+    vkQueueSubmit(device.q_graphics.handle, 1, &submitInfo, VK_NULL_HANDLE);
+    // Have to call QueueWaitIdle unless we're going to go the event route
+    vkQueueWaitIdle(device.q_graphics.handle);
+    vkResetCommandPool(device.handle, device.pCurFrame->commandPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+
     VERIFY_SUCCESS(result);
 
 #undef VERIFY_SUCCESS
@@ -3023,14 +3113,32 @@ GetQueueFromType(vg_device& device, GfxQueueType type)
 {
     switch(type)
     {
-        case GfxQueueType::Graphics:
-        case GfxQueueType::Compute:
-        case GfxQueueType::Transfer:
-            return &device.q_graphics;
+        case GfxQueueType::Graphics: return &device.q_graphics;
+        case GfxQueueType::Compute: return &device.q_compute;
+        case GfxQueueType::Transfer: return &device.q_transfer;            
         InvalidDefaultCase;
     }
 
     return 0;
+}
+
+internal VkResult
+vgCreateCommandPool(vg_device& device, GfxQueueType queueType, vg_command_encoder_pool* pool)
+{
+    vg_queue* queue = GetQueueFromType(device, queueType);
+    VkCommandPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+    poolInfo.queueFamilyIndex = queue->queue_family_index;
+
+    for(u32 i = 0; i < FRAME_OVERLAP; ++i)
+    {
+        VkResult result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &pool->cmdPool[i]);
+        if(result != VK_SUCCESS) return result;
+    }
+    pool->cmdcontexts = hashtable_create(device.arena, vg_cmd_context*, 32);
+    pool->queueType = queueType;
+    pool->queue = queue;
+
+    return VK_SUCCESS;
 }
 
 inline vg_buffer*
@@ -3092,6 +3200,22 @@ inline VkCommandBuffer
 CurrentFrameCmdBuffer(vg_device& device, vg_cmd_context* context)
 {
     return context->buffer[device.currentFrameIndex];
+}
+
+internal void
+EndContextRenderPass(vg_device& device, vg_cmd_context* context)
+{
+    if(context->activeRenderpass)
+    {
+        VkCommandBuffer buffer = CurrentFrameCmdBuffer(device, context);
+        vkCmdEndRenderPass(buffer);
+
+        context->activeRenderpass = 0;
+        context->activeFramebuffer = 0;
+        context->activeKernel = 0;
+        context->activeIB = 0;
+        context->activeVB = 0;
+    }
 }
 
 internal
@@ -3367,15 +3491,18 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
     // TODO(james): Look into making this a first class type in the graphics interface since it defines to bind to the shader
     VkImageViewCreateInfo viewInfo = {};
 	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	viewInfo.pNext = nullptr;
 	viewInfo.viewType = imageViewType;
 	viewInfo.image = image->handle;
 	viewInfo.format = imageInfo.format;
+    viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
+	viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
+	viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
+	viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
 	viewInfo.subresourceRange.baseMipLevel = 0;
 	viewInfo.subresourceRange.levelCount = imageInfo.mipLevels;
 	viewInfo.subresourceRange.baseArrayLayer = 0;
 	viewInfo.subresourceRange.layerCount = imageInfo.arrayLayers;
-	viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	viewInfo.subresourceRange.aspectMask = DetermineAspectMaskFromFormat(imageInfo.format, true);
 
     result = vkCreateImageView(device.handle, &viewInfo, nullptr, &image->view);
     if(result != VK_SUCCESS)
@@ -3732,7 +3859,6 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
 
     VkImageViewCreateInfo viewInfo = {};
 	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	viewInfo.pNext = nullptr;
 	viewInfo.viewType = rtvDesc.numSlices > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;  
 	viewInfo.image = image.handle;
 	viewInfo.format = image.format;
@@ -3752,6 +3878,7 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
 
     // This is just an image view with a little extra information on the device side
     vg_rendertargetview* rtv = PushStruct(pHeap->arena, vg_rendertargetview);
+    rtv->image = &image;
     rtv->view = imageview;
     rtv->loadOp = ConvertLoadOp(rtvDesc.loadOp);
     rtv->clearValue = VkClearValue{rtvDesc.clearValue[0],rtvDesc.clearValue[1],rtvDesc.clearValue[2],rtvDesc.clearValue[3]};
@@ -4012,21 +4139,17 @@ GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoder
     vg_device& device = DeviceObject::From(deviceHandle);
 
     if(device.encoderPools->full()) return GfxCmdEncoderPool{};  // out of handles
-
-    vg_queue* queue = GetQueueFromType(device, poolDesc.queueType);
-    VkCommandPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-    poolInfo.queueFamilyIndex = queue->queue_family_index;
-
+    
+    temporary_memory temp = BeginTemporaryMemory(device.arena);
     vg_command_encoder_pool* pool = PushStruct(device.arena, vg_command_encoder_pool);
 
-    for(u32 i = 0; i < FRAME_OVERLAP; ++i)
+    VkResult result = vgCreateCommandPool(device, poolDesc.queueType, pool);
+    if(result != VK_SUCCESS)
     {
-        VkResult result = vkCreateCommandPool(device.handle, &poolInfo, nullptr, &pool->cmdPool[i]);
-        if(result != VK_SUCCESS) return GfxCmdEncoderPool{};
+        EndTemporaryMemory(temp);
+        return GfxCmdEncoderPool{};
     }
-    pool->cmdcontexts = hashtable_create(device.arena, vg_cmd_context*, 32);
-    pool->queueType = poolDesc.queueType;
-    pool->queue = queue;
+    KeepTemporaryMemory(temp);
 
     u64 key = HASH(device.encoderPools->size()+1);
     device.encoderPools->set(key, pool);
@@ -4158,15 +4281,7 @@ GfxResult EndEncodingCmds(GfxCmdContext cmds)
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
     VkCommandBuffer buffer = CurrentFrameCmdBuffer(device, context);
 
-    if(context->activeRenderpass || context->activeFramebuffer)
-    {
-        vkCmdEndRenderPass(buffer);
-        context->activeFramebuffer = 0;
-        context->activeRenderpass = 0;
-        context->activeKernel = 0;
-        context->activeIB = 0;
-        context->activeVB = 0;
-    }
+    EndContextRenderPass(device, context);
 
     VkResult result = vkEndCommandBuffer(buffer);
 
@@ -4215,21 +4330,25 @@ CmdResourceBarrier(GfxCmdContext cmds,
         barrier.size = VK_WHOLE_SIZE;
         barrier.offset = 0;
 
-        switch(gfxBarrier.resourceOp)
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+        if(gfxBarrier.currentState != GfxResourceState::Undefined)
         {
-            case GfxQueueResourceOp::None:
-                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                break;
-            case GfxQueueResourceOp::Acquire:
-                barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
-                barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
-                break;
-            case GfxQueueResourceOp::Release:
-                barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
-                barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
-                break;
-            InvalidDefaultCase;
+            switch(gfxBarrier.resourceOp)
+            {
+                case GfxQueueResourceOp::None:
+                    break;
+                case GfxQueueResourceOp::Acquire:
+                    barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                    barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
+                    break;
+                case GfxQueueResourceOp::Release:
+                    barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
+                    barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                    break;
+                InvalidDefaultCase;
+            }
         }
 
         srcAccessFlags |= barrier.srcAccessMask;
@@ -4266,21 +4385,25 @@ CmdResourceBarrier(GfxCmdContext cmds,
         barrier.subresourceRange.baseArrayLayer = gfxBarrier.subresourceBarrier ? gfxBarrier.layer : 0;
         barrier.subresourceRange.layerCount = gfxBarrier.subresourceBarrier ? 1 : VK_REMAINING_ARRAY_LAYERS;
 
-        switch(gfxBarrier.resourceOp)
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+        if(gfxBarrier.currentState != GfxResourceState::Undefined)
         {
-            case GfxQueueResourceOp::None:
-                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                break;
-            case GfxQueueResourceOp::Acquire:
-                barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
-                barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
-                break;
-            case GfxQueueResourceOp::Release:
-                barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
-                barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
-                break;
-            InvalidDefaultCase;
+            switch(gfxBarrier.resourceOp)
+            {
+                case GfxQueueResourceOp::None:
+                    break;
+                case GfxQueueResourceOp::Acquire:
+                    barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                    barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
+                    break;
+                case GfxQueueResourceOp::Release:
+                    barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
+                    barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                    break;
+                InvalidDefaultCase;
+            }
         }
 
         srcAccessFlags |= barrier.srcAccessMask;
@@ -4317,21 +4440,25 @@ CmdResourceBarrier(GfxCmdContext cmds,
         barrier.subresourceRange.baseArrayLayer = gfxBarrier.subresourceBarrier ? gfxBarrier.layer : 0;
         barrier.subresourceRange.layerCount = gfxBarrier.subresourceBarrier ? 1 : VK_REMAINING_ARRAY_LAYERS;
 
-        switch(gfxBarrier.resourceOp)
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+
+        if(gfxBarrier.currentState != GfxResourceState::Undefined)
         {
-            case GfxQueueResourceOp::None:
-                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                break;
-            case GfxQueueResourceOp::Acquire:
-                barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
-                barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
-                break;
-            case GfxQueueResourceOp::Release:
-                barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
-                barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
-                break;
-            InvalidDefaultCase;
+            switch(gfxBarrier.resourceOp)
+            {
+                case GfxQueueResourceOp::None:
+                    break;
+                case GfxQueueResourceOp::Acquire:
+                    barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                    barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
+                    break;
+                case GfxQueueResourceOp::Release:
+                    barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
+                    barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                    break;
+                InvalidDefaultCase;
+            }
         }
 
         srcAccessFlags |= barrier.srcAccessMask;
@@ -4420,8 +4547,8 @@ GfxResult CmdGenerateMips( GfxCmdContext cmds, GfxTexture texture)
     return GfxResult::Ok;
 }
 
-internal
-GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDepthStencilRTV)
+internal GfxResult
+CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDepthStencilRTV)
 {
     // Need to lookup or create a valid renderpass / framebuffer combo OR use the fancy vk_KHR_dynamic_rendering extension
     // vkCmdBeginRenderPass / vkCmdEndRenderPass if numRenderTargets is 0
@@ -4429,6 +4556,10 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
     VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
     
+    // NOTE(james): First we have to end a renderpass if one has been started
+    EndContextRenderPass(device, context);    
+
+    // only start a new render pass if render targets have been specified
     if(numRenderTargets || pDepthStencilRTV)
     {
         vg_rendertargetview* rtvList[GFX_MAX_RENDERTARGETS];
@@ -4477,8 +4608,8 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
                 attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                 attachments[i].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
                 attachments[i].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-                attachments[i].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-                attachments[i].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;   // TODO(james): Make VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                attachments[i].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                attachments[i].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;   
 
                 colorRefs[i].attachment = i;
                 colorRefs[i].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -4501,16 +4632,6 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
                 depthStencilRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             }
 
-            // TODO(james): Remove dependency once image barriers are worked out better
-            VkSubpassDependency dependency{};
-            dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-            dependency.dstSubpass = 0;
-            dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT ;
-            dependency.srcAccessMask = 0;
-            dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT ;
-            dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT ;
-            ////////
-
             // ugh.. silly subpass needs to redefine all the same crap
             VkSubpassDescription subpass = {};
             subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -4523,9 +4644,11 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
             renderPassInfo.pAttachments = attachments;
             renderPassInfo.subpassCount = 1;
             renderPassInfo.pSubpasses = &subpass;
-            renderPassInfo.dependencyCount = 1;
-            renderPassInfo.pDependencies = &dependency;
+            renderPassInfo.dependencyCount = 0;
+            renderPassInfo.pDependencies = nullptr;
 
+            // NOTE(james): First check the freelist for any free objects
+            //  Use one if there is one, otherwise need to allocate one
             if(device.freelist_renderpass)
             {
                 renderpass = device.freelist_renderpass;
@@ -4566,6 +4689,9 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
             info.height = device.extent.height;
             info.layers = 1;
 
+            
+            // NOTE(james): First check the freelist for any free objects
+            //  Use one if there is one, otherwise need to allocate one
             if(device.freelist_framebuffer)
             {
                 framebuffer = device.freelist_framebuffer;
@@ -4596,14 +4722,6 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
         renderPassBegin.clearValueCount = numClearValues;
         renderPassBegin.pClearValues = clearValues;
         vkCmdBeginRenderPass(cmdBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
-    }
-    else
-    {
-        vkCmdEndRenderPass(cmdBuffer);
-
-        context->activeRenderpass = 0;
-        context->activeFramebuffer = 0;
-        context->activeKernel = 0;
     }
 
     return GfxResult::Ok;

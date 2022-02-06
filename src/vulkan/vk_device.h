@@ -286,7 +286,7 @@ struct vg_device
     VkSurfaceKHR platform_surface;
     VkSwapchainKHR swapChain;
     VkFormat swapChainFormat;
-    vg_image* paSwapChainImages;
+    array<vg_image*>* swapChainImages;  // NOTE(james): these are just easy references, they are owned by the default resource heap
     // VkFramebuffer* paFramebuffers;
 
     // vg_descriptor_allocator descriptorAllocator;
@@ -308,6 +308,10 @@ struct vg_device
 
     hashtable<vg_resourceheap*>* resourceHeaps;
     hashtable<vg_command_encoder_pool*>* encoderPools;
+
+    // used by internal backend to initial transition images, etc..
+    VkCommandPool internal_cmd_pool; 
+    VkCommandBuffer internal_cmd_buffer;
 
     // NOTE(james): Render passes and framebuffer objects are created as required.  Can be
     //   garbage collected later and put into the free list for re-use later
