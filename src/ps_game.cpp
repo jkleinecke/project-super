@@ -459,17 +459,31 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //gameState.rotationAngle = 120.188347f;
 
         {
+            f32 width = 1.0f;//render.renderDimensions.Width;
+            f32 height = 1.0f;//render.renderDimensions.Height;
+            f32 halfWidth = width/2.0f;
+            f32 halfHeight = height/2.0f;
+
+            umm posOffset = OffsetOf(render_mesh_vertex, pos);
+            umm colorOffset = OffsetOf(render_mesh_vertex, color);
+            umm uvOffset = OffsetOf(render_mesh_vertex, texCoord);
+            umm vsize = sizeof(render_mesh_vertex);
+
             render_mesh_vertex vertices[] = {
-                { -0.5f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f },
-                { -0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f },
-                {  0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f },
-                {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f },
+                {{ -halfWidth,  halfHeight, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{ -halfWidth, -halfHeight, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{  halfWidth, -halfHeight, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }},
+                {{  halfWidth,  halfHeight, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f }},
             };
             u32 indices[] = { 0, 1, 2, 0, 2, 3 };
+
+            umm totalSize = sizeof(vertices);
+            umm elemSize = sizeof(vertices[0]);
 
             GfxBufferDesc vb = MeshVertexBuffer(ARRAY_COUNT(vertices));
             GfxBufferDesc ib = IndexBuffer(ARRAY_COUNT(indices));
 
+            gameState.box.geometry.indexCount = ARRAY_COUNT(indices);
             gameState.box.geometry.indexBuffer = gfx.CreateBuffer(gfx.device, ib, indices);
             gameState.box.geometry.vertexBuffer = gfx.CreateBuffer(gfx.device, vb, vertices);
 

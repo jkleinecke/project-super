@@ -218,7 +218,7 @@ struct vg_rendertargetview
     VkFormat format;
     VkSampleCountFlagBits sampleCount;
     VkAttachmentLoadOp loadOp;
-    v4 clearValue;
+    VkClearValue clearValue;
 };
 
 struct vg_resourceheap

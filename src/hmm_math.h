@@ -355,6 +355,10 @@ typedef union hmm_vec4
     {
         return Elements[Index];
     }
+    inline const float &operator[](const int &Index) const
+    {
+        return Elements[Index];
+    }
 #endif
 } hmm_vec4;
 

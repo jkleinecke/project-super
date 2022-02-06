@@ -95,6 +95,7 @@ OpaqueRenderTarget()
 {
     GfxRenderTargetBlendState bs = {};
     bs.blendEnable = false;
+    bs.colorWriteMask = GfxColorWriteFlags::All;
     return bs;
 }
 
@@ -103,10 +104,10 @@ TransparentRenderTarget()
 {
     GfxRenderTargetBlendState bs = {};
     bs.blendEnable = true;
-    bs.srcBlend = GfxBlendMode::SrcColor;
-    bs.destBlend = GfxBlendMode::InvSrcColor;
+    bs.srcBlend = GfxBlendMode::SrcAlpha;
+    bs.destBlend = GfxBlendMode::InvSrcAlpha;
     bs.blendOp = GfxBlendOp::Add;
-    bs.srcAlphaBlend = GfxBlendMode::InvSrcAlpha;
+    bs.srcAlphaBlend = GfxBlendMode::One;
     bs.destAlphaBlend = GfxBlendMode::Zero;
     bs.blendOpAlpha = GfxBlendOp::Add;
     bs.colorWriteMask = GfxColorWriteFlags::All;
@@ -125,6 +126,7 @@ DefaultPipeline()
     GfxRasterizerState rs = {};
     rs.fillMode = GfxFillMode::Solid;
     rs.cullMode = GfxCullMode::None;
+    rs.frontCCW = true;
 
     GfxPipelineDesc desc = {};
     desc.blendState = bs;

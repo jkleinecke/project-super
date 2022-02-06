@@ -234,6 +234,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.CmdClearTexture = CmdClearTexture;
     backend.gfx.CmdCopyTexture = CmdCopyTexture;
     backend.gfx.CmdClearImage = CmdClearImage;
+    backend.gfx.CmdClearBackBuffer = CmdClearBackBuffer;
     backend.gfx.CmdCopyBufferToTexture = CmdCopyBufferToTexture;
     backend.gfx.CmdGenerateMips = CmdGenerateMips;
     backend.gfx.CmdBindRenderTargets = CmdBindRenderTargets;

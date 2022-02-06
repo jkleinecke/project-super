@@ -1162,8 +1162,6 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
     //device.swapChainImages.resize(imageCount);
     for(u32 index = 0; index < imageCount; ++index)
     {
-
-
         device.paSwapChainImages[index].handle = images[index];
 
         // now setup the image view for use in the swap chain
@@ -1179,7 +1177,7 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
         result = vkCreateImageView(device.handle, &viewInfo, nullptr, &pRTV->view); // NOTE(james): rtv is managed separately from the image view on the swap chain...
         VERIFY_SUCCESS(result);
         pRTV->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        pRTV->clearValue = Vec4(0.0f,0.0f,0.0f,0.0f);   // black
+        pRTV->clearValue = VkClearValue{0.2f,0.2f,0.2f,0.0f} ;   // gray
         pRTV->sampleCount = VK_SAMPLE_COUNT_1_BIT;  // TODO(james): This should come from a graphics init config or something
         pRTV->format = device.swapChainFormat;
  
@@ -1627,20 +1625,6 @@ vgDestroyCmdEncoderPool(vg_device& device, vg_command_encoder_pool* pool)
     u32 numBuffers = pool->cmdcontexts->size();
     for(u32 i = 0; i < FRAME_OVERLAP; ++i)
     {
-        VkCommandBuffer* pBuffers = PushArray(*device.frameArena, numBuffers, VkCommandBuffer);
-
-        // SparseCopyArray(
-        //     numBuffers, 
-        //     OffsetOf(hashtable<vg_cmd_context*>::entry, value) + OffsetOf(vg_cmd_context, buffer) + (i * sizeof(VkCommandBuffer)),
-        //     sizeof(VkCommandBuffer),
-        //     sizeof(hashtable<vg_cmd_context*>::entry)
-        //     pool->cmdcontexts[i]->begin(),
-        //     numBuffers * sizeof(VkCommandBuffer),
-        //     pBuffers
-        //     );
-
-        // vkFreeCommandBuffers(device.handle, pool->cmdPool[i], numBuffers, pBuffers);
-
         vkDestroyCommandPool(device.handle, pool->cmdPool[i], nullptr);
     }
 
@@ -1761,9 +1745,6 @@ void vgDestroy(vg_backend& vb)
             vkDestroySemaphore(device.handle, frame.renderSemaphore, nullptr);
             vkDestroySemaphore(device.handle, frame.presentSemaphore, nullptr);
             vkDestroyFence(device.handle, frame.renderFence, nullptr);
-            frame.renderSemaphore = nullptr;
-            frame.presentSemaphore = nullptr;
-            frame.renderFence = nullptr;
         }
 
         // IFF(device.screenRenderPass, vkDestroyRenderPass(device.handle, device.screenRenderPass, nullptr));
@@ -3195,10 +3176,10 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
         return GfxTexture{};
     }
 
-    // image->format = viewInfo.format;
-    // image->width = textureDesc.width;
-    // image->height = textureDesc.height;
-    // image->layers = textureDesc.slice_count;
+    image->format = viewInfo.format;
+    image->width = textureDesc.width;
+    image->height = textureDesc.height;
+    image->layers = textureDesc.slice_count;
 
     u64 key = HASH(pHeap->textures->size()+1);
     pHeap->textures->set(key, image);
@@ -3595,7 +3576,7 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
     vg_rendertargetview* rtv = PushStruct(pHeap->arena, vg_rendertargetview);
     rtv->view = imageview;
     rtv->loadOp = ConvertLoadOp(rtvDesc.loadOp);
-    rtv->clearValue = rtvDesc.clearValue;
+    rtv->clearValue = VkClearValue{rtvDesc.clearValue[0],rtvDesc.clearValue[1],rtvDesc.clearValue[2],rtvDesc.clearValue[3]};
     rtv->format = viewInfo.format;
     rtv->sampleCount = ConvertSampleCount(rtvDesc.sampleCount);
 
@@ -3774,7 +3755,7 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
         const GfxRenderTargetBlendState& rtblend = pipelineDesc.blendState.renderTargets[i];
 
         blendAttachments[i].blendEnable = rtblend.blendEnable ? VK_TRUE : VK_FALSE;
-        blendAttachments[i].colorWriteMask = (u32)rtblend.colorWriteMask;
+        blendAttachments[i].colorWriteMask = (VkColorComponentFlags)rtblend.colorWriteMask;
         blendAttachments[i].srcColorBlendFactor = ConvertBlendMode(rtblend.srcBlend);
         blendAttachments[i].dstColorBlendFactor = ConvertBlendMode(rtblend.destBlend);
         blendAttachments[i].colorBlendOp = ConvertBlendOp(rtblend.blendOp);
@@ -3786,7 +3767,7 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     VkPipelineColorBlendStateCreateInfo cb = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cb.flags = 0;
 	cb.logicOpEnable = VK_FALSE;
-	cb.logicOp = VK_LOGIC_OP_CLEAR;
+	cb.logicOp = VK_LOGIC_OP_COPY;
     cb.attachmentCount = pipelineDesc.numColorTargets;
 	cb.pAttachments = blendAttachments;
 	cb.blendConstants[0] = 0.0f;
@@ -4061,6 +4042,13 @@ GfxResult CmdClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u
 }
 
 internal
+GfxResult CmdClearBackBuffer( GfxCmdContext cmds, GfxColor color )
+{
+    NotImplemented;
+    return GfxResult::Ok;
+}
+
+internal
 GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture dest)
 {
     NotImplemented;
@@ -4097,9 +4085,7 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
 
             if(rtvList[rtIdx]->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR)
             {
-                VkClearValue clear;
-                CopyArray(4, rtvList[rtIdx]->clearValue.Elements, clear.color.float32);
-                clearValues[numClearValues++] = clear;
+                clearValues[numClearValues++] = rtvList[rtIdx]->clearValue;
             }
         }
         u64 renderpassKey = MurmurHash64(rtvList, numRenderTargets * sizeof(vg_rendertargetview), numRenderTargets);
@@ -4112,10 +4098,7 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
 
             if(dsRTV->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR)
             {
-                VkClearValue clear;
-                clear.depthStencil.depth = dsRTV->clearValue[0];
-                clear.depthStencil.stencil = (u32)dsRTV->clearValue[1];
-                clearValues[numClearValues++] = clear;
+                clearValues[numClearValues++] = dsRTV->clearValue;
             }
         }
 
@@ -4222,10 +4205,10 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
             VkFramebufferCreateInfo info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
             info.renderPass = renderpass->handle;
             info.attachmentCount = numRenderTargets + (dsRTV ? 1 : 0);
+            info.pAttachments = attachments;
             info.width = device.extent.width;
             info.height = device.extent.height;
             info.layers = 1;
-            info.pAttachments = attachments;
 
             if(device.freelist_framebuffer)
             {
@@ -4319,7 +4302,13 @@ GfxResult CmdSetViewport( GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 heigh
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
     VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
 
-    VkViewport vp = {x, y, width, height, 0, 1};   
+    VkViewport vp = {};
+    vp.x = x;
+    vp.y = y;
+    vp.width = width;
+    vp.height = height;
+    vp.minDepth = 0.0f;
+    vp.maxDepth = 1.0f;   
     vkCmdSetViewport(cmdBuffer, 0, 1, &vp);
     return GfxResult::Ok;
 }

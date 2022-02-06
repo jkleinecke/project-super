@@ -49,10 +49,10 @@ enum class GfxMemoryAccess
 
 enum class GfxBufferUsageFlags
 {
-    Uniform,
-    Vertex,
-    Index,
-    Storage,
+    Uniform     = 0x01,
+    Vertex      = 0x02,
+    Index       = 0x04,
+    Storage     = 0x08,
 };
 MAKE_ENUM_FLAG(u32, GfxBufferUsageFlags);
 
@@ -83,6 +83,59 @@ enum class GfxSampleCount
     MSAA_8  = 8,
     MSAA_16 = 16,
 };
+
+struct GfxColor
+{
+    union {
+        struct 
+        {
+            f32 r;
+            f32 g;
+            f32 b;
+            f32 a;
+        };
+        f32 elements[4];
+    };
+
+    inline float &operator[](const int &Index)
+    {
+        return elements[Index];
+    }
+    inline const float &operator[](const int &Index) const
+    {
+        return elements[Index];
+    }
+};
+
+inline GfxColor
+gfxColor(const v4& vec)
+{
+    return GfxColor{ vec[0], vec[1], vec[2], vec[3] };
+}
+
+inline GfxColor
+gfxColor(f32 r, f32 g, f32 b)
+{
+    return GfxColor{ r, g, b, 1.0f };
+}
+
+inline GfxColor
+gfxColor(f32 r, f32 g, f32 b, f32 a)
+{
+    return GfxColor{ r, g, b, a };
+}
+
+inline GfxColor
+gfxColor(int r, int g, int b, int a)
+{
+    return GfxColor{ r/255.0f, g/255.0f, b/255.0f, a/255.0f };
+}
+
+inline v4
+gfxColorToVec4(const GfxColor& c)
+{
+    return v4{ c[0], c[1], c[2], c[3] };
+}
 
 struct GfxTextureDesc
 {
@@ -351,7 +404,13 @@ struct GfxRenderTargetViewDesc
     GfxTexture texture;
     GfxLoadAction loadOp;
     GfxSampleCount sampleCount;
-    v4 clearValue;
+    union {
+        GfxColor clearValue;
+        struct {
+            f32 depthValue;
+            u8 stencilValue;
+        };
+    };
     TinyImageFormat format;
     u32 mipLevel;
     u32 slice;
@@ -442,6 +501,7 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdClearTexture, GfxCmdContext cmds, GfxTexture texture);
     API_FUNCTION(GfxResult, CmdCopyTexture, GfxCmdContext cmds, GfxTexture src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdClearImage, GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice);
+    API_FUNCTION(GfxResult, CmdClearBackBuffer, GfxCmdContext cmds, GfxColor color);
 
     API_FUNCTION(GfxResult, CmdCopyBufferToTexture, GfxCmdContext cmds, GfxBuffer src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdGenerateMips, GfxCmdContext cmds, GfxTexture texture);
