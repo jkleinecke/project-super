@@ -56,6 +56,30 @@ enum class GfxBufferUsageFlags
 };
 MAKE_ENUM_FLAG(u32, GfxBufferUsageFlags);
 
+enum class GfxResourceState
+{
+	Undefined               = 0,
+	VertexAndConstantBuffer = 0x1,
+	IndexBuffer             = 0x2,
+	RenderTarget            = 0x4,
+	UnorderedAccess         = 0x8,
+	DepthWrite              = 0x10,
+	DepthRead               = 0x20,
+	NonPixelShaderResource  = 0x40,
+	PixelShaderResource     = 0x80,
+	ShaderResource          = 0x40 | 0x80,
+	StreamOut               = 0x100,
+	IndirectArgument        = 0x200,
+	CopyDst                 = 0x400,
+	CopySrc                 = 0x800,
+	GenericRead             = (((((0x1 | 0x2) | 0x40) | 0x80) | 0x200) | 0x800),
+	Present                 = 0x1000,
+	Common                  = 0x2000,
+	RayTracingAccel         = 0x4000,
+	ShadingRateSrc          = 0x8000,
+};
+MAKE_ENUM_FLAG(u32, GfxResourceState)
+
 struct GfxBufferDesc
 {
     GfxBufferUsageFlags usageFlags;
@@ -411,7 +435,6 @@ struct GfxRenderTargetViewDesc
             u8 stencilValue;
         };
     };
-    TinyImageFormat format;
     u32 mipLevel;
     u32 slice;
     u32 numSlices;
@@ -434,7 +457,7 @@ struct GfxPipelineDesc
     GfxResourceHeap heap;
 };
 
-enum class GfxQueueType
+enum class GfxQueueType : u8
 {
     Graphics,
     Compute,
@@ -444,6 +467,48 @@ enum class GfxQueueType
 struct GfxCmdEncoderPoolDesc
 {
     GfxQueueType queueType;
+};
+
+enum class GfxQueueResourceOp : u8
+{
+    None,       // indicates that the resource is already part of this queue
+    Acquire,    // acquires the resource from another queue
+    Release,    // releases the resource to another queue
+};
+
+struct GfxBufferBarrier
+{
+    GfxBuffer           buffer;
+	GfxResourceState    currentState;
+	GfxResourceState    newState;
+    GfxQueueResourceOp  resourceOp;
+    GfxQueueType        resourceQueue;
+};
+
+struct GfxTextureBarrier
+{
+    GfxTexture          texture;
+	GfxResourceState    currentState;
+	GfxResourceState    newState;
+	GfxQueueResourceOp  resourceOp;
+    GfxQueueType        resourceQueue;
+	uint8_t subresourceBarrier : 1;
+	// ignored if subresourceBarrier is false
+	uint8_t  mipLevel : 7;
+	uint16_t layer;
+};
+
+struct GfxRenderTargetBarrier
+{
+    GfxRenderTargetView rtv;
+	GfxResourceState    currentState;
+	GfxResourceState    newState;
+	GfxQueueResourceOp  resourceOp;
+    GfxQueueType        resourceQueue;
+	uint8_t subresourceBarrier : 1;
+	// ignored if subresourceBarrier is false
+	uint8_t  mipLevel : 7;
+	uint16_t layer;
 };
 
 struct gfx_api
@@ -493,6 +558,8 @@ struct gfx_api
     API_FUNCTION(GfxResult, ResetCmdEncoderPool, GfxCmdEncoderPool pool);
     API_FUNCTION(GfxResult, BeginEncodingCmds, GfxCmdContext cmds);
     API_FUNCTION(GfxResult, EndEncodingCmds, GfxCmdContext cmds);
+
+    API_FUNCTION(GfxResult, CmdResourceBarrier, GfxCmdContext cmds, u32 numBufferBarriers, GfxBufferBarrier* pBufferBarriers, u32 numTextureBarriers, GfxTextureBarrier* pTextureBarriers, u32 numRenderTargetBarriers, GfxRenderTargetBarrier* pRenderTargetBarriers);
 
     API_FUNCTION(GfxResult, CmdCopyBuffer, GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest);
     API_FUNCTION(GfxResult, CmdCopyBufferRange, GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size);

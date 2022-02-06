@@ -1162,24 +1162,29 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
     //device.swapChainImages.resize(imageCount);
     for(u32 index = 0; index < imageCount; ++index)
     {
-        device.paSwapChainImages[index].handle = images[index];
+        vg_image& swapChainImg = device.paSwapChainImages[index];
+        swapChainImg.handle = images[index];
+        swapChainImg.format = device.swapChainFormat;
+        swapChainImg.width = extent.width;
+        swapChainImg.height = extent.height;
+        swapChainImg.layers = 1;
 
         // now setup the image view for use in the swap chain
         VkImageViewCreateInfo viewInfo = vkInit_imageview_create_info(
-            surfaceFormat.format, device.paSwapChainImages[index].handle, VK_IMAGE_ASPECT_COLOR_BIT
+            swapChainImg.format, swapChainImg.handle, VK_IMAGE_ASPECT_COLOR_BIT
         );
 
-        result = vkCreateImageView(device.handle, &viewInfo, nullptr, &device.paSwapChainImages[index].view);
+        result = vkCreateImageView(device.handle, &viewInfo, nullptr, &swapChainImg.view);
         // result = vgCreateImageView(device, device.paSwapChainImages[index].handle, surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, &device.paSwapChainImages[index].view);
         VERIFY_SUCCESS(result);
 
         vg_rendertargetview* pRTV = PushStruct(pHeap->arena, vg_rendertargetview);
         result = vkCreateImageView(device.handle, &viewInfo, nullptr, &pRTV->view); // NOTE(james): rtv is managed separately from the image view on the swap chain...
         VERIFY_SUCCESS(result);
+        pRTV->image = &swapChainImg;
         pRTV->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         pRTV->clearValue = VkClearValue{0.2f,0.2f,0.2f,0.0f} ;   // gray
         pRTV->sampleCount = VK_SAMPLE_COUNT_1_BIT;  // TODO(james): This should come from a graphics init config or something
-        pRTV->format = device.swapChainFormat;
  
         u64 key = pHeap->rtvs->size()+1;
         pHeap->rtvs->set(key, pRTV);
@@ -2825,6 +2830,209 @@ ConvertPrimitiveTopology(GfxPrimitiveTopology topology)
     return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 }
 
+internal
+VkImageAspectFlags DetermineAspectMaskFromFormat(VkFormat format, bool includeStencilBit)
+{
+	VkImageAspectFlags result = 0;
+	switch (format)
+	{
+			// Depth
+		case VK_FORMAT_D16_UNORM:
+		case VK_FORMAT_X8_D24_UNORM_PACK32:
+		case VK_FORMAT_D32_SFLOAT:
+			result = VK_IMAGE_ASPECT_DEPTH_BIT;
+			break;
+			// Stencil
+		case VK_FORMAT_S8_UINT:
+			result = VK_IMAGE_ASPECT_STENCIL_BIT;
+			break;
+			// Depth/stencil
+		case VK_FORMAT_D16_UNORM_S8_UINT:
+		case VK_FORMAT_D24_UNORM_S8_UINT:
+		case VK_FORMAT_D32_SFLOAT_S8_UINT:
+			result = VK_IMAGE_ASPECT_DEPTH_BIT;
+			if (includeStencilBit)
+				result |= VK_IMAGE_ASPECT_STENCIL_BIT;
+			break;
+			// Assume everything else is Color
+		default: result = VK_IMAGE_ASPECT_COLOR_BIT; break;
+	}
+	return result;
+}
+VkAccessFlags ConvertResourceStateToAccessFlags(GfxResourceState state)
+{
+	VkAccessFlags ret = 0;
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::CopySrc))
+	{
+		ret |= VK_ACCESS_TRANSFER_READ_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::CopyDst))
+	{
+		ret |= VK_ACCESS_TRANSFER_WRITE_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::VertexAndConstantBuffer))
+	{
+		ret |= VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::IndexBuffer))
+	{
+		ret |= VK_ACCESS_INDEX_READ_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::UnorderedAccess))
+	{
+		ret |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::IndirectArgument))
+	{
+		ret |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::RenderTarget))
+	{
+		ret |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::DepthWrite))
+	{
+		ret |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::ShaderResource))
+	{
+		ret |= VK_ACCESS_SHADER_READ_BIT;
+	}
+	if (IS_FLAG_BIT_SET(state, GfxResourceState::Present))
+	{
+		ret |= VK_ACCESS_MEMORY_READ_BIT;
+	}
+
+    // TODO(james): This will be needed if/when ray tracing is added
+	// if (state & GfxResourceState::RayTracingAccel)
+	// {
+	// 	ret |= VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_NV | VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_NV;
+	// }
+
+	return ret;
+}
+
+VkImageLayout ConvertResourceStateToImageLayout(GfxResourceState usage)
+{
+	if (IS_FLAG_BIT_SET(usage, GfxResourceState::CopySrc))
+		return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+	if (IS_FLAG_BIT_SET(usage, GfxResourceState::CopyDst))
+		return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+	if (IS_FLAG_BIT_SET(usage, GfxResourceState::RenderTarget))
+		return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	if (IS_FLAG_BIT_SET(usage, GfxResourceState::DepthWrite))
+		return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	if (IS_FLAG_BIT_SET(usage, GfxResourceState::UnorderedAccess))
+		return VK_IMAGE_LAYOUT_GENERAL;
+
+	if (IS_FLAG_BIT_SET(usage, GfxResourceState::ShaderResource))
+		return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	if (IS_FLAG_BIT_SET(usage, GfxResourceState::Present))
+		return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+	if (usage == GfxResourceState::Common)
+		return VK_IMAGE_LAYOUT_GENERAL;
+
+	return VK_IMAGE_LAYOUT_UNDEFINED;
+}
+
+VkPipelineStageFlags DeterminePipelineStageFlags(vg_device& device, VkAccessFlags accessFlags, GfxQueueType queueType)
+{
+	VkPipelineStageFlags flags = 0;
+
+	switch (queueType)
+	{
+		case GfxQueueType::Graphics:
+		{
+			if ((accessFlags & (VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT)) != 0)
+				flags |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+
+			if ((accessFlags & (VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)) != 0)
+			{
+				flags |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
+				flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                // TODO(james): detect geometry and tessellation support on device
+				// if (pRenderer->pActiveGpuSettings->mGeometryShaderSupported)
+				// {
+				// 	flags |= VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT;
+				// }
+				// if (pRenderer->pActiveGpuSettings->mTessellationSupported)
+				// {
+				// 	flags |= VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT;
+				// 	flags |= VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT;
+				// }
+				flags |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+                // TODO(james): enable this part if ray tracing is supported
+				// if (pRenderer->mVulkan.mRaytracingExtension)
+				// {
+				// 	flags |= VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_NV;
+				// }
+			}
+
+			if ((accessFlags & VK_ACCESS_INPUT_ATTACHMENT_READ_BIT) != 0)
+				flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+
+			if ((accessFlags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0)
+				flags |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+			if ((accessFlags & (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0)
+				flags |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			break;
+		}
+		case GfxQueueType::Compute:
+		{
+			if ((accessFlags & (VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT)) != 0 ||
+				(accessFlags & VK_ACCESS_INPUT_ATTACHMENT_READ_BIT) != 0 ||
+				(accessFlags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0 ||
+				(accessFlags & (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0)
+				return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+
+			if ((accessFlags & (VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)) != 0)
+				flags |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+			break;
+		}
+		case GfxQueueType::Transfer: return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		InvalidDefaultCase;
+	}
+
+	// Compatible with both compute and graphics queues
+	if ((accessFlags & VK_ACCESS_INDIRECT_COMMAND_READ_BIT) != 0)
+		flags |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+
+	if ((accessFlags & (VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT)) != 0)
+		flags |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+	if ((accessFlags & (VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT)) != 0)
+		flags |= VK_PIPELINE_STAGE_HOST_BIT;
+
+	if (flags == 0)
+		flags = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+	return flags;
+}
+
+internal vg_queue*
+GetQueueFromType(vg_device& device, GfxQueueType type)
+{
+    switch(type)
+    {
+        case GfxQueueType::Graphics:
+        case GfxQueueType::Compute:
+        case GfxQueueType::Transfer:
+            return &device.q_graphics;
+        InvalidDefaultCase;
+    }
+
+    return 0;
+}
+
 inline vg_buffer*
 FromGfxBuffer(vg_device& device, GfxBuffer resource)
 {
@@ -3515,36 +3723,6 @@ GfxKernel CreateComputeKernel( GfxDevice deviceHandle, GfxProgram program)
 }
 
 internal
-VkImageAspectFlags DetermineAspectMaskFromFormat(VkFormat format, bool includeStencilBit)
-{
-	VkImageAspectFlags result = 0;
-	switch (format)
-	{
-			// Depth
-		case VK_FORMAT_D16_UNORM:
-		case VK_FORMAT_X8_D24_UNORM_PACK32:
-		case VK_FORMAT_D32_SFLOAT:
-			result = VK_IMAGE_ASPECT_DEPTH_BIT;
-			break;
-			// Stencil
-		case VK_FORMAT_S8_UINT:
-			result = VK_IMAGE_ASPECT_STENCIL_BIT;
-			break;
-			// Depth/stencil
-		case VK_FORMAT_D16_UNORM_S8_UINT:
-		case VK_FORMAT_D24_UNORM_S8_UINT:
-		case VK_FORMAT_D32_SFLOAT_S8_UINT:
-			result = VK_IMAGE_ASPECT_DEPTH_BIT;
-			if (includeStencilBit)
-				result |= VK_IMAGE_ASPECT_STENCIL_BIT;
-			break;
-			// Assume everything else is Color
-		default: result = VK_IMAGE_ASPECT_COLOR_BIT; break;
-	}
-	return result;
-}
-
-internal
 GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRenderTargetViewDesc& rtvDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
@@ -3557,7 +3735,7 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
 	viewInfo.pNext = nullptr;
 	viewInfo.viewType = rtvDesc.numSlices > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;  
 	viewInfo.image = image.handle;
-	viewInfo.format = (VkFormat)TinyImageFormat_ToVkFormat(rtvDesc.format);
+	viewInfo.format = image.format;
     viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
 	viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
 	viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
@@ -3577,7 +3755,6 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
     rtv->view = imageview;
     rtv->loadOp = ConvertLoadOp(rtvDesc.loadOp);
     rtv->clearValue = VkClearValue{rtvDesc.clearValue[0],rtvDesc.clearValue[1],rtvDesc.clearValue[2],rtvDesc.clearValue[3]};
-    rtv->format = viewInfo.format;
     rtv->sampleCount = ConvertSampleCount(rtvDesc.sampleCount);
 
     u64 key = HASH(pHeap->rtvs->size() + 1);
@@ -3836,8 +4013,9 @@ GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoder
 
     if(device.encoderPools->full()) return GfxCmdEncoderPool{};  // out of handles
 
+    vg_queue* queue = GetQueueFromType(device, poolDesc.queueType);
     VkCommandPoolCreateInfo poolInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-    poolInfo.queueFamilyIndex = device.q_graphics.queue_family_index;
+    poolInfo.queueFamilyIndex = queue->queue_family_index;
 
     vg_command_encoder_pool* pool = PushStruct(device.arena, vg_command_encoder_pool);
 
@@ -3847,6 +4025,8 @@ GfxCmdEncoderPool CreateEncoderPool( GfxDevice deviceHandle, const GfxCmdEncoder
         if(result != VK_SUCCESS) return GfxCmdEncoderPool{};
     }
     pool->cmdcontexts = hashtable_create(device.arena, vg_cmd_context*, 32);
+    pool->queueType = poolDesc.queueType;
+    pool->queue = queue;
 
     u64 key = HASH(device.encoderPools->size()+1);
     device.encoderPools->set(key, pool);
@@ -3993,6 +4173,182 @@ GfxResult EndEncodingCmds(GfxCmdContext cmds)
     return ToGfxResult(result);
 }
 
+internal GfxResult
+CmdResourceBarrier(GfxCmdContext cmds, 
+    u32 numBufferBarriers, GfxBufferBarrier* pBufferBarriers,
+    u32 numTextureBarriers, GfxTextureBarrier* pTextureBarriers,
+    u32 numRenderTargetBarriers, GfxRenderTargetBarrier* pRenderTargetBarriers)
+{
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_command_encoder_pool* pool = device.encoderPools->get(cmds.poolId);
+    vg_cmd_context* context = pool->cmdcontexts->get(cmds.id);;
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    u32 numImgBarriers = numTextureBarriers + numRenderTargetBarriers;
+
+    VkBufferMemoryBarrier* bufBarriers = numBufferBarriers ? PushArray(*device.frameArena, numBufferBarriers, VkBufferMemoryBarrier) : nullptr;
+    VkImageMemoryBarrier*  imgBarriers = numImgBarriers ? PushArray(*device.frameArena, numImgBarriers, VkImageMemoryBarrier) : nullptr;
+
+    VkAccessFlags srcAccessFlags = 0;
+	VkAccessFlags dstAccessFlags = 0;
+
+    for(u32 i = 0; i < numBufferBarriers; ++i)
+    {
+        const GfxBufferBarrier& gfxBarrier = pBufferBarriers[i];
+        VkBufferMemoryBarrier& barrier = bufBarriers[i];
+        vg_buffer* buffer = FromGfxBuffer(device, gfxBarrier.buffer);
+
+        barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+
+        if(gfxBarrier.currentState == GfxResourceState::UnorderedAccess && gfxBarrier.newState == GfxResourceState::UnorderedAccess)
+        {
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        }
+        else
+        {
+            barrier.srcAccessMask = ConvertResourceStateToAccessFlags(gfxBarrier.currentState);
+            barrier.dstAccessMask = ConvertResourceStateToAccessFlags(gfxBarrier.newState);
+        }
+
+        barrier.buffer = buffer->handle;
+        barrier.size = VK_WHOLE_SIZE;
+        barrier.offset = 0;
+
+        switch(gfxBarrier.resourceOp)
+        {
+            case GfxQueueResourceOp::None:
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                break;
+            case GfxQueueResourceOp::Acquire:
+                barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
+                break;
+            case GfxQueueResourceOp::Release:
+                barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
+                barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                break;
+            InvalidDefaultCase;
+        }
+
+        srcAccessFlags |= barrier.srcAccessMask;
+        dstAccessFlags |= barrier.dstAccessMask;
+    }
+    
+    for(u32 i = 0; i < numTextureBarriers; ++i)
+    {
+        const GfxTextureBarrier& gfxBarrier = pTextureBarriers[i];
+        VkImageMemoryBarrier& barrier = imgBarriers[i];
+        vg_image* image = FromGfxTexture(device, gfxBarrier.texture);
+
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+
+        if(gfxBarrier.currentState == GfxResourceState::UnorderedAccess && gfxBarrier.newState == GfxResourceState::UnorderedAccess)
+        {
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        }
+        else
+        {
+            barrier.srcAccessMask = ConvertResourceStateToAccessFlags(gfxBarrier.currentState);
+            barrier.dstAccessMask = ConvertResourceStateToAccessFlags(gfxBarrier.newState);
+            barrier.oldLayout = ConvertResourceStateToImageLayout(gfxBarrier.currentState);
+            barrier.newLayout = ConvertResourceStateToImageLayout(gfxBarrier.newState);
+        }
+
+        barrier.image = image->handle;
+        barrier.subresourceRange.aspectMask = DetermineAspectMaskFromFormat(image->format, true);
+        barrier.subresourceRange.baseMipLevel = gfxBarrier.subresourceBarrier ? gfxBarrier.mipLevel : 0;
+        barrier.subresourceRange.levelCount = gfxBarrier.subresourceBarrier ? 1 : VK_REMAINING_MIP_LEVELS;
+        barrier.subresourceRange.baseArrayLayer = gfxBarrier.subresourceBarrier ? gfxBarrier.layer : 0;
+        barrier.subresourceRange.layerCount = gfxBarrier.subresourceBarrier ? 1 : VK_REMAINING_ARRAY_LAYERS;
+
+        switch(gfxBarrier.resourceOp)
+        {
+            case GfxQueueResourceOp::None:
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                break;
+            case GfxQueueResourceOp::Acquire:
+                barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
+                break;
+            case GfxQueueResourceOp::Release:
+                barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
+                barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                break;
+            InvalidDefaultCase;
+        }
+
+        srcAccessFlags |= barrier.srcAccessMask;
+        dstAccessFlags |= barrier.dstAccessMask;
+    }
+    
+    for(u32 i = 0; i < numRenderTargetBarriers; ++i)
+    {
+        const GfxRenderTargetBarrier& gfxBarrier = pRenderTargetBarriers[i];
+        VkImageMemoryBarrier& barrier = imgBarriers[numTextureBarriers + i];
+        vg_rendertargetview* rtv = FromGfxRenderTargetView(device, gfxBarrier.rtv);
+
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+
+        if(gfxBarrier.currentState == GfxResourceState::UnorderedAccess && gfxBarrier.newState == GfxResourceState::UnorderedAccess)
+        {
+            barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        }
+        else
+        {
+            barrier.srcAccessMask = ConvertResourceStateToAccessFlags(gfxBarrier.currentState);
+            barrier.dstAccessMask = ConvertResourceStateToAccessFlags(gfxBarrier.newState);
+            barrier.oldLayout = ConvertResourceStateToImageLayout(gfxBarrier.currentState);
+            barrier.newLayout = ConvertResourceStateToImageLayout(gfxBarrier.newState);
+        }
+
+        barrier.image = rtv->image->handle;
+        barrier.subresourceRange.aspectMask = DetermineAspectMaskFromFormat(rtv->image->format, true);
+        barrier.subresourceRange.baseMipLevel = gfxBarrier.subresourceBarrier ? gfxBarrier.mipLevel : 0;
+        barrier.subresourceRange.levelCount = gfxBarrier.subresourceBarrier ? 1 : VK_REMAINING_MIP_LEVELS;
+        barrier.subresourceRange.baseArrayLayer = gfxBarrier.subresourceBarrier ? gfxBarrier.layer : 0;
+        barrier.subresourceRange.layerCount = gfxBarrier.subresourceBarrier ? 1 : VK_REMAINING_ARRAY_LAYERS;
+
+        switch(gfxBarrier.resourceOp)
+        {
+            case GfxQueueResourceOp::None:
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                break;
+            case GfxQueueResourceOp::Acquire:
+                barrier.srcQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                barrier.dstQueueFamilyIndex = pool->queue->queue_family_index;
+                break;
+            case GfxQueueResourceOp::Release:
+                barrier.srcQueueFamilyIndex = pool->queue->queue_family_index;
+                barrier.dstQueueFamilyIndex = GetQueueFromType(device, gfxBarrier.resourceQueue)->queue_family_index;
+                break;
+            InvalidDefaultCase;
+        }
+
+        srcAccessFlags |= barrier.srcAccessMask;
+        dstAccessFlags |= barrier.dstAccessMask;
+    }
+
+    VkPipelineStageFlags srcStageMask = DeterminePipelineStageFlags(device, srcAccessFlags, pool->queueType);
+    VkPipelineStageFlags dstStageMask = DeterminePipelineStageFlags(device, dstAccessFlags, pool->queueType);
+
+    if(numBufferBarriers || numImgBarriers)
+    {
+        vkCmdPipelineBarrier(cmdBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, numBufferBarriers, bufBarriers, numImgBarriers, imgBarriers);
+    }
+
+    return GfxResult::Ok;
+}
+
 internal
 GfxResult CmdCopyBuffer( GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest)
 {
@@ -4115,7 +4471,7 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
             for(u32 i = 0; i < numRenderTargets; ++i)
             {
                 attachments[i].flags = 0;
-                attachments[i].format = rtvList[i]->format;
+                attachments[i].format = rtvList[i]->image->format;
                 attachments[i].samples = rtvList[i]->sampleCount;
                 attachments[i].loadOp = rtvList[i]->loadOp;
                 attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -4132,7 +4488,7 @@ GfxResult CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRend
             {
                 uint32_t idx = numRenderTargets;
                 attachments[idx].flags = 0;
-                attachments[idx].format = dsRTV->format;
+                attachments[idx].format = dsRTV->image->format;
                 attachments[idx].samples = dsRTV->sampleCount;
                 attachments[idx].loadOp = dsRTV->loadOp;
                 attachments[idx].storeOp = VK_ATTACHMENT_STORE_OP_STORE;

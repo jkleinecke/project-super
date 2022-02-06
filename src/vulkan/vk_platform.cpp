@@ -228,6 +228,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.ResetCmdEncoderPool = ResetCmdEncoderPool;
     backend.gfx.BeginEncodingCmds = BeginEncodingCmds;
     backend.gfx.EndEncodingCmds = EndEncodingCmds;
+    backend.gfx.CmdResourceBarrier = CmdResourceBarrier;
     backend.gfx.CmdCopyBuffer = CmdCopyBuffer;
     backend.gfx.CmdCopyBufferRange = CmdCopyBufferRange;
     backend.gfx.CmdClearBuffer = CmdClearBuffer;

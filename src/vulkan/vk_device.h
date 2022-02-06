@@ -204,18 +204,10 @@ struct vg_kernel
     VkSampleCountFlagBits sampleCount;
 };
 
-struct vg_transition_image
-{
-    VkImageLayout from;
-    VkImageLayout to;
-
-
-};
-
 struct vg_rendertargetview
 {
+    vg_image* image;
     VkImageView view;
-    VkFormat format;
     VkSampleCountFlagBits sampleCount;
     VkAttachmentLoadOp loadOp;
     VkClearValue clearValue;
@@ -263,6 +255,8 @@ struct vg_cmd_context
 struct vg_command_encoder_pool
 {
     VkCommandPool   cmdPool[FRAME_OVERLAP];
+    GfxQueueType    queueType;
+    vg_queue*       queue;
 
     hashtable<vg_cmd_context*>* cmdcontexts;
 };
@@ -278,6 +272,8 @@ struct vg_device
     // u32 minUniformBufferOffsetAlignment;
 
     vg_queue q_graphics;
+    vg_queue q_compute;
+    vg_queue q_transfer;
     vg_queue q_present;
 
     u32 currentFrameIndex;
