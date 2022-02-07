@@ -394,6 +394,9 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.ResetCmdEncoderPool(state.cmdpool);
     gfx.BeginEncodingCmds(cmds);
 
+    GfxRenderTargetBarrier barrierRender = { screenRTV, GfxResourceState::Present, GfxResourceState::RenderTarget };
+    gfx.CmdResourceBarrier(cmds, 0, nullptr, 0, nullptr, 1, &barrierRender);
+
     gfx.CmdSetViewport(cmds, 0, 0, rc.renderDimensions.Width, rc.renderDimensions.Height);
     gfx.CmdSetScissorRect(cmds, 0, 0, (u32)rc.renderDimensions.Width, (u32)rc.renderDimensions.Height);
 
@@ -406,6 +409,11 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.CmdBindIndexBuffer(cmds, gm.indexBuffer);
     gfx.CmdBindVertexBuffer(cmds, gm.vertexBuffer);
     gfx.CmdDrawIndexed(cmds, gm.indexCount, 1, 0, 0, 0);
+
+    gfx.CmdBindRenderTargets(cmds, 0, nullptr, nullptr);    // Unbind the render targets so we can move the RTV to the Present Mode
+
+    GfxRenderTargetBarrier barrierPresent = { screenRTV, GfxResourceState::RenderTarget, GfxResourceState::Present };
+    gfx.CmdResourceBarrier(cmds, 0, nullptr, 0, nullptr, 1, &barrierPresent);
 
     gfx.EndEncodingCmds(cmds);
 

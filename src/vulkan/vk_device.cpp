@@ -615,17 +615,18 @@ vgFindPresentQueueFamily(VkPhysicalDevice device, VkSurfaceKHR platformSurface, 
 }
 
 internal bool
-vgFindQueueFamily(VkPhysicalDevice device, VkFlags withFlags, u32* familyIndex)
+vgFindQueueFamily(VkPhysicalDevice device, VkQueueFlags withFlags, u32* familyIndex)
 {
     bool bFound = false;
     u32 count = 0;
+    VkQueueFamilyProperties queueFamilies[32];
     vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
-    std::vector<VkQueueFamilyProperties> queueFamilies(count);
-    vkGetPhysicalDeviceQueueFamilyProperties(device, &count, queueFamilies.data());
+    ASSERT(count <= 32);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &count, queueFamilies);
 
     for(u32 index = 0; index < count; ++index)
     {
-        if(queueFamilies[index].queueFlags & withFlags)
+        if((queueFamilies[index].queueFlags & withFlags))
         {
             if(familyIndex)
             {
@@ -1027,17 +1028,23 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
         queueCreateInfos[queueIdx].queueCount = 1;
         queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
 
-        queueIdx = numQueueCreates++;
-        queueCreateInfos[queueIdx] = VkDeviceQueueCreateInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        queueCreateInfos[queueIdx].queueFamilyIndex = computeQueueIndex;
-        queueCreateInfos[queueIdx].queueCount = 1;
-        queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
+        if(computeQueueIndex != graphicsQueueIndex)
+        {
+            queueIdx = numQueueCreates++;
+            queueCreateInfos[queueIdx] = VkDeviceQueueCreateInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+            queueCreateInfos[queueIdx].queueFamilyIndex = computeQueueIndex;
+            queueCreateInfos[queueIdx].queueCount = 1;
+            queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
+        }
 
-        queueIdx = numQueueCreates++;
-        queueCreateInfos[queueIdx] = VkDeviceQueueCreateInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        queueCreateInfos[queueIdx].queueFamilyIndex = transferQueueIndex;
-        queueCreateInfos[queueIdx].queueCount = 1;
-        queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
+        if(transferQueueIndex != computeQueueIndex && transferQueueIndex != graphicsQueueIndex)
+        {
+            queueIdx = numQueueCreates++;
+            queueCreateInfos[queueIdx] = VkDeviceQueueCreateInfo{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+            queueCreateInfos[queueIdx].queueFamilyIndex = transferQueueIndex;
+            queueCreateInfos[queueIdx].queueCount = 1;
+            queueCreateInfos[queueIdx].pQueuePriorities = &queuePriority;
+        }
 
         VkBool32 presentSupport = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device.physicalDevice, graphicsQueueIndex, device.platform_surface, &presentSupport);
@@ -1121,6 +1128,14 @@ vgCreateDevice(vg_backend& vb, VkSurfaceKHR platformSurface, const std::vector<c
 
         result = vkAllocateCommandBuffers(device.handle, &allocInfo, &device.internal_cmd_buffer);
         VERIFY_SUCCESS(result);
+
+        VkSemaphoreCreateInfo semaphoreInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        fenceInfo.flags = 0; // VK_FENCE_CREATE_SIGNALED_BIT
+
+        VkResult imageAvailableResult = vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &device.internal_wait_semaphore);
+        VkResult renderFinishedResult = vkCreateSemaphore(device.handle, &semaphoreInfo, nullptr, &device.internal_signal_semaphore);
+        VkResult fenceResult = vkCreateFence(device.handle, &fenceInfo, nullptr, &device.internal_cmd_fence);
     }
 
 #undef VERIFY_SUCCESS
@@ -1202,16 +1217,14 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
     //device.swapChainImages.resize(imageCount);
     for(u32 index = 0; index < imageCount; ++index)
     {
-        vg_image* swapChainImg = PushStruct(pHeap->arena, vg_image); 
+        vg_image* swapChainImg = PushStruct(device.arena, vg_image); 
         swapChainImg->handle = pImages[index];
         swapChainImg->format = device.swapChainFormat;
         swapChainImg->width = extent.width;
         swapChainImg->height = extent.height;
         swapChainImg->layers = 1;
 
-        u64 imgKey = pHeap->textures->size()+1;
-        pHeap->textures->set(imgKey, swapChainImg);
-        device.swapChainImages->push_back(swapChainImg);    // store for easy reference later
+        device.swapChainImages->push_back(swapChainImg);    
 
         // now setup the image view for use in the swap chain
         VkImageViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -1242,13 +1255,13 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
         u64 key = pHeap->rtvs->size()+1;
         pHeap->rtvs->set(key, pRTV);
 
-        VkImageMemoryBarrier& imgBarrier = *pImgBarriers[numBarriers++];
+        VkImageMemoryBarrier& imgBarrier = pImgBarriers[numBarriers++];
         imgBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         imgBarrier.image = pImages[index];
         imgBarrier.srcAccessMask = 0;
-        imgBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        imgBarrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT;
         imgBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imgBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        imgBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
         imgBarrier.subresourceRange.baseMipLevel = 0;
         imgBarrier.subresourceRange.levelCount = 1;
         imgBarrier.subresourceRange.baseArrayLayer = 0;
@@ -1260,25 +1273,19 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
 
     VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VkResult result = vkBeginCommandBuffer(device.internal_cmd_buffer, &beginInfo);
+    vkBeginCommandBuffer(device.internal_cmd_buffer, &beginInfo);
     vkCmdPipelineBarrier(device.internal_cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, numBarriers, pImgBarriers);
     vkEndCommandBuffer(device.internal_cmd_buffer);
     // submit and wait for the device to transition the images
     VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-	info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	info.waitSemaphoreCount = 0;
-	info.pWaitSemaphores = nullptr;
-	info.pWaitDstStageMask = nullptr;
-	info.commandBufferCount = 1;
-	info.pCommandBuffers = device.internal_cmd_buffer;
-	info.signalSemaphoreCount = 0;
-	info.pSignalSemaphores = nullptr;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &device.internal_cmd_buffer;
+	submitInfo.signalSemaphoreCount = 1;
+	submitInfo.pSignalSemaphores = &device.internal_signal_semaphore;
 
-    // TODO(james): give it a fence so we can tell when it is done?
-    vkQueueSubmit(device.q_graphics.handle, 1, &submitInfo, VK_NULL_HANDLE);
-    // Have to call QueueWaitIdle unless we're going to go the event route
-    vkQueueWaitIdle(device.q_graphics.handle);
-    vkResetCommandPool(device.handle, device.pCurFrame->commandPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+    vkQueueSubmit(device.q_graphics.handle, 1, &submitInfo, device.internal_cmd_fence);
+    vkWaitForFences(device.handle, 1, &device.internal_cmd_fence, VK_TRUE, U64MAX);
+    vkResetCommandPool(device.handle, device.internal_cmd_pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     VERIFY_SUCCESS(result);
 
@@ -1844,17 +1851,10 @@ void vgDestroy(vg_backend& vb)
 
         // IFF(device.screenRenderPass, vkDestroyRenderPass(device.handle, device.screenRenderPass, nullptr));
         
-        for(size_t i = 0; i < arrlenu(device.paSwapChainImages); ++i)
+        for(auto& swapChainImage: *device.swapChainImages)
         {
-            vkDestroyImageView(device.handle, device.paSwapChainImages[i].view, nullptr);
+            vkDestroyImageView(device.handle, swapChainImage->view, nullptr);
         }
-        arrfree(device.paSwapChainImages);
-
-        // for(size_t i = 0; i < arrlenu(device.paFramebuffers); ++i)
-        // {
-        //     vkDestroyFramebuffer(device.handle, device.paFramebuffers[i], nullptr);
-        // }
-        // arrfree(device.paFramebuffers);
 
         vkDestroySwapchainKHR(device.handle, device.swapChain, nullptr);
         // end swapchain

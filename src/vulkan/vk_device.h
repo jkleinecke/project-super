@@ -312,6 +312,9 @@ struct vg_device
     // used by internal backend to initial transition images, etc..
     VkCommandPool internal_cmd_pool; 
     VkCommandBuffer internal_cmd_buffer;
+    VkSemaphore internal_wait_semaphore;
+    VkSemaphore internal_signal_semaphore;
+    VkFence internal_cmd_fence;
 
     // NOTE(james): Render passes and framebuffer objects are created as required.  Can be
     //   garbage collected later and put into the free list for re-use later
