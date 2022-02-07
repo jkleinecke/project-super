@@ -1859,6 +1859,11 @@ void vgDestroy(vg_backend& vb)
         vkDestroySwapchainKHR(device.handle, device.swapChain, nullptr);
         // end swapchain
 
+        vkDestroySemaphore(device.handle, device.internal_wait_semaphore, nullptr);
+        vkDestroySemaphore(device.handle, device.internal_signal_semaphore, nullptr);
+        vkDestroyFence(device.handle, device.internal_cmd_fence, nullptr);
+        vkDestroyCommandPool(device.handle, device.internal_cmd_pool, nullptr);
+
         // TODO(james): Account for this in the window resize
         // vgDestroyImage(device.handle, device.depth_image);
         
