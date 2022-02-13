@@ -3168,43 +3168,43 @@ VkImageAspectFlags DetermineAspectMaskFromFormat(VkFormat format, bool includeSt
 VkAccessFlags ConvertResourceStateToAccessFlags(GfxResourceState state)
 {
 	VkAccessFlags ret = 0;
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::CopySrc))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::CopySrc))
 	{
 		ret |= VK_ACCESS_TRANSFER_READ_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::CopyDst))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::CopyDst))
 	{
 		ret |= VK_ACCESS_TRANSFER_WRITE_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::VertexAndConstantBuffer))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::VertexAndConstantBuffer))
 	{
 		ret |= VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::IndexBuffer))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::IndexBuffer))
 	{
 		ret |= VK_ACCESS_INDEX_READ_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::UnorderedAccess))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::UnorderedAccess))
 	{
 		ret |= VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::IndirectArgument))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::IndirectArgument))
 	{
 		ret |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::RenderTarget))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::RenderTarget))
 	{
 		ret |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::DepthWrite))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::DepthWrite))
 	{
 		ret |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::ShaderResource))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::ShaderResource))
 	{
 		ret |= VK_ACCESS_SHADER_READ_BIT;
 	}
-	if (IS_FLAG_BIT_SET(state, GfxResourceState::Present))
+	if (IS_ANY_FLAG_SET(state, GfxResourceState::Present))
 	{
 		ret |= VK_ACCESS_MEMORY_READ_BIT;
 	}
@@ -3220,25 +3220,25 @@ VkAccessFlags ConvertResourceStateToAccessFlags(GfxResourceState state)
 
 VkImageLayout ConvertResourceStateToImageLayout(GfxResourceState usage)
 {
-	if (IS_FLAG_BIT_SET(usage, GfxResourceState::CopySrc))
+	if (IS_ANY_FLAG_SET(usage, GfxResourceState::CopySrc))
 		return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
-	if (IS_FLAG_BIT_SET(usage, GfxResourceState::CopyDst))
+	if (IS_ANY_FLAG_SET(usage, GfxResourceState::CopyDst))
 		return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 
-	if (IS_FLAG_BIT_SET(usage, GfxResourceState::RenderTarget))
+	if (IS_ANY_FLAG_SET(usage, GfxResourceState::RenderTarget))
 		return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-	if (IS_FLAG_BIT_SET(usage, GfxResourceState::DepthWrite))
+	if (IS_ANY_FLAG_SET(usage, GfxResourceState::DepthWrite))
 		return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-	if (IS_FLAG_BIT_SET(usage, GfxResourceState::UnorderedAccess))
+	if (IS_ANY_FLAG_SET(usage, GfxResourceState::UnorderedAccess))
 		return VK_IMAGE_LAYOUT_GENERAL;
 
-	if (IS_FLAG_BIT_SET(usage, GfxResourceState::ShaderResource))
+	if (IS_ANY_FLAG_SET(usage, GfxResourceState::ShaderResource))
 		return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-	if (IS_FLAG_BIT_SET(usage, GfxResourceState::Present))
+	if (IS_ANY_FLAG_SET(usage, GfxResourceState::Present))
 		return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 	if (usage == GfxResourceState::Common)
@@ -3670,7 +3670,7 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
 	imageInfo.mipLevels = Maximum(textureDesc.mipLevels, 1);
 	imageInfo.arrayLayers = Maximum(textureDesc.slice_count, 1);
 	imageInfo.samples = ConvertSampleCount(textureDesc.sampleCount);
-	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     imageInfo.tiling = tiling;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -3712,7 +3712,7 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
     image->format = viewInfo.format;
     image->width = textureDesc.width;
     image->height = textureDesc.height;
-    image->layers = textureDesc.slice_count;
+    image->layers = Maximum(textureDesc.slice_count, 1);
 
     u64 key = HASH(pHeap->textures->size()+1);
     pHeap->textures->set(key, image);
@@ -4909,32 +4909,30 @@ GfxResult CmdClearBackBuffer( GfxCmdContext cmds, GfxColor color )
 }
 
 internal
-GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture dest)
+GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxTexture dest)
 {
-    NotImplemented;
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
 
-// Earlier reference code...
-//         // NOTE(james): Images are weird in that you have to transfer them to the proper format for each stage you use them
-//         VkImageMemoryBarrier copyBarrier = vkInit_image_barrier(
-//             target.handle, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
-//         );
+    vg_buffer* buffer = FromGfxBuffer(device, src);
+    vg_image* image = FromGfxTexture(device, dest);
 
-//         vkCmdPipelineBarrier(transfer.cmds, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &copyBarrier);
+    VkBufferImageCopy region{};
+    region.bufferOffset = (VkDeviceSize)srcOffset;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
 
-//         VkBufferImageCopy region{};
-//         region.bufferOffset = transfer.lastWritePosition;
-//         region.bufferRowLength = 0;
-//         region.bufferImageHeight = 0;
+    // TODO(james): Copy more than just a single layer...
+    region.imageSubresource.aspectMask = DetermineAspectMaskFromFormat(image->format, true);
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
 
-//         region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-//         region.imageSubresource.mipLevel = 0;
-//         region.imageSubresource.baseArrayLayer = 0;
-//         region.imageSubresource.layerCount = 1;
+    region.imageOffset = {0,0,0};
+    region.imageExtent = { image->width, image->height, image->layers };
 
-//         region.imageOffset = {0,0,0};
-//         region.imageExtent = { (u32)width, (u32)height, 1 };
-
-//         vkCmdCopyBufferToImage(transfer.cmds, transfer.staging_buffer.handle, target.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    vkCmdCopyBufferToImage(cmdBuffer, buffer->handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 //         transfer.lastWritePosition += pixelSizeInBytes;
 

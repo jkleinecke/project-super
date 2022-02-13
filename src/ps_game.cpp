@@ -432,13 +432,44 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.Frame(gfx.device, 1, &cmds);
 }
 
+
+internal void
+TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* height, u32* channels, void** pixeldata)
+{
+    temporary_memory temp = BeginTemporaryMemory(arena);
+
+    platform_file file = Platform.OpenFile(FileLocation::Content, filename, FileUsage::Read);
+    ASSERT(file.size <= (u64)U32MAX);
+
+    void* fileBytes = PushSize(arena, file.size);
+    u64 bytesRead = Platform.ReadFile(file, fileBytes, file.size);
+    ASSERT(bytesRead == file.size);
+
+    Platform.CloseFile(file);
+
+    int texWidth, texHeight, texChannels;
+    stbi_uc *pixels = stbi_load_from_memory((stbi_uc*)fileBytes, (int)file.size, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    ASSERT(pixels);
+    ASSERT(texChannels == 3);   // NOTE(james): all we support right now
+
+    EndTemporaryMemory(temp);
+
+    if(width) *width = (u32)texWidth;
+    if(height) *height = (u32)texHeight;
+    if(channels) *channels = (u32)texChannels;
+    if(pixeldata) {
+        *pixeldata = PushSize(arena, texWidth*texHeight*4);
+        Copy(texWidth*texHeight*4, pixels, *pixeldata);
+    }
+
+    stbi_image_free(pixels);
+}
+
 internal void
 SetupRenderResources(game_state& state, render_context& render)
 {
 
 }
-
-
 
 platform_api Platform;
 extern "C"
@@ -447,8 +478,6 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     Platform = gameMemory.platformApi;
     gfx = render.gfx;
     
-    // TODO(james): Use bootstrap arena to allocate and initialize game state!!!
-
     if(!gameMemory.state)
     {
         gameMemory.state = BootstrapPushStructMember(game_state, totalArena);
@@ -520,19 +549,46 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
             // TODO(james): build this into a rendering layer, and rework cuz it's stupid slow
             void* stagingPtr = gfx.GetBufferData(gfx.device, gameState.stagingBuffer);
-            Copy(sizeof(vertices), vertices, stagingPtr);
-            Copy(sizeof(indices), indices, OffsetPtr(stagingPtr, sizeof(vertices)));
-            Copy(sizeof(color), &color, OffsetPtr(stagingPtr, sizeof(vertices) + sizeof(indices)));
+            {
+                Copy(sizeof(vertices), vertices, stagingPtr);
+                Copy(sizeof(indices), indices, OffsetPtr(stagingPtr, sizeof(vertices)));
+                Copy(sizeof(color), &color, OffsetPtr(stagingPtr, sizeof(vertices) + sizeof(indices)));
 
-            GfxCmdContext cmds = gameState.cmds;
-            gfx.BeginEncodingCmds(cmds);
-            gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, 0, gameState.box.geometry.vertexBuffer, 0, sizeof(vertices));
-            gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices), gameState.box.geometry.indexBuffer, 0, sizeof(indices));
-            gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices) + sizeof(indices), gameState.materialBuffer, 0, sizeof(color));
-            gfx.EndEncodingCmds(cmds);
-            gfx.SubmitCommands(gfx.device, 1, &cmds);
-            gfx.Finish(gfx.device);
+                GfxCmdContext cmds = gameState.cmds;
+                gfx.BeginEncodingCmds(cmds);
+                gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, 0, gameState.box.geometry.vertexBuffer, 0, sizeof(vertices));
+                gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices), gameState.box.geometry.indexBuffer, 0, sizeof(indices));
+                gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices) + sizeof(indices), gameState.materialBuffer, 0, sizeof(color));
+                gfx.EndEncodingCmds(cmds);
+                gfx.SubmitCommands(gfx.device, 1, &cmds);
+                gfx.Finish(gfx.device);
+            }
 
+            GfxTextureDesc texDesc = {};
+
+            void* pixelData = 0;
+            TempLoadImagePixels(*gameState.frameArena, "texture.jpg", &texDesc.width, &texDesc.height, 0, &pixelData);
+            texDesc.type = GfxTextureType::Tex2D;
+            texDesc.format = TinyImageFormat_R8G8B8A8_SRGB;
+            texDesc.access = GfxMemoryAccess::GpuOnly;
+
+            gameState.texture = gfx.CreateTexture(gfx.device, texDesc);
+
+            {
+                GfxCmdContext cmds = gameState.cmds;
+                gfx.ResetCmdEncoderPool(gameState.cmdpool);
+                gfx.BeginEncodingCmds(cmds);
+
+                GfxTextureBarrier texBarrier = { gameState.texture, GfxResourceState::Undefined, GfxResourceState::CopyDst };
+                gfx.CmdResourceBarrier(cmds, 0, 0, 1, &texBarrier, 0, 0);
+                gfx.CmdCopyBufferToTexture(cmds, gameState.stagingBuffer, 0, gameState.texture);
+                texBarrier = { gameState.texture, GfxResourceState::CopyDst, GfxResourceState::PixelShaderResource };
+                gfx.CmdResourceBarrier(cmds, 0, 0, 1, &texBarrier, 0, 0);
+
+                gfx.EndEncodingCmds(cmds);
+                gfx.SubmitCommands(gfx.device, 1, &cmds);
+                gfx.Finish(gfx.device);
+            }
         }
     }    
     

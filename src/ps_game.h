@@ -30,6 +30,7 @@ struct game_state
 
     GfxRenderTarget depthTarget;
 
+    GfxTexture texture;
     GfxBuffer stagingBuffer;
     GfxBuffer materialBuffer;
     GfxCmdEncoderPool cmdpool;

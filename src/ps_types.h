@@ -239,7 +239,7 @@ typedef intptr_t imm;
 #if !defined(IS_FLAG_BIT_SET)
 #define IS_FLAG_BIT_SET(flags, flag_bit) (((flags) & (flag_bit)) == (flag_bit))
 #define IS_FLAG_BIT_NOT_SET(flags, flag_bit) (((flags) & (flag_bit)) != (flag_bit))
-#define IS_ANY_FLAG_SET(flags, bits) (((flags) & ~(bits)) != (flags))
+#define IS_ANY_FLAG_SET(flags, bits) ((u32)((flags) & (bits)) > 0)
 #endif
 
 #define AlignPow2(Value, Alignment) (((Value) + ((Alignment) - 1)) & ~(((Value) - (Value)) + (Alignment) - 1))
