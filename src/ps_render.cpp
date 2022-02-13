@@ -145,8 +145,6 @@ MeshVertexBuffer(u32 count)
     desc.usageFlags = GfxBufferUsageFlags::Vertex;
     desc.access = GfxMemoryAccess::CpuToGpu;    // TODO(james): use a staging buffer instead
     desc.size = count * sizeof(render_mesh_vertex);
-    // desc.stride = sizeof(render_mesh_vertex);
-    // desc.numElements = count;
 
     return desc;
 }
@@ -158,7 +156,17 @@ IndexBuffer(u32 count)
     desc.usageFlags = GfxBufferUsageFlags::Index;
     desc.access = GfxMemoryAccess::CpuToGpu;    // TODO(james): use a staging buffer instead
     desc.size = count * sizeof(u32);
-    // desc.stride = sizeof(u32);
-    // desc.numElements = count;
+
+    return desc;
+}
+
+internal GfxBufferDesc
+UniformBuffer(u64 size)
+{
+    GfxBufferDesc desc = {};
+    desc.usageFlags = GfxBufferUsageFlags::Uniform;
+    desc.access = GfxMemoryAccess::CpuToGpu;    // TODO(james): use a staging buffer instead
+    desc.size = size;
+
     return desc;
 }

@@ -403,6 +403,16 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.CmdBindRenderTargets(cmds, 1, &screenRTV, nullptr);
     gfx.CmdBindKernel(cmds, state.mainKernel);
 
+    GfxDescriptor descriptors[] = {
+        { GfxDescriptorType::Buffer, 0, "", state.materialBuffer }
+    };
+
+    GfxDescriptorSet desc = {};
+    desc.setLocation = 0;   
+    desc.count = ARRAY_COUNT(descriptors);
+    desc.pDescriptors = descriptors;
+    gfx.CmdBindDescriptorSet(cmds, desc);
+
     // TODO(james): send the position of the geometry
 
     render_geometry& gm = state.box.geometry;
@@ -488,9 +498,13 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             umm totalSize = sizeof(vertices);
             umm elemSize = sizeof(vertices[0]);
 
+            GfxColor color = gfxColor(0.0f, 0.0f, 1.0f);
+
             GfxBufferDesc vb = MeshVertexBuffer(ARRAY_COUNT(vertices));
             GfxBufferDesc ib = IndexBuffer(ARRAY_COUNT(indices));
+            GfxBufferDesc mb = UniformBuffer(sizeof(GfxColor));
 
+            gameState.materialBuffer = gfx.CreateBuffer(gfx.device, mb, &color);
             gameState.box.geometry.indexCount = ARRAY_COUNT(indices);
             gameState.box.geometry.indexBuffer = gfx.CreateBuffer(gfx.device, ib, indices);
             gameState.box.geometry.vertexBuffer = gfx.CreateBuffer(gfx.device, vb, vertices);

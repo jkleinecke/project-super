@@ -3354,6 +3354,7 @@ EndContextRenderPass(vg_device& device, vg_cmd_context* context)
         context->activeIB = 0;
         context->activeVB = 0;
         context->activeDescriptorSets = 0;
+        context->shouldBindDescriptors = false;
     }
 }
 
@@ -3435,6 +3436,8 @@ GfxRenderTargetView AcquireNextSwapChainTarget(GfxDevice deviceHandle)
     {
         ASSERT(false);
     }
+
+    vgResetDescriptorPools(device);
 
     return GfxRenderTargetView{0, device.curSwapChainIndex+1};
 }
@@ -3819,7 +3822,12 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
         }
         
         u32 pushConstantCount = 0;
-        VkPushConstantRange* pushConstants = PushArray(*device.frameArena, totalPushConstants, VkPushConstantRange);
+        VkPushConstantRange* pushConstants = nullptr;
+        if(totalPushConstants > 0)
+        {
+            pushConstants = PushArray(*device.frameArena, totalPushConstants, VkPushConstantRange);
+        }
+
         program->descriptorSetLayouts = array_create(pHeap->arena, VkDescriptorSetLayout, descriptorSetLayoutCount);
         program->mapBindingDesc = hashtable_create(pHeap->arena, vg_program_binding_desc, 1024); // NOTE(james): 1024 bindings is waaay overkill, but it's just a pointer...
 
@@ -4254,7 +4262,7 @@ GfxKernel CreateGraphicsKernel( GfxDevice deviceHandle, GfxProgram resource, con
     ds.maxDepthBounds = 1;
 
     VkPipelineColorBlendAttachmentState blendAttachments[GFX_MAX_RENDERTARGETS];
-    for(u32 i = 0; i < GFX_MAX_RENDERTARGETS; ++i)
+    for(u32 i = 0; i < pipelineDesc.numColorTargets; ++i)
     {
         const GfxRenderTargetBlendState& rtblend = pipelineDesc.blendState.renderTargets[i];
 
@@ -4939,6 +4947,7 @@ GfxResult CmdBindKernel( GfxCmdContext cmds, GfxKernel resource)
     // setup for the binding of descriptor sets
     context->activeDescriptorSets = PushArray(*device.frameArena, kernel->program->descriptorSetLayouts->size(), VkDescriptorSet);
     context->activeKernel = kernel;
+    context->shouldBindDescriptors = false;
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, kernel->pipeline);
     
     return GfxResult::Ok;
@@ -4993,7 +5002,7 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
     VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
     VkResult result = vgAllocateDescriptor(device, program->descriptorSetLayouts->at(descSet.setLocation), &descriptorSet);
 
-    if(!result == VK_SUCCESS)
+    if(result != VK_SUCCESS)
     {
         return ToGfxResult(result);
     }
@@ -5040,7 +5049,7 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
 
     vkUpdateDescriptorSets(device.handle, descSet.count, writes, 0, nullptr);
     context->activeDescriptorSets[descSet.setLocation] = descriptorSet;
-    context->needsDescriptorSetsBound = true;
+    context->shouldBindDescriptors = true;
         
     return GfxResult::Ok;
 }
@@ -5092,6 +5101,13 @@ GfxResult CmdDrawIndexed( GfxCmdContext cmds, u32 indexCount, u32 instanceCount,
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
     VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    if(context->shouldBindDescriptors)
+    {
+        vg_program* program = context->activeKernel->program;
+        vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, program->pipelineLayout, 0, program->descriptorSetLayouts->size(), context->activeDescriptorSets, 0, nullptr);
+        context->shouldBindDescriptors = false;
+    }
     
     vkCmdDrawIndexed(cmdBuffer, indexCount, instanceCount, firstIndex, baseVertex, baseInstance);
     return GfxResult::Ok;

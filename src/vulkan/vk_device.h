@@ -262,7 +262,7 @@ struct vg_cmd_context
     vg_buffer* activeIB;
     vg_buffer* activeVB;
     VkDescriptorSet* activeDescriptorSets;
-    b32 needsDescriptorSetsBound;
+    b32 shouldBindDescriptors;
 };
 
 struct vg_command_encoder_pool

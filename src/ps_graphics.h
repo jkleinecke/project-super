@@ -85,8 +85,6 @@ struct GfxBufferDesc
     GfxBufferUsageFlags usageFlags;
     GfxMemoryAccess access;
     u64 size;
-    // u32 stride;
-    // u32 numElements;
     GfxResourceHeap heap;
 };  
 

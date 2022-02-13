@@ -5,6 +5,12 @@ CompilerDefines="-DPROJECTSUPER_INTERNAL=1 -DPROJECTSUPER_SLOW=1 -DPROJECTSUPER_
 
 LinkerFlags="-lstdc++ -framework Cocoa -framework IOKit -framework AudioUnit"
 
+pushd data
+echo Building Shaders...
+./build.sh
+popd
+
+
 if [ ! -d "./build/" ]; then
     mkdir build
 fi
