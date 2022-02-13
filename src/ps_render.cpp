@@ -139,11 +139,22 @@ DefaultPipeline()
 }
 
 internal GfxBufferDesc
+StagingBuffer(u64 size)
+{
+    GfxBufferDesc desc = {};
+    desc.usageFlags = GfxBufferUsageFlags::Uniform;
+    desc.access = GfxMemoryAccess::CpuOnly;
+    desc.size = size;
+
+    return desc;
+}
+
+internal GfxBufferDesc
 MeshVertexBuffer(u32 count)
 {
     GfxBufferDesc desc = {};
     desc.usageFlags = GfxBufferUsageFlags::Vertex;
-    desc.access = GfxMemoryAccess::CpuToGpu;    // TODO(james): use a staging buffer instead
+    desc.access = GfxMemoryAccess::GpuOnly;    // TODO(james): use a staging buffer instead
     desc.size = count * sizeof(render_mesh_vertex);
 
     return desc;
@@ -154,7 +165,7 @@ IndexBuffer(u32 count)
 {
     GfxBufferDesc desc = {};
     desc.usageFlags = GfxBufferUsageFlags::Index;
-    desc.access = GfxMemoryAccess::CpuToGpu;    // TODO(james): use a staging buffer instead
+    desc.access = GfxMemoryAccess::GpuOnly;    // TODO(james): use a staging buffer instead
     desc.size = count * sizeof(u32);
 
     return desc;
@@ -165,7 +176,7 @@ UniformBuffer(u64 size)
 {
     GfxBufferDesc desc = {};
     desc.usageFlags = GfxBufferUsageFlags::Uniform;
-    desc.access = GfxMemoryAccess::CpuToGpu;    // TODO(james): use a staging buffer instead
+    desc.access = GfxMemoryAccess::GpuOnly;    // TODO(james): use a staging buffer instead
     desc.size = size;
 
     return desc;

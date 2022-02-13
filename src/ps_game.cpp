@@ -504,10 +504,13 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             GfxBufferDesc ib = IndexBuffer(ARRAY_COUNT(indices));
             GfxBufferDesc mb = UniformBuffer(sizeof(GfxColor));
 
-            gameState.materialBuffer = gfx.CreateBuffer(gfx.device, mb, &color);
+            GfxBufferDesc sb = StagingBuffer(Megabytes(16));
+            gameState.stagingBuffer = gfx.CreateBuffer(gfx.device, sb, nullptr);
+
+            gameState.materialBuffer = gfx.CreateBuffer(gfx.device, mb, 0);
             gameState.box.geometry.indexCount = ARRAY_COUNT(indices);
-            gameState.box.geometry.indexBuffer = gfx.CreateBuffer(gfx.device, ib, indices);
-            gameState.box.geometry.vertexBuffer = gfx.CreateBuffer(gfx.device, vb, vertices);
+            gameState.box.geometry.indexBuffer = gfx.CreateBuffer(gfx.device, ib, 0);
+            gameState.box.geometry.vertexBuffer = gfx.CreateBuffer(gfx.device, vb, 0);
 
             // CopyArray(ARRAY_COUNT(indices), indices, gfx.GetBufferData(gfx.device, gameState.box.geometry.indexBuffer));
             // CopyArray(ARRAY_COUNT(vertices), vertices, gfx.GetBufferData(gfx.device, gameState.box.geometry.vertexBuffer));
@@ -516,6 +519,22 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             gameState.mainKernel = gfx.CreateGraphicsKernel(gfx.device, gameState.shaderProgram, DefaultPipeline());
             gameState.cmdpool = gfx.CreateEncoderPool(gfx.device, {GfxQueueType::Graphics});
             gameState.cmds = gfx.CreateEncoderContext(gameState.cmdpool);
+
+            // TODO(james): build this into a rendering layer, and rework cuz it's stupid slow
+            void* stagingPtr = gfx.GetBufferData(gfx.device, gameState.stagingBuffer);
+            Copy(sizeof(vertices), vertices, stagingPtr);
+            Copy(sizeof(indices), indices, OffsetPtr(stagingPtr, sizeof(vertices)));
+            Copy(sizeof(color), &color, OffsetPtr(stagingPtr, sizeof(vertices) + sizeof(indices)));
+
+            GfxCmdContext cmds = gameState.cmds;
+            gfx.BeginEncodingCmds(cmds);
+            gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, 0, gameState.box.geometry.vertexBuffer, 0, sizeof(vertices));
+            gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices), gameState.box.geometry.indexBuffer, 0, sizeof(indices));
+            gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices) + sizeof(indices), gameState.materialBuffer, 0, sizeof(color));
+            gfx.EndEncodingCmds(cmds);
+            gfx.SubmitCommands(gfx.device, 1, &cmds);
+            gfx.Finish(gfx.device);
+
         }
     }    
     
