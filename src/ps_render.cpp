@@ -114,14 +114,33 @@ TransparentRenderTarget()
     return bs;
 }
 
+internal GfxRenderTargetDesc
+DepthRenderTarget(u32 width, u32 height)
+{
+    GfxRenderTargetDesc rtv = {};
+    rtv.type = GfxTextureType::Tex2D;
+    rtv.access = GfxMemoryAccess::GpuOnly;
+    rtv.width = width;
+    rtv.height = height;
+    rtv.format = TinyImageFormat_D32_SFLOAT;
+    rtv.mipLevels = 1;
+    rtv.loadOp = GfxLoadAction::Clear;
+    rtv.depthValue = 0.0f;
+    rtv.initialState = GfxResourceState::DepthWrite;
+
+    return rtv;
+}
+
 internal GfxPipelineDesc
-DefaultPipeline() 
+DefaultPipeline(b32 depthEnable) 
 {
     GfxBlendState bs = {};
     bs.renderTargets[0] = TransparentRenderTarget();
 
     GfxDepthStencilState ds = {};
-    ds.depthEnable = false;
+    ds.depthEnable = depthEnable;
+    ds.depthWriteMask = GfxDepthWriteMask::All;
+    ds.depthFunc = GfxComparisonFunc::LessEqual;
 
     GfxRasterizerState rs = {};
     rs.fillMode = GfxFillMode::Solid;
@@ -135,6 +154,7 @@ DefaultPipeline()
     desc.primitiveTopology = GfxPrimitiveTopology::TriangleList;
     desc.numColorTargets = 1;
     desc.colorTargets[0] = gfx.GetDeviceBackBufferFormat(gfx.device);
+    desc.depthStencilTarget = TinyImageFormat_D32_SFLOAT;
     return desc;
 }
 

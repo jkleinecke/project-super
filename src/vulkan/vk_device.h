@@ -217,8 +217,8 @@ struct vg_kernel
 
 struct vg_rendertargetview
 {
+    u64 textureKey;
     vg_image* image;
-    VkImageView view;
     VkSampleCountFlagBits sampleCount;
     VkAttachmentLoadOp loadOp;
     VkClearValue clearValue;

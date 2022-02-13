@@ -214,8 +214,8 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     // backend.gfx.SetProgramTextures = SetProgramTextures;
     // backend.gfx.SetProgramSampler = SetProgramSampler;
     // backend.gfx.SetProgramConstants = SetProgramConstants;
-    backend.gfx.CreateRenderTargetView = CreateRenderTargetView;
-    backend.gfx.DestroyRenderTargetView = DestroyRenderTargetView;
+    backend.gfx.CreateRenderTarget = CreateRenderTarget;
+    backend.gfx.DestroyRenderTarget = DestroyRenderTarget;
     backend.gfx.GetDeviceBackBufferFormat = GetDeviceBackBufferFormat;
     backend.gfx.CreateComputeKernel = CreateComputeKernel;
     backend.gfx.CreateGraphicsKernel = CreateGraphicsKernel;
@@ -248,11 +248,8 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.CmdSetScissorRect = CmdSetScissorRect;
     backend.gfx.CmdDraw = CmdDraw;
     backend.gfx.CmdDrawIndexed = CmdDrawIndexed;
-    backend.gfx.CmdMultiDrawIndirect = CmdMultiDrawIndirect;
-    backend.gfx.CmdMultiDrawIndexedIndirect = CmdMultiDrawIndexedIndirect;
     backend.gfx.CmdDispatch = CmdDispatch;
     backend.gfx.CmdDispatchIndirect = CmdDispatchIndirect;
-    backend.gfx.CmdMultiDispatchIndirect = CmdMultiDispatchIndirect;
     backend.gfx.AcquireNextSwapChainTarget = AcquireNextSwapChainTarget;
     backend.gfx.SubmitCommands = SubmitCommands;
     backend.gfx.Frame = Frame;

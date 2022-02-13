@@ -387,20 +387,22 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 internal void
 RenderFrame(game_state& state, render_context& rc)
 {
-    GfxRenderTargetView screenRTV = gfx.AcquireNextSwapChainTarget(gfx.device);
+    GfxRenderTarget screenRTV = gfx.AcquireNextSwapChainTarget(gfx.device);
 
     GfxCmdContext& cmds = state.cmds;
 
     gfx.ResetCmdEncoderPool(state.cmdpool);
     gfx.BeginEncodingCmds(cmds);
 
-    GfxRenderTargetBarrier barrierRender = { screenRTV, GfxResourceState::Present, GfxResourceState::RenderTarget };
-    gfx.CmdResourceBarrier(cmds, 0, nullptr, 0, nullptr, 1, &barrierRender);
+    GfxRenderTargetBarrier barrierRTVs[] = {
+        { screenRTV, GfxResourceState::Present, GfxResourceState::RenderTarget },
+    };
+    gfx.CmdResourceBarrier(cmds, 0, nullptr, 0, nullptr, ARRAY_COUNT(barrierRTVs), barrierRTVs);
 
     gfx.CmdSetViewport(cmds, 0, 0, rc.renderDimensions.Width, rc.renderDimensions.Height);
     gfx.CmdSetScissorRect(cmds, 0, 0, (u32)rc.renderDimensions.Width, (u32)rc.renderDimensions.Height);
 
-    gfx.CmdBindRenderTargets(cmds, 1, &screenRTV, nullptr);
+    gfx.CmdBindRenderTargets(cmds, 1, &screenRTV, &state.depthTarget);
     gfx.CmdBindKernel(cmds, state.mainKernel);
 
     GfxDescriptor descriptors[] = {
@@ -495,7 +497,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             umm totalSize = sizeof(vertices);
             umm elemSize = sizeof(vertices[0]);
 
-            GfxColor color = gfxColor(0.0f, 0.0f, 1.0f);
+            GfxColor color = gfxColor(1.0f, 0.0f, 1.0f);
 
             GfxBufferDesc vb = MeshVertexBuffer(ARRAY_COUNT(vertices));
             GfxBufferDesc ib = IndexBuffer(ARRAY_COUNT(indices));
@@ -510,9 +512,11 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             gameState.box.geometry.vertexBuffer = gfx.CreateBuffer(gfx.device, vb, 0);
 
             gameState.shaderProgram = LoadProgram(*gameState.frameArena, "shader.vert.spv", "shader.frag.spv");
-            gameState.mainKernel = gfx.CreateGraphicsKernel(gfx.device, gameState.shaderProgram, DefaultPipeline());
+            gameState.mainKernel = gfx.CreateGraphicsKernel(gfx.device, gameState.shaderProgram, DefaultPipeline(true));
             gameState.cmdpool = gfx.CreateEncoderPool(gfx.device, {GfxQueueType::Graphics});
             gameState.cmds = gfx.CreateEncoderContext(gameState.cmdpool);
+
+            gameState.depthTarget = gfx.CreateRenderTarget(gfx.device, DepthRenderTarget(render.renderDimensions.Width, render.renderDimensions.Height));
 
             // TODO(james): build this into a rendering layer, and rework cuz it's stupid slow
             void* stagingPtr = gfx.GetBufferData(gfx.device, gameState.stagingBuffer);

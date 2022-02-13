@@ -3,6 +3,29 @@
 
 // a handle with a value of 0 will always be considered invalid
 #define GFX_INVALID_HANDLE 0
+// enum class GfxVertexAttribRate
+// {
+//     Vertex,
+//     Instance,
+// };
+
+// struct GfxVertexAttrib
+// {
+//     GfxShaderSemantic semantic;
+//     u32 semanticNameLength;
+//     char semanticName[128]; // TODO(james): set size as define/enum/constant
+//     u32 location;
+//     u32 binding;
+//     u32 offset;
+//     TinyImageFormat format;
+//     GfxVertexAttribRate rate;
+// };
+
+// struct GfxVertexLayout
+// {
+//     u32 attribCount;
+//     GfxVertexAttrib attribs[15];    // TODO(james): set size as define/enum/constant
+// };
 
 enum GfxConstants
 {
@@ -35,7 +58,7 @@ struct GfxTexture { u64 heap; u64 id; };
 struct GfxSampler { u64 heap; u64 id; };
 struct GfxProgram { u64 heap; u64 id; };
 struct GfxKernel { u64 heap; u64 id; };
-struct GfxRenderTargetView { u64 heap; u64 id; };
+struct GfxRenderTarget { u64 heap; u64 id; };
 struct GfxTimestampQuery { u64 heap; u64 id; };
 
 enum class GfxMemoryAccess
@@ -390,30 +413,6 @@ struct GfxBlendState
     GfxRenderTargetBlendState renderTargets[GFX_MAX_RENDERTARGETS];
 };
 
-// enum class GfxVertexAttribRate
-// {
-//     Vertex,
-//     Instance,
-// };
-
-// struct GfxVertexAttrib
-// {
-//     GfxShaderSemantic semantic;
-//     u32 semanticNameLength;
-//     char semanticName[128]; // TODO(james): set size as define/enum/constant
-//     u32 location;
-//     u32 binding;
-//     u32 offset;
-//     TinyImageFormat format;
-//     GfxVertexAttribRate rate;
-// };
-
-// struct GfxVertexLayout
-// {
-//     u32 attribCount;
-//     GfxVertexAttrib attribs[15];    // TODO(james): set size as define/enum/constant
-// };
-
 enum class GfxLoadAction
 {
     DontCare,
@@ -421,9 +420,19 @@ enum class GfxLoadAction
     Clear,
 };
 
-struct GfxRenderTargetViewDesc
+struct GfxRenderTargetDesc
 {
-    GfxTexture texture;
+    GfxTextureType type;
+    GfxMemoryAccess access;
+    u32 width;
+    u32 height;
+    union {
+        u32 size;
+        u32 depth;
+        u32 slice_count;
+    };
+    TinyImageFormat format;     // uses tiny image format to easily convert to graphics backend api format
+    u32 mipLevels;
     GfxLoadAction loadOp;
     GfxSampleCount sampleCount;
     union {
@@ -433,9 +442,9 @@ struct GfxRenderTargetViewDesc
             u8 stencilValue;
         };
     };
-    u32 mipLevel;
-    u32 slice;
-    u32 numSlices;
+    
+    GfxResourceState initialState;
+    GfxResourceHeap heap;
 };
 
 struct GfxPipelineDesc
@@ -499,7 +508,7 @@ struct GfxTextureBarrier
 
 struct GfxRenderTargetBarrier
 {
-    GfxRenderTargetView rtv;
+    GfxRenderTarget rtv;
 	GfxResourceState    currentState;
 	GfxResourceState    newState;
 	GfxQueueResourceOp  resourceOp;
@@ -571,8 +580,8 @@ struct gfx_api
     // API_FUNCTION(GfxResult, SetProgramSampler, GfxDevice device, GfxProgram program, const char* param_name, GfxSampler sampler);
     // API_FUNCTION(GfxResult, SetProgramConstants, GfxDevice device, GfxProgram program, const char* param_name, const void* data, u32 size);
 
-    API_FUNCTION(GfxRenderTargetView, CreateRenderTargetView, GfxDevice device, const GfxRenderTargetViewDesc& rtvDesc);
-    API_FUNCTION(GfxResult, DestroyRenderTargetView, GfxDevice device, GfxRenderTargetView rtv);
+    API_FUNCTION(GfxRenderTarget, CreateRenderTarget, GfxDevice device, const GfxRenderTargetDesc& rtvDesc);
+    API_FUNCTION(GfxResult, DestroyRenderTarget, GfxDevice device, GfxRenderTarget rtv);
     API_FUNCTION(TinyImageFormat, GetDeviceBackBufferFormat, GfxDevice device);
 
     API_FUNCTION(GfxKernel, CreateComputeKernel, GfxDevice device, GfxProgram program);
@@ -598,7 +607,7 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdCopyBufferRange, GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size);
     API_FUNCTION(GfxResult, CmdClearBuffer, GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue);
     
-    API_FUNCTION(GfxResult, CmdClearTexture, GfxCmdContext cmds, GfxTexture texture);
+    API_FUNCTION(GfxResult, CmdClearTexture, GfxCmdContext cmds, GfxTexture texture, GfxColor color);
     API_FUNCTION(GfxResult, CmdCopyTexture, GfxCmdContext cmds, GfxTexture src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdClearImage, GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice);
     API_FUNCTION(GfxResult, CmdClearBackBuffer, GfxCmdContext cmds, GfxColor color);
@@ -606,7 +615,7 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdCopyBufferToTexture, GfxCmdContext cmds, GfxBuffer src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdGenerateMips, GfxCmdContext cmds, GfxTexture texture);
 
-    API_FUNCTION(GfxResult, CmdBindRenderTargets, GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDepthStencilRTV);
+    API_FUNCTION(GfxResult, CmdBindRenderTargets, GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTarget* pColorRTVs, GfxRenderTarget* pDepthStencilRTV);
     API_FUNCTION(GfxResult, CmdBindKernel, GfxCmdContext cmds, GfxKernel kernel);
     API_FUNCTION(GfxResult, CmdBindIndexBuffer, GfxCmdContext cmds, GfxBuffer indexBuffer);
     API_FUNCTION(GfxResult, CmdBindVertexBuffer, GfxCmdContext cmds, GfxBuffer vertexBuffer);
@@ -617,15 +626,14 @@ struct gfx_api
 
     API_FUNCTION(GfxResult, CmdDraw, GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 baseVertex, u32 baseInstance);
     API_FUNCTION(GfxResult, CmdDrawIndexed, GfxCmdContext cmds, u32 indexCount, u32 instanceCount, u32 firstIndex, u32 baseVertex, u32 baseInstance);
-    API_FUNCTION(GfxResult, CmdMultiDrawIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
-    API_FUNCTION(GfxResult, CmdMultiDrawIndexedIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
+    API_FUNCTION(GfxResult, CmdDrawIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
+    API_FUNCTION(GfxResult, CmdDrawIndexedIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
     API_FUNCTION(GfxResult, CmdDispatch, GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 numGroupsZ);
     API_FUNCTION(GfxResult, CmdDispatchIndirect, GfxCmdContext cmds, GfxBuffer argsBuffer);
-    API_FUNCTION(GfxResult, CmdMultiDispatchIndirect,  GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount);
 
     // Frame Processing
     // TODO(james): Schedule work on different queues (Transfer, Compute, Graphics, etc..)
-    API_FUNCTION(GfxRenderTargetView, AcquireNextSwapChainTarget, GfxDevice device);
+    API_FUNCTION(GfxRenderTarget, AcquireNextSwapChainTarget, GfxDevice device);
     API_FUNCTION(GfxResult, SubmitCommands, GfxDevice device, u32 count, GfxCmdContext* pContexts);
     API_FUNCTION(GfxResult, Frame, GfxDevice device, u32 contextCount, GfxCmdContext* pContexts);
     API_FUNCTION(GfxResult, Finish, GfxDevice device);

@@ -287,6 +287,85 @@ global const std::vector<const char*> g_validationLayers = {
 // ======================================
 // ======================================
 
+
+VkPipelineStageFlags DeterminePipelineStageFlags(vg_device& device, VkAccessFlags accessFlags, GfxQueueType queueType)
+{
+	VkPipelineStageFlags flags = 0;
+
+	switch (queueType)
+	{
+		case GfxQueueType::Graphics:
+		{
+			if ((accessFlags & (VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT)) != 0)
+				flags |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+
+			if ((accessFlags & (VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)) != 0)
+			{
+				flags |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
+				flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                // TODO(james): detect geometry and tessellation support on device
+				// if (pRenderer->pActiveGpuSettings->mGeometryShaderSupported)
+				// {
+				// 	flags |= VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT;
+				// }
+				// if (pRenderer->pActiveGpuSettings->mTessellationSupported)
+				// {
+				// 	flags |= VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT;
+				// 	flags |= VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT;
+				// }
+				flags |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+                // TODO(james): enable this part if ray tracing is supported
+				// if (pRenderer->mVulkan.mRaytracingExtension)
+				// {
+				// 	flags |= VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_NV;
+				// }
+			}
+
+			if ((accessFlags & VK_ACCESS_INPUT_ATTACHMENT_READ_BIT) != 0)
+				flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+
+			if ((accessFlags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0)
+				flags |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+			if ((accessFlags & (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0)
+				flags |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+			break;
+		}
+		case GfxQueueType::Compute:
+		{
+			if ((accessFlags & (VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT)) != 0 ||
+				(accessFlags & VK_ACCESS_INPUT_ATTACHMENT_READ_BIT) != 0 ||
+				(accessFlags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0 ||
+				(accessFlags & (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0)
+				return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+
+			if ((accessFlags & (VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)) != 0)
+				flags |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+			break;
+		}
+		case GfxQueueType::Transfer: return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		InvalidDefaultCase;
+	}
+
+	// Compatible with both compute and graphics queues
+	if ((accessFlags & VK_ACCESS_INDIRECT_COMMAND_READ_BIT) != 0)
+		flags |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+
+	if ((accessFlags & (VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT)) != 0)
+		flags |= VK_PIPELINE_STAGE_TRANSFER_BIT;
+
+	if ((accessFlags & (VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT)) != 0)
+		flags |= VK_PIPELINE_STAGE_HOST_BIT;
+
+	if (flags == 0)
+		flags = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
+	return flags;
+}
+
+
 internal
 VkSurfaceFormatKHR vgChooseSwapSurfaceFormat(const vg_device& device, VkFormat preferredFormat, VkColorSpaceKHR preferredColorSpace)
 {
@@ -1245,7 +1324,6 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
         VERIFY_SUCCESS(result);
 
         vg_rendertargetview* pRTV = PushStruct(pHeap->arena, vg_rendertargetview);
-        result = vkCreateImageView(device.handle, &viewInfo, nullptr, &pRTV->view); // NOTE(james): rtv is managed separately from the image view on the swap chain...
         VERIFY_SUCCESS(result);
         pRTV->image = swapChainImg;
         pRTV->loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
@@ -1280,11 +1358,12 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
     VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = &device.internal_cmd_buffer;
-	submitInfo.signalSemaphoreCount = 1;
-	submitInfo.pSignalSemaphores = &device.internal_signal_semaphore;
+	submitInfo.signalSemaphoreCount = 0;
+	submitInfo.pSignalSemaphores = nullptr;//&device.internal_signal_semaphore;
 
     vkQueueSubmit(device.q_graphics.handle, 1, &submitInfo, device.internal_cmd_fence);
     vkWaitForFences(device.handle, 1, &device.internal_cmd_fence, VK_TRUE, U64MAX);
+    vkResetFences(device.handle, 1, &device.internal_cmd_fence);
     vkResetCommandPool(device.handle, device.internal_cmd_pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 
     VERIFY_SUCCESS(result);
@@ -1885,7 +1964,6 @@ vgDestroyResourceHeap(vg_device& device, vg_resourceheap* pHeap)
     for(auto entry: *pHeap->rtvs)
     {
         vg_rendertargetview& rtv = **entry;
-        vkDestroyImageView(device.handle, rtv.view, nullptr);
     }
 
     // kernel
@@ -3169,81 +3247,52 @@ VkImageLayout ConvertResourceStateToImageLayout(GfxResourceState usage)
 	return VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
-VkPipelineStageFlags DeterminePipelineStageFlags(vg_device& device, VkAccessFlags accessFlags, GfxQueueType queueType)
+
+internal void
+vgInitialImageStateTransition(vg_device& device, vg_image* image, GfxResourceState resourceState)
 {
-	VkPipelineStageFlags flags = 0;
+    VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(device.internal_cmd_buffer, &beginInfo);
 
-	switch (queueType)
-	{
-		case GfxQueueType::Graphics:
-		{
-			if ((accessFlags & (VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT)) != 0)
-				flags |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+    VkImageMemoryBarrier barrier = {};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 
-			if ((accessFlags & (VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)) != 0)
-			{
-				flags |= VK_PIPELINE_STAGE_VERTEX_SHADER_BIT;
-				flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-                // TODO(james): detect geometry and tessellation support on device
-				// if (pRenderer->pActiveGpuSettings->mGeometryShaderSupported)
-				// {
-				// 	flags |= VK_PIPELINE_STAGE_GEOMETRY_SHADER_BIT;
-				// }
-				// if (pRenderer->pActiveGpuSettings->mTessellationSupported)
-				// {
-				// 	flags |= VK_PIPELINE_STAGE_TESSELLATION_CONTROL_SHADER_BIT;
-				// 	flags |= VK_PIPELINE_STAGE_TESSELLATION_EVALUATION_SHADER_BIT;
-				// }
-				flags |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+    barrier.srcAccessMask = 0;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if(resourceState == GfxResourceState::UnorderedAccess)
+    {
+        barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    }
+    else
+    {
+        barrier.dstAccessMask = ConvertResourceStateToAccessFlags(resourceState);
+        barrier.newLayout = ConvertResourceStateToImageLayout(resourceState);
+    }
 
-                // TODO(james): enable this part if ray tracing is supported
-				// if (pRenderer->mVulkan.mRaytracingExtension)
-				// {
-				// 	flags |= VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_NV;
-				// }
-			}
+    barrier.image = image->handle;
+    barrier.subresourceRange.aspectMask = DetermineAspectMaskFromFormat(image->format, true);
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 
-			if ((accessFlags & VK_ACCESS_INPUT_ATTACHMENT_READ_BIT) != 0)
-				flags |= VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+    vkCmdPipelineBarrier(device.internal_cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, DeterminePipelineStageFlags(device, barrier.dstAccessMask, GfxQueueType::Graphics), 0, 0, nullptr, 0, nullptr, 1, &barrier);
+    vkEndCommandBuffer(device.internal_cmd_buffer);
+    // submit and wait for the device to transition the images
+    VkSubmitInfo submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &device.internal_cmd_buffer;
+	submitInfo.signalSemaphoreCount = 0;
+	submitInfo.pSignalSemaphores = nullptr; 
 
-			if ((accessFlags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0)
-				flags |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-			if ((accessFlags & (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0)
-				flags |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-			break;
-		}
-		case GfxQueueType::Compute:
-		{
-			if ((accessFlags & (VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT)) != 0 ||
-				(accessFlags & VK_ACCESS_INPUT_ATTACHMENT_READ_BIT) != 0 ||
-				(accessFlags & (VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)) != 0 ||
-				(accessFlags & (VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)) != 0)
-				return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-
-			if ((accessFlags & (VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)) != 0)
-				flags |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
-
-			break;
-		}
-		case GfxQueueType::Transfer: return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
-		InvalidDefaultCase;
-	}
-
-	// Compatible with both compute and graphics queues
-	if ((accessFlags & VK_ACCESS_INDIRECT_COMMAND_READ_BIT) != 0)
-		flags |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
-
-	if ((accessFlags & (VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT)) != 0)
-		flags |= VK_PIPELINE_STAGE_TRANSFER_BIT;
-
-	if ((accessFlags & (VK_ACCESS_HOST_READ_BIT | VK_ACCESS_HOST_WRITE_BIT)) != 0)
-		flags |= VK_PIPELINE_STAGE_HOST_BIT;
-
-	if (flags == 0)
-		flags = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-
-	return flags;
+    vkQueueSubmit(device.q_graphics.handle, 1, &submitInfo, device.internal_cmd_fence);
+    vkWaitForFences(device.handle, 1, &device.internal_cmd_fence, VK_TRUE, U64MAX);
+    vkResetFences(device.handle, 1, &device.internal_cmd_fence);
+    vkResetCommandPool(device.handle, device.internal_cmd_pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 }
 
 internal vg_queue*
@@ -3301,7 +3350,7 @@ FromGfxSampler(vg_device& device, GfxSampler resource)
 }
 
 inline vg_rendertargetview* 
-FromGfxRenderTargetView(vg_device& device, GfxRenderTargetView resource)
+FromGfxRenderTargetView(vg_device& device, GfxRenderTarget resource)
 {
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
     return pHeap->rtvs->get(resource.id);
@@ -3420,7 +3469,7 @@ VkResult CreateRenderPassForPipeline(VkDevice device, const GfxPipelineDesc& pip
 }
 
 internal
-GfxRenderTargetView AcquireNextSwapChainTarget(GfxDevice deviceHandle)
+GfxRenderTarget AcquireNextSwapChainTarget(GfxDevice deviceHandle)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
 
@@ -3439,7 +3488,7 @@ GfxRenderTargetView AcquireNextSwapChainTarget(GfxDevice deviceHandle)
 
     vgResetDescriptorPools(device);
 
-    return GfxRenderTargetView{0, device.curSwapChainIndex+1};
+    return GfxRenderTarget{0, device.curSwapChainIndex+1};
 }
 
 internal
@@ -3617,13 +3666,20 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
 	imageInfo.pNext = nullptr;
 	imageInfo.imageType = imageType;
 	imageInfo.format = (VkFormat)TinyImageFormat_ToVkFormat(textureDesc.format);
-	imageInfo.extent = { textureDesc.width, textureDesc.height, textureDesc.depth };
-	imageInfo.mipLevels = textureDesc.mipLevels > 0 ? textureDesc.mipLevels : 1;
-	imageInfo.arrayLayers = textureDesc.slice_count > 0 ? textureDesc.mipLevels : 1;
+	imageInfo.extent = { textureDesc.width, textureDesc.height, Maximum(textureDesc.depth, 1) };
+	imageInfo.mipLevels = Maximum(textureDesc.mipLevels, 1);
+	imageInfo.arrayLayers = Maximum(textureDesc.slice_count, 1);
 	imageInfo.samples = ConvertSampleCount(textureDesc.sampleCount);
 	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     imageInfo.tiling = tiling;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if(textureDesc.mipLevels == 0)
+    {
+        // not specifying any mip levels likely indicates that we'll need to generate them on the fly
+        // so let's specify the transfer src usage bit just in case...
+        imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    }
 
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = memUsage;
@@ -4058,36 +4114,112 @@ GfxKernel CreateComputeKernel( GfxDevice deviceHandle, GfxProgram program)
 }
 
 internal
-GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRenderTargetViewDesc& rtvDesc)
+GfxRenderTarget CreateRenderTarget( GfxDevice deviceHandle, const GfxRenderTargetDesc& rtvDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
-    // NOTE(james): RT View will use the same heap as the backing texture.  Won't make sense to allocate them separately.
-    vg_resourceheap* pHeap = device.resourceHeaps->get(rtvDesc.texture.heap);
-    vg_image& image = *pHeap->textures->get(rtvDesc.texture.id);
+    vg_resourceheap* pHeap = device.resourceHeaps->get(rtvDesc.heap.id);
+
+    temporary_memory scoped = BeginTemporaryMemory(pHeap->arena);
+
+    vg_image* image = PushStruct(pHeap->arena, vg_image);
+
+    b32 isDepthStencil = TinyImageFormat_IsDepthOnly(rtvDesc.format) || TinyImageFormat_IsDepthAndStencil(rtvDesc.format);
+
+    VkImageType imageType = VK_IMAGE_TYPE_2D;
+    VkImageViewType imageViewType = VK_IMAGE_VIEW_TYPE_2D;
+    VkImageTiling tiling = VK_IMAGE_TILING_OPTIMAL;
+    VmaMemoryUsage memUsage = VMA_MEMORY_USAGE_UNKNOWN;
+    
+    switch(rtvDesc.access)
+    {
+        case GfxMemoryAccess::GpuOnly:
+            memUsage = VMA_MEMORY_USAGE_GPU_ONLY;
+            break;
+        case GfxMemoryAccess::CpuOnly:
+            tiling = VK_IMAGE_TILING_LINEAR;
+            memUsage = VMA_MEMORY_USAGE_CPU_ONLY;
+            break;
+        case GfxMemoryAccess::CpuToGpu:
+            tiling = VK_IMAGE_TILING_LINEAR;
+            memUsage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            break;
+        case GfxMemoryAccess::GpuToCpu:
+            tiling = VK_IMAGE_TILING_LINEAR;
+            memUsage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+            break;
+        InvalidDefaultCase;
+    }
+
+    switch(rtvDesc.type)
+    {
+        case GfxTextureType::Tex2D: imageType = VK_IMAGE_TYPE_2D; imageViewType = VK_IMAGE_VIEW_TYPE_2D; break;
+        case GfxTextureType::Tex2DArray: imageType = VK_IMAGE_TYPE_2D; imageViewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY; break;
+        case GfxTextureType::Tex3D: imageType = VK_IMAGE_TYPE_3D; imageViewType = VK_IMAGE_VIEW_TYPE_3D; break;
+        case GfxTextureType::Cube: imageType = VK_IMAGE_TYPE_2D; imageViewType = VK_IMAGE_VIEW_TYPE_CUBE; break;
+        InvalidDefaultCase;
+    }
+
+    VkImageCreateInfo imageInfo = { };
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.pNext = nullptr;
+	imageInfo.imageType = imageType;
+	imageInfo.format = (VkFormat)TinyImageFormat_ToVkFormat(rtvDesc.format);
+	imageInfo.extent = { rtvDesc.width, rtvDesc.height, Maximum(rtvDesc.depth, 1) };
+	imageInfo.mipLevels = Maximum(rtvDesc.mipLevels, 1);
+	imageInfo.arrayLayers = Maximum(rtvDesc.slice_count, 1);
+	imageInfo.samples = ConvertSampleCount(rtvDesc.sampleCount);
+	imageInfo.usage = isDepthStencil ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    imageInfo.tiling = tiling;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    image->width = rtvDesc.width;
+    image->height = rtvDesc.height;
+    image->layers = Maximum(rtvDesc.depth, 1);
+    image->format = imageInfo.format;
+
+    VmaAllocationCreateInfo allocInfo = {};
+    allocInfo.usage = memUsage;
+    VkResult result = vmaCreateImage(device.allocator, &imageInfo, &allocInfo, &image->handle, &image->allocation, nullptr);
+    if(result != VK_SUCCESS) 
+    {
+        EndTemporaryMemory(scoped);
+        return GfxRenderTarget{};
+    }
 
     VkImageViewCreateInfo viewInfo = {};
 	viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	viewInfo.viewType = rtvDesc.numSlices > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;  
-	viewInfo.image = image.handle;
-	viewInfo.format = image.format;
+	viewInfo.viewType = imageViewType;  
+	viewInfo.image = image->handle;
+	viewInfo.format = image->format;
     viewInfo.components.r = VK_COMPONENT_SWIZZLE_R;
 	viewInfo.components.g = VK_COMPONENT_SWIZZLE_G;
 	viewInfo.components.b = VK_COMPONENT_SWIZZLE_B;
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_A;
-	viewInfo.subresourceRange.baseMipLevel = rtvDesc.mipLevel;
+	viewInfo.subresourceRange.baseMipLevel = 0;
 	viewInfo.subresourceRange.levelCount = 1;
-	viewInfo.subresourceRange.baseArrayLayer = rtvDesc.slice;
-	viewInfo.subresourceRange.layerCount = rtvDesc.numSlices > 0 ? rtvDesc.numSlices : 1;   // NOTE(james): must have at least one
-	viewInfo.subresourceRange.aspectMask = DetermineAspectMaskFromFormat(viewInfo.format, true);  
+	viewInfo.subresourceRange.baseArrayLayer = 0;
+	viewInfo.subresourceRange.layerCount = image->layers;   
+	viewInfo.subresourceRange.aspectMask = DetermineAspectMaskFromFormat(image->format, true);  
 
-    VkImageView imageview = VK_NULL_HANDLE;
-    VkResult result = vkCreateImageView(device.handle, &viewInfo, nullptr, &imageview);
-    if(result != VK_SUCCESS) return GfxRenderTargetView{};
+    result = vkCreateImageView(device.handle, &viewInfo, nullptr, &image->view);
+    if(result != VK_SUCCESS) 
+    {
+        vkDestroyImage(device.handle, image->handle, nullptr);
+        EndTemporaryMemory(scoped);
+        return GfxRenderTarget{};
+    }
+
+    KeepTemporaryMemory(scoped);
+
+    vgInitialImageStateTransition(device, image, rtvDesc.initialState);
+
+    u64 imageKey = HASH(pHeap->textures->size() + 1);
+    pHeap->textures->set(imageKey, image);
 
     // This is just an image view with a little extra information on the device side
     vg_rendertargetview* rtv = PushStruct(pHeap->arena, vg_rendertargetview);
-    rtv->image = &image;
-    rtv->view = imageview;
+    rtv->image = image;
+    rtv->textureKey = imageKey;
     rtv->loadOp = ConvertLoadOp(rtvDesc.loadOp);
     rtv->clearValue = VkClearValue{rtvDesc.clearValue[0],rtvDesc.clearValue[1],rtvDesc.clearValue[2],rtvDesc.clearValue[3]};
     rtv->sampleCount = ConvertSampleCount(rtvDesc.sampleCount);
@@ -4095,17 +4227,20 @@ GfxRenderTargetView CreateRenderTargetView( GfxDevice deviceHandle, const GfxRen
     u64 key = HASH(pHeap->rtvs->size() + 1);
     pHeap->rtvs->set(key, rtv);
 
-    return GfxRenderTargetView{rtvDesc.texture.heap, key};
+    return GfxRenderTarget{rtvDesc.heap.id, key};
 }
 
 internal
-GfxResult DestroyRenderTargetView( GfxDevice deviceHandle, GfxRenderTargetView resource )
+GfxResult DestroyRenderTarget( GfxDevice deviceHandle, GfxRenderTarget resource )
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
     vg_rendertargetview& rtv = *pHeap->rtvs->get(resource.id);
+    vg_image* image = pHeap->textures->get(rtv.textureKey);
 
-    vkDestroyImageView(device.handle, rtv.view, nullptr);
+    vkDestroyImageView(device.handle, image->view, nullptr);
+    vmaDestroyImage(device.allocator, image->handle, image->allocation);
+    pHeap->textures->erase(rtv.textureKey);
     pHeap->rtvs->erase(resource.id);
 
     return GfxResult::Ok;
@@ -4687,8 +4822,20 @@ CmdResourceBarrier(GfxCmdContext cmds,
 internal
 GfxResult CmdCopyBuffer( GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest)
 {
-    NotImplemented;
-    //vkCmdCopyBuffer()
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    vg_buffer* srcBuffer = FromGfxBuffer(device, src);
+    vg_buffer* dstBuffer = FromGfxBuffer(device, dest);
+
+    VkBufferCopy region = {};
+    region.srcOffset = 0;
+    region.dstOffset = 0;
+    region.size = VK_WHOLE_SIZE;
+
+    vkCmdCopyBuffer(cmdBuffer, srcBuffer->handle, dstBuffer->handle, 1, &region);
+    
     return GfxResult::Ok;
 }
 
@@ -4714,15 +4861,26 @@ GfxResult CmdCopyBufferRange( GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, 
 internal
 GfxResult CmdClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
 {
-    NotImplemented;
-    //vkCmdFillBuffer
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    vg_buffer* dstBuffer = FromGfxBuffer(device, buffer);
+    vkCmdFillBuffer(cmdBuffer, dstBuffer->handle, 0, VK_WHOLE_SIZE, clearValue);
+    
     return GfxResult::Ok;
 }
 
 internal
-GfxResult CmdClearTexture( GfxCmdContext cmds, GfxTexture texture)
+GfxResult CmdClearTexture( GfxCmdContext cmds, GfxTexture texture, GfxColor color)
 {
     NotImplemented;
+
+    // VkClearColorValue clear = { color.r, color.g, color.b, color.a };
+    // VkImageSubresourceRange range{};
+
+
+    // vkCmdClearColorImage(cmdBuffer, image->handle, image->layout, &clear, 1, &range);
     //vkCmdClearColorImage
     return GfxResult::Ok;
 }
@@ -4731,7 +4889,7 @@ internal
 GfxResult CmdCopyTexture( GfxCmdContext cmds, GfxTexture src, GfxTexture dest)
 {
     NotImplemented;
-    //vkCmdCopyImage
+    //vkCmdCopyImage()
     return GfxResult::Ok;
 }
 
@@ -4754,6 +4912,38 @@ internal
 GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, GfxTexture dest)
 {
     NotImplemented;
+
+// Earlier reference code...
+//         // NOTE(james): Images are weird in that you have to transfer them to the proper format for each stage you use them
+//         VkImageMemoryBarrier copyBarrier = vkInit_image_barrier(
+//             target.handle, 0, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
+//         );
+
+//         vkCmdPipelineBarrier(transfer.cmds, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,  VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &copyBarrier);
+
+//         VkBufferImageCopy region{};
+//         region.bufferOffset = transfer.lastWritePosition;
+//         region.bufferRowLength = 0;
+//         region.bufferImageHeight = 0;
+
+//         region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+//         region.imageSubresource.mipLevel = 0;
+//         region.imageSubresource.baseArrayLayer = 0;
+//         region.imageSubresource.layerCount = 1;
+
+//         region.imageOffset = {0,0,0};
+//         region.imageExtent = { (u32)width, (u32)height, 1 };
+
+//         vkCmdCopyBufferToImage(transfer.cmds, transfer.staging_buffer.handle, target.handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+//         transfer.lastWritePosition += pixelSizeInBytes;
+
+//         VkImageMemoryBarrier useBarrier = vkInit_image_barrier(
+//             target.handle, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
+//         );
+
+//         vkCmdPipelineBarrier(transfer.cmds, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &useBarrier);
+ 
     //vkCmdCopyBufferToImage
     return GfxResult::Ok;
 }
@@ -4762,12 +4952,16 @@ internal
 GfxResult CmdGenerateMips( GfxCmdContext cmds, GfxTexture texture)
 {
     NotImplemented;
-    // TODO(james): look this up..
-    return GfxResult::Ok;
+    // image barrier -> all mip levels to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+
+    // for each mip level starting at 1
+    //   image barrier VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL -> VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+    //   vkCmdBlitImage for each mip level with VK_FILTER_LINEAR
+    return GfxResult::Ok; 
 }
 
 internal GfxResult
-CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetView* pColorRTVs, GfxRenderTargetView* pDepthStencilRTV)
+CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTarget* pColorRTVs, GfxRenderTarget* pDepthStencilRTV)
 {
     // Need to lookup or create a valid renderpass / framebuffer combo OR use the fancy vk_KHR_dynamic_rendering extension
     // vkCmdBeginRenderPass / vkCmdEndRenderPass if numRenderTargets is 0
@@ -4893,11 +5087,11 @@ CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTargetVi
 
             for(u32 i = 0; i < numRenderTargets; ++i)
             {
-                attachments[i] = rtvList[i]->view;
+                attachments[i] = rtvList[i]->image->view;
             }
             if(dsRTV)
             {
-                attachments[numRenderTargets] = dsRTV->view;
+                attachments[numRenderTargets] = dsRTV->image->view;
             }
             
             VkFramebufferCreateInfo info = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
@@ -5101,6 +5295,13 @@ GfxResult CmdDraw( GfxCmdContext cmds, u32 vertexCount, u32 instanceCount, u32 b
     vg_device& device = DeviceObject::From(cmds.deviceId);
     vg_cmd_context* context = FromGfxCmdContext(device, cmds);
     VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    if(context->shouldBindDescriptors)
+    {
+        vg_program* program = context->activeKernel->program;
+        vkCmdBindDescriptorSets(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, program->pipelineLayout, 0, program->descriptorSetLayouts->size(), context->activeDescriptorSets, 0, nullptr);
+        context->shouldBindDescriptors = false;
+    }
     
     vkCmdDraw(cmdBuffer, vertexCount, instanceCount, 0, 0);
     return GfxResult::Ok;
@@ -5125,7 +5326,7 @@ GfxResult CmdDrawIndexed( GfxCmdContext cmds, u32 indexCount, u32 instanceCount,
 }
 
 internal
-GfxResult CmdMultiDrawIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
+GfxResult CmdDrawIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
 {
     NotImplemented;
     // vkCmdDrawIndirect
@@ -5133,7 +5334,7 @@ GfxResult CmdMultiDrawIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 ar
 }
 
 internal
-GfxResult CmdMultiDrawIndexedIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
+GfxResult CmdDrawIndexedIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
 {
     NotImplemented;
     // vkCmdDrawIndexedIndirect
@@ -5143,24 +5344,24 @@ GfxResult CmdMultiDrawIndexedIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer,
 internal
 GfxResult CmdDispatch( GfxCmdContext cmds, u32 numGroupsX, u32 numGroupsY, u32 numGroupsZ)
 {
-    NotImplemented;
-    // vkCmdDispatch
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    vkCmdDispatch(cmdBuffer, numGroupsX, numGroupsY, numGroupsZ);
     return GfxResult::Ok;
 }
 
 internal
 GfxResult CmdDispatchIndirect( GfxCmdContext cmds, GfxBuffer argsBuffer)
 {
-    NotImplemented;
-    // vkCmdDispatchIndirect
-    return GfxResult::Ok;
-}
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
 
-internal
-GfxResult CmdMultiDispatchIndirect(  GfxCmdContext cmds, GfxBuffer argsBuffer, u32 argsCount)
-{
-    NotImplemented;
-    // vkCmdDispatchIndirect
+    vg_buffer* buffer = FromGfxBuffer(device, argsBuffer);
+    vkCmdDispatchIndirect(cmdBuffer, buffer->handle, 0);
+
     return GfxResult::Ok;
 }
 

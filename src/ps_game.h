@@ -28,6 +28,8 @@ struct game_state
     game_assets* assets;
     // render_resource_queue* resourceQueue;
 
+    GfxRenderTarget depthTarget;
+
     GfxBuffer stagingBuffer;
     GfxBuffer materialBuffer;
     GfxCmdEncoderPool cmdpool;
