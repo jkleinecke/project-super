@@ -124,6 +124,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
         vb.device.mapFramebuffers = hashtable_create(vb.device.arena, vg_framebuffer*, 128);
 
         // initially there a no objects in the freelist
+        vb.device.freelist_descriptorPool = 0;
         vb.device.freelist_renderpass = 0;
         vb.device.freelist_framebuffer = 0;
     }
@@ -208,11 +209,11 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.DestroySampler = DestroySampler;
     backend.gfx.CreateProgram = CreateProgram;
     backend.gfx.DestroyProgram = DestroyProgram;
-    backend.gfx.SetProgramBuffer = SetProgramBuffer;
-    backend.gfx.SetProgramTexture = SetProgramTexture;
-    backend.gfx.SetProgramTextures = SetProgramTextures;
-    backend.gfx.SetProgramSampler = SetProgramSampler;
-    backend.gfx.SetProgramConstants = SetProgramConstants;
+    // backend.gfx.SetProgramBuffer = SetProgramBuffer;
+    // backend.gfx.SetProgramTexture = SetProgramTexture;
+    // backend.gfx.SetProgramTextures = SetProgramTextures;
+    // backend.gfx.SetProgramSampler = SetProgramSampler;
+    // backend.gfx.SetProgramConstants = SetProgramConstants;
     backend.gfx.CreateRenderTargetView = CreateRenderTargetView;
     backend.gfx.DestroyRenderTargetView = DestroyRenderTargetView;
     backend.gfx.GetDeviceBackBufferFormat = GetDeviceBackBufferFormat;
@@ -242,6 +243,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.CmdBindKernel = CmdBindKernel;
     backend.gfx.CmdBindIndexBuffer = CmdBindIndexBuffer;
     backend.gfx.CmdBindVertexBuffer = CmdBindVertexBuffer;
+    backend.gfx.CmdBindDescriptorSet = CmdBindDescriptorSet;
     backend.gfx.CmdSetViewport = CmdSetViewport;
     backend.gfx.CmdSetScissorRect = CmdSetScissorRect;
     backend.gfx.CmdDraw = CmdDraw;

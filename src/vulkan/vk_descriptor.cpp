@@ -146,18 +146,6 @@ vgGrabFreeDescriptorPool(vg_descriptor_allocator& alloc)
     return pool;
 }
 
-internal void
-vgResetDescriptorPools(vg_descriptor_allocator& alloc)
-{
-    while(arrlen(alloc.a_used_pools))
-    {
-        VkDescriptorPool pool = arrpop(alloc.a_used_pools);
-        vkResetDescriptorPool(alloc.device, pool, 0);
-        arrpush(alloc.a_free_pools, pool);
-    }
-
-    alloc.current = VK_NULL_HANDLE;
-}
 
 internal bool
 vgAllocateDescriptor(vg_descriptor_allocator& alloc, VkDescriptorSetLayout layout, VkDescriptorSet* pDescriptor)

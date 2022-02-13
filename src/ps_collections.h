@@ -147,8 +147,9 @@ struct array
     b32 empty() const { return _size == 0; }
     b32 full() const { return _size == _capacity; }
 
-    T& front() const { ASSERT(_size > 0); return _data[0]; }
-    T& back() const { ASSERT(_size > 0); return _data[_size-1]; }
+    T& at(u32 index) { ASSERT(index < _size); return _data[index]; }
+    T& front() { ASSERT(_size > 0); return _data[0]; }
+    T& back() { ASSERT(_size > 0); return _data[_size-1]; }
 
     T* begin() { return _data; }
     T* end() { return _data + _size; }

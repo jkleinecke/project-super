@@ -4,6 +4,7 @@
 #include <vector>
 
 constexpr unsigned int FRAME_OVERLAP = 2;
+constexpr unsigned int MAX_DESCRIPTOR_SETS = 4;
 
 // struct vg_render_commands
 // {
@@ -80,25 +81,31 @@ struct vg_sampler
 //     VkDescriptorSetLayout descriptorLayout;
 // };
 
-struct vg_descriptorlayout_cache_info
+// struct vg_descriptorlayout_cache_info
+// {
+//     u64 key;
+//     VkDescriptorSetLayout value;
+// };
+
+// struct vg_descriptorlayout_cache
+// {
+//     vg_descriptorlayout_cache_info* hm_layouts;
+//     VkDevice device;
+// };
+
+struct vg_descriptor_pool
 {
-    u64 key;
-    VkDescriptorSetLayout value;
+    VkDescriptorPool handle;
+    vg_descriptor_pool* next;
 };
 
-struct vg_descriptorlayout_cache
-{
-    vg_descriptorlayout_cache_info* hm_layouts;
-    VkDevice device;
-};
-
-struct vg_descriptor_allocator
-{
-    VkDevice device;
-    VkDescriptorPool current;
-    VkDescriptorPool* a_free_pools;
-    VkDescriptorPool* a_used_pools;
-};
+// struct vg_descriptor_allocator
+// {
+//     VkDevice device;
+//     VkDescriptorPool current;
+//     VkDescriptorPool* a_free_pools;
+//     VkDescriptorPool* a_used_pools;
+// };
 
 struct vg_queue
 {
@@ -177,11 +184,15 @@ struct vg_framedata
 
 
 
+
 struct vg_program_binding_desc
 {
+    u16 set;
+    u16 binding;
+
+#if PROJECTSUPER_INTERNAL
     char name[GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH];
-    u32 set;
-    u32 binding;
+#endif
 };
 
 #define VG_MAX_PROGRAM_SHADER_COUNT 6
@@ -250,6 +261,8 @@ struct vg_cmd_context
     vg_kernel* activeKernel;
     vg_buffer* activeIB;
     vg_buffer* activeVB;
+    VkDescriptorSet* activeDescriptorSets;
+    b32 needsDescriptorSetsBound;
 };
 
 struct vg_command_encoder_pool
@@ -289,6 +302,8 @@ struct vg_device
     array<vg_image*>* swapChainImages;  // NOTE(james): these are just easy references, they are owned by the default resource heap
     // VkFramebuffer* paFramebuffers;
 
+    vg_descriptor_pool* descriptorPools[FRAME_OVERLAP];
+    vg_descriptor_pool* freelist_descriptorPool;
     // vg_descriptor_allocator descriptorAllocator;
     // vg_descriptorlayout_cache descriptorLayoutCache;
 

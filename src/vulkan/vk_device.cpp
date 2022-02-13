@@ -6,7 +6,7 @@
 
 #include "vk_extensions.h"
 #include "vk_initializers.cpp"
-#include "vk_descriptor.cpp"
+//#include "vk_descriptor.cpp"
 
 #include <vector>
 #include <algorithm>
@@ -1335,12 +1335,131 @@ VkResult vgInitializeMemory(vg_device& device)
             ASSERT(false);
             return fenceResult; 
         }
+
+        device.descriptorPools[i] = 0;
     }
 
     device.pCurFrame = &device.frames[0];
     device.pPrevFrame = &device.frames[FRAME_OVERLAP - 1];
 
     return VK_SUCCESS;
+}
+
+#define VG_POOLSIZER(x, size) (u32)((x) * (size))
+internal VkDescriptorPool
+vgCreateDescriptorPool(vg_device& device, u32 poolSize, VkDescriptorPoolCreateFlags createFlags)
+{
+
+    // NOTE(james): Tune these numbers for better VRAM efficiency, multiples of the entire descriptor pool count
+    VkDescriptorPoolSize poolSizes[] = {
+				{ VK_DESCRIPTOR_TYPE_SAMPLER,                  VG_POOLSIZER( 0.5, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,   VG_POOLSIZER( 1.0, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,            VG_POOLSIZER( 4.0, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,            VG_POOLSIZER( 1.0, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,     VG_POOLSIZER( 1.0, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,     VG_POOLSIZER( 1.0, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,           VG_POOLSIZER( 2.0, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,           VG_POOLSIZER( 2.0, poolSize ) },
+                { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,   VG_POOLSIZER( 1.0, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,   VG_POOLSIZER( 1.0, poolSize ) },
+				{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,         VG_POOLSIZER( 0.5, poolSize ) }
+			};
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = ARRAY_COUNT(poolSizes);
+    poolInfo.pPoolSizes = poolSizes;
+    poolInfo.maxSets = poolSize;
+    poolInfo.flags = createFlags; 
+
+    VkDescriptorPool pool = VK_NULL_HANDLE;
+    VkResult result = vkCreateDescriptorPool(device.handle, &poolInfo, nullptr, &pool);
+    ASSERT(result == VK_SUCCESS);
+
+    return pool;
+}
+
+internal void
+vgResetDescriptorPools(vg_device& device)
+{
+    vg_descriptor_pool* pool = device.descriptorPools[device.currentFrameIndex];
+    while(pool)
+    {
+        vg_descriptor_pool* freepool = pool;
+        vkResetDescriptorPool(device.handle, freepool->handle, 0);
+        pool = pool->next;
+        freepool->next = device.freelist_descriptorPool;
+        device.freelist_descriptorPool = freepool;
+    }
+
+    device.descriptorPools[device.currentFrameIndex] = 0;
+}
+
+internal vg_descriptor_pool*
+vgGrabFreeDescriptorPool(vg_device& device)
+{
+    vg_descriptor_pool* pool = 0;
+
+    if(device.freelist_descriptorPool)
+    {
+        pool = device.freelist_descriptorPool;
+        device.freelist_descriptorPool = pool->next;
+        pool->next = 0;
+    }
+    else
+    {
+        pool = PushStruct(device.arena, vg_descriptor_pool);
+        pool->handle = vgCreateDescriptorPool(device, 1000, 0);
+    }
+
+    return pool;
+}
+
+internal VkResult
+vgAllocateDescriptor(vg_device& device, VkDescriptorSetLayout layout, VkDescriptorSet* pDescriptor)
+{
+    vg_descriptor_pool* pool = device.descriptorPools[device.currentFrameIndex];
+    if(!pool)
+    {
+        pool = vgGrabFreeDescriptorPool(device);
+        device.descriptorPools[device.currentFrameIndex] = pool;
+    }
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.pNext = nullptr;
+    allocInfo.descriptorPool = pool->handle;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &layout;
+
+    VkResult result = vkAllocateDescriptorSets(device.handle, &allocInfo, pDescriptor);
+    bool needsRealloc = false;
+    
+    switch(result)
+    {
+        case VK_SUCCESS:
+            return result;
+        
+        case VK_ERROR_FRAGMENTED_POOL:
+        case VK_ERROR_OUT_OF_POOL_MEMORY:
+            {
+                vg_descriptor_pool* newPool = vgGrabFreeDescriptorPool(device);
+                newPool->next = pool;
+                device.descriptorPools[device.currentFrameIndex] = newPool;
+                
+                // if this fails we have bigger issues than a missing descriptor set
+                result = vkAllocateDescriptorSets(device.handle, &allocInfo, pDescriptor);
+            }
+            break;
+        default:
+            // do nothing...
+            break;
+    }
+
+    // uh-oh this is some bad-juju
+    ASSERT(result != VK_SUCCESS);
+    *pDescriptor = VK_NULL_HANDLE;
+    return result;
 }
 
 // internal
@@ -1838,10 +1957,24 @@ void vgDestroy(vg_backend& vb)
         }
         device.mapRenderpasses->clear();
 
+        vg_descriptor_pool* pool = device.freelist_descriptorPool;
+        while(pool)
+        {
+            vkDestroyDescriptorPool(device.handle, pool->handle, nullptr);
+            pool = pool->next;
+        }
+
         // Swapchain
         for(u32 i = 0; i < FRAME_OVERLAP; ++i)
         {
             vg_framedata& frame = device.frames[i];
+
+            pool = device.descriptorPools[i];
+            while(pool)
+            {
+                vkDestroyDescriptorPool(device.handle, pool->handle, nullptr);
+                pool = pool->next;
+            }
             
             // vgCleanupDescriptorAllocator(frame.dynamicDescriptorAllocator);
             vkDestroySemaphore(device.handle, frame.renderSemaphore, nullptr);
@@ -3220,6 +3353,7 @@ EndContextRenderPass(vg_device& device, vg_cmd_context* context)
         context->activeKernel = 0;
         context->activeIB = 0;
         context->activeVB = 0;
+        context->activeDescriptorSets = 0;
     }
 }
 
@@ -3676,15 +3810,16 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
     if(result == VK_SUCCESS)
     {
-        u32 pushConstantCount = 0;
-        VkPushConstantRange pushConstants[GFX_MAX_PUSH_CONSTANT_COUNT] = {};
-
+        u32 totalPushConstants = 0;
         u32 descriptorSetLayoutCount = 0;
         for(u32 shaderIdx = 0; shaderIdx < program->numShaders; ++shaderIdx)
         {
+            totalPushConstants += program->entrypoints[shaderIdx]->used_push_constant_count;
             descriptorSetLayoutCount += program->entrypoints[shaderIdx]->descriptor_set_count;
         }
         
+        u32 pushConstantCount = 0;
+        VkPushConstantRange* pushConstants = PushArray(*device.frameArena, totalPushConstants, VkPushConstantRange);
         program->descriptorSetLayouts = array_create(pHeap->arena, VkDescriptorSetLayout, descriptorSetLayoutCount);
         program->mapBindingDesc = hashtable_create(pHeap->arena, vg_program_binding_desc, 1024); // NOTE(james): 1024 bindings is waaay overkill, but it's just a pointer...
 
@@ -3710,7 +3845,9 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
                     binding.stageFlags = (VkShaderStageFlags)entrypoint.shader_stage;
 
                     vg_program_binding_desc binding_desc = {};
+#if PROJECTSUPER_INTERNAL
                     CopyString(spvBinding.name, binding_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
+#endif
                     binding_desc.set = set.set;
                     binding_desc.binding = spvBinding.binding;
                     program->mapBindingDesc->set(C_HASH64(spvBinding.name), binding_desc);
@@ -3812,40 +3949,98 @@ GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram resource)
     return GfxResult::Ok;
 }
 
-internal
-GfxResult SetProgramBuffer( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxBuffer buffer)
-{
-    NotImplemented;
-    return GfxResult::Ok;
-}
+// internal
+// GfxResult SetProgramBuffer( GfxDevice deviceHandle, GfxProgram programHandle, const char* param_name, GfxBuffer bufferHandle)
+// {
+//     vg_device& device = DeviceObject::From(deviceHandle);
+//     vg_program* program = FromGfxProgram(device, programHandle);
+//     vg_buffer* buffer = FromGfxBuffer(device, bufferHandle);
 
-internal
-GfxResult SetProgramTexture( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel)
-{
-    NotImplemented;
-    return GfxResult::Ok;
-}
+//     if(!program)
+//     {
+//         return GfxResult::InvalidParameter;
+//     }
 
-internal
-GfxResult SetProgramTextures( GfxDevice deviceHandle, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels)
-{
-    NotImplemented;
-    return GfxResult::Ok;
-}
+//     if(!buffer)
+//     {
+//         return GfxResult::InvalidParameter;
+//     }
 
-internal
-GfxResult SetProgramSampler( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxSampler sampler)
-{
-    NotImplemented;
-    return GfxResult::Ok;
-}
+//     vg_program_binding_desc binding = {};
+//     if(!program->mapBindingDesc->try_get(C_HASH64(param_name), &binding))
+//     {
+//         return GfxResult::InvalidParameter;
+//     }
+// #if PROJECTSUPER_INTERNAL
+//     ASSERT(CompareStrings(binding.name, param_name));
+// #endif
 
-internal
-GfxResult SetProgramConstants( GfxDevice deviceHandle, GfxProgram program, const char* param_name, const void* data, u32 size)
-{
-    NotImplemented;
-    return GfxResult::Ok;
-}
+//     vg_shader_param* pParam = PushStruct(*device.frameArena, vg_shader_param);
+    
+//     pParam->type = VgShaderParamType::Buffer;
+//     pParam->set = binding.set;
+//     pParam->binding = binding.binding;
+//     pParam->buffer = buffer;
+
+//     program->updateParams->push_back(pParam);
+
+//     return GfxResult::Ok;
+// }
+
+// internal
+// GfxResult SetProgramTexture( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel)
+// {
+//     NotImplemented;
+//     return GfxResult::Ok;
+// }
+
+// internal
+// GfxResult SetProgramTextures( GfxDevice deviceHandle, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels)
+// {
+//     NotImplemented;
+//     return GfxResult::Ok;
+// }
+
+// internal
+// GfxResult SetProgramSampler( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxSampler sampler)
+// {
+//     NotImplemented;
+//     return GfxResult::Ok;
+// }
+
+// internal
+// GfxResult SetProgramConstants( GfxDevice deviceHandle, GfxProgram program, const char* param_name, const void* data, u32 size)
+// {
+//     vg_device& device = DeviceObject::From(deviceHandle);
+//     vg_program* program = FromGfxProgram(device, programHandle);
+//     vg_buffer* buffer = FromGfxBuffer(device, bufferHandle);
+
+//     if(!program)
+//     {
+//         return GfxResult::InvalidParameter;
+//     }
+
+//     vg_program_binding_desc binding = {};
+//     if(!program->mapBindingDesc->try_get(C_HASH64(param_name), &binding))
+//     {
+//         return GfxResult::InvalidParameter;
+//     }
+// #if PROJECTSUPER_INTERNAL
+//     ASSERT(CompareStrings(binding.name, param_name));
+// #endif
+
+//     vg_shader_param* pParam = PushStruct(*device.frameArena, vg_shader_param);
+    
+//     pParam->type = VgShaderParamType::Constant;
+//     pParam->set = binding.set;
+//     pParam->binding = binding.binding;
+//     pParam->numBytes = size;
+//     pParam->pBytes = data;
+
+//     program->updateParams->push_back(pParam);
+
+//     return GfxResult::Ok;
+// }
 
 internal
 GfxKernel CreateComputeKernel( GfxDevice deviceHandle, GfxProgram program)
@@ -4741,6 +4936,8 @@ GfxResult CmdBindKernel( GfxCmdContext cmds, GfxKernel resource)
 
     vg_kernel* kernel = FromGfxKernel(device, resource);
 
+    // setup for the binding of descriptor sets
+    context->activeDescriptorSets = PushArray(*device.frameArena, kernel->program->descriptorSetLayouts->size(), VkDescriptorSet);
     context->activeKernel = kernel;
     vkCmdBindPipeline(cmdBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, kernel->pipeline);
     
@@ -4771,6 +4968,80 @@ GfxResult CmdBindVertexBuffer( GfxCmdContext cmds, GfxBuffer vertexBuffer)
     context->activeVB = vb;
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(cmdBuffer, 0, 1, &vb->handle, offsets);
+    return GfxResult::Ok;
+}
+
+internal
+GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descSet)
+{
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    if(!context->activeKernel)
+    {
+        return GfxResult::InvalidOperation;
+    }
+
+    vg_program* program = context->activeKernel->program;
+
+    if(descSet.setLocation >= program->descriptorSetLayouts->size())
+    {
+        return GfxResult::InvalidParameter;
+    }
+
+    VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+    VkResult result = vgAllocateDescriptor(device, program->descriptorSetLayouts->at(descSet.setLocation), &descriptorSet);
+
+    if(!result == VK_SUCCESS)
+    {
+        return ToGfxResult(result);
+    }
+
+    VkWriteDescriptorSet* writes = PushArray(*device.frameArena, descSet.count, VkWriteDescriptorSet);
+
+    for(u32 i = 0; i < descSet.count; ++i)
+    {
+        VkWriteDescriptorSet& writeData = writes[i];
+        const GfxDescriptor& desc = descSet.pDescriptors[i];
+
+        writeData.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeData.dstSet = descriptorSet;
+        writeData.dstBinding = desc.bindingLocation;
+
+        switch(desc.type)
+        {
+            case GfxDescriptorType::Buffer:
+                {
+                    vg_buffer* buffer = FromGfxBuffer(device, desc.buffer);
+                    
+                    VkDescriptorBufferInfo bufferInfo{};
+                    bufferInfo.buffer = buffer->handle;
+                    bufferInfo.offset = 0;
+                    bufferInfo.range = VK_WHOLE_SIZE;
+
+                    writeData.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    writeData.descriptorCount = 1;
+                    writeData.pBufferInfo = &bufferInfo;
+                }
+                break;
+            case GfxDescriptorType::Images:
+                NotImplemented;
+                break;
+            case GfxDescriptorType::Sampler:
+                NotImplemented;
+                break;
+            case GfxDescriptorType::Constant:
+                NotImplemented;
+                break;
+            InvalidDefaultCase;
+        }
+    }
+
+    vkUpdateDescriptorSets(device.handle, descSet.count, writes, 0, nullptr);
+    context->activeDescriptorSets[descSet.setLocation] = descriptorSet;
+    context->needsDescriptorSetsBound = true;
+        
     return GfxResult::Ok;
 }
 

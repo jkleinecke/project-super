@@ -11,7 +11,7 @@ enum GfxConstants
     GFX_MAX_ANISOTROPY = 8,
     GFX_MAX_BINDLESSSLOTS = 1024,
     GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH = 32,
-    GFX_MAX_PUSH_CONSTANT_COUNT = 32,
+    GFX_MAX_SHADER_PARAM_COUNT = 128,
 };
 
 enum class GfxResult
@@ -469,6 +469,7 @@ struct GfxCmdEncoderPoolDesc
     GfxQueueType queueType;
 };
 
+
 enum class GfxQueueResourceOp : u8
 {
     None,       // indicates that the resource is already part of this queue
@@ -511,6 +512,39 @@ struct GfxRenderTargetBarrier
 	uint16_t layer;
 };
 
+enum class GfxDescriptorType
+{
+    Buffer,
+    Images,
+    Sampler,
+    Constant,
+};
+
+struct GfxDescriptor
+{
+    GfxDescriptorType type;
+    u16 bindingLocation;
+    char* name;
+
+    GfxBuffer buffer;
+    
+    u32 numTextures;
+    GfxTexture* pTextures;
+    u32* mipLevels;
+
+    GfxSampler sampler;
+
+    u32 numBytes;
+    void* pBytes;
+};
+
+struct GfxDescriptorSet
+{
+    u16 setLocation;
+    u32 count;
+    GfxDescriptor* pDescriptors;
+};
+
 struct gfx_api
 {
     GfxDevice device;
@@ -532,11 +566,12 @@ struct gfx_api
 
     API_FUNCTION(GfxProgram, CreateProgram, GfxDevice device, const GfxProgramDesc& programDesc);
     API_FUNCTION(GfxResult, DestroyProgram, GfxDevice device, GfxProgram program);
-    API_FUNCTION(GfxResult, SetProgramBuffer, GfxDevice device, GfxProgram program, const char* param_name, GfxBuffer buffer);
-    API_FUNCTION(GfxResult, SetProgramTexture, GfxDevice device, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel);
-    API_FUNCTION(GfxResult, SetProgramTextures, GfxDevice device, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels);
-    API_FUNCTION(GfxResult, SetProgramSampler, GfxDevice device, GfxProgram program, const char* param_name, GfxSampler sampler);
-    API_FUNCTION(GfxResult, SetProgramConstants, GfxDevice device, GfxProgram program, const char* param_name, const void* data, u32 size);
+    
+    // API_FUNCTION(GfxResult, SetProgramBuffer, GfxDevice device, GfxProgram program, const char* param_name, GfxBuffer buffer);
+    // API_FUNCTION(GfxResult, SetProgramTexture, GfxDevice device, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel);
+    // API_FUNCTION(GfxResult, SetProgramTextures, GfxDevice device, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels);
+    // API_FUNCTION(GfxResult, SetProgramSampler, GfxDevice device, GfxProgram program, const char* param_name, GfxSampler sampler);
+    // API_FUNCTION(GfxResult, SetProgramConstants, GfxDevice device, GfxProgram program, const char* param_name, const void* data, u32 size);
 
     API_FUNCTION(GfxRenderTargetView, CreateRenderTargetView, GfxDevice device, const GfxRenderTargetViewDesc& rtvDesc);
     API_FUNCTION(GfxResult, DestroyRenderTargetView, GfxDevice device, GfxRenderTargetView rtv);
@@ -577,6 +612,7 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdBindKernel, GfxCmdContext cmds, GfxKernel kernel);
     API_FUNCTION(GfxResult, CmdBindIndexBuffer, GfxCmdContext cmds, GfxBuffer indexBuffer);
     API_FUNCTION(GfxResult, CmdBindVertexBuffer, GfxCmdContext cmds, GfxBuffer vertexBuffer);
+    API_FUNCTION(GfxResult, CmdBindDescriptorSet, GfxCmdContext cmds, const GfxDescriptorSet& descriptorSet);
 
     API_FUNCTION(GfxResult, CmdSetViewport, GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height);
     API_FUNCTION(GfxResult, CmdSetScissorRect, GfxCmdContext cmds, i32 x, i32 y, u32 width, u32 height);
