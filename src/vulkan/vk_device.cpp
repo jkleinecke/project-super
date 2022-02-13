@@ -4695,8 +4695,19 @@ GfxResult CmdCopyBuffer( GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest)
 internal
 GfxResult CmdCopyBufferRange( GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size)
 {
-    NotImplemented;
-    //vkCmdCopyBuffer()
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    vg_buffer* srcBuffer = FromGfxBuffer(device, src);
+    vg_buffer* dstBuffer = FromGfxBuffer(device, dest);
+
+    VkBufferCopy region = {};
+    region.srcOffset = (VkDeviceSize)srcOffset;
+    region.dstOffset = (VkDeviceSize)destOffset;
+    region.size = (VkDeviceSize)size;
+
+    vkCmdCopyBuffer(cmdBuffer, srcBuffer->handle, dstBuffer->handle, 1, &region);
     return GfxResult::Ok;
 }
 
@@ -5158,12 +5169,45 @@ GfxResult SubmitCommands( GfxDevice deviceHandle, u32 count, GfxCmdContext* pCon
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     
+    VkCommandBuffer* pCmdBuffers = PushArray(*device.frameArena, count, VkCommandBuffer);
+    for(u32 i = 0; i < count; ++i)
+    {
+        vg_cmd_context* context = FromGfxCmdContext(device, pContexts[i]);
+        pCmdBuffers[i] = CurrentFrameCmdBuffer(device, context);
+    }
+
+    VkSubmitInfo submitInfo{};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.waitSemaphoreCount = 0;
+    submitInfo.pWaitSemaphores = nullptr;
+    submitInfo.pWaitDstStageMask = nullptr;
+    submitInfo.commandBufferCount = count;
+    submitInfo.pCommandBuffers = pCmdBuffers;
+    submitInfo.signalSemaphoreCount = 0;
+    submitInfo.pSignalSemaphores = nullptr;
+
+    VkResult result = vkQueueSubmit(device.q_graphics.handle, 1, &submitInfo, VK_NULL_HANDLE);
+    if(DIDFAIL(result))
+    {
+        LOG_ERROR("Vulkan Submit Error: %X", result);
+        ASSERT(false);
+    }
+
+    return ToGfxResult(result);
+}
+
+internal
+GfxResult Frame( GfxDevice deviceHandle, u32 contextCount, GfxCmdContext* pContexts)
+{
+    vg_device& device = DeviceObject::From(deviceHandle);
+    
+    u32 imageIndex = device.curSwapChainIndex;
     VkSemaphore waitSemaphores[] = { device.pCurFrame->presentSemaphore };
     VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
     VkSemaphore signalSemaphores[] = { device.pCurFrame->renderSemaphore };
 
-    VkCommandBuffer* pCmdBuffers = PushArray(*device.frameArena, count, VkCommandBuffer);
-    for(u32 i = 0; i < count; ++i)
+    VkCommandBuffer* pCmdBuffers = PushArray(*device.frameArena, contextCount, VkCommandBuffer);
+    for(u32 i = 0; i < contextCount; ++i)
     {
         vg_cmd_context* context = FromGfxCmdContext(device, pContexts[i]);
         pCmdBuffers[i] = CurrentFrameCmdBuffer(device, context);
@@ -5174,7 +5218,7 @@ GfxResult SubmitCommands( GfxDevice deviceHandle, u32 count, GfxCmdContext* pCon
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
-    submitInfo.commandBufferCount = count;
+    submitInfo.commandBufferCount = contextCount;
     submitInfo.pCommandBuffers = pCmdBuffers;
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
@@ -5186,19 +5230,7 @@ GfxResult SubmitCommands( GfxDevice deviceHandle, u32 count, GfxCmdContext* pCon
         LOG_ERROR("Vulkan Submit Error: %X", result);
         ASSERT(false);
     }
-
-    return ToGfxResult(result);
-}
-
-internal
-GfxResult Frame( GfxDevice deviceHandle, b32 vsync)
-{
-    vg_device& device = DeviceObject::From(deviceHandle);
-
-    u32 imageIndex = device.curSwapChainIndex;
     
-    VkSemaphore signalSemaphores[] = { device.pCurFrame->renderSemaphore };
-
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
     presentInfo.waitSemaphoreCount = 1;
@@ -5208,7 +5240,7 @@ GfxResult Frame( GfxDevice deviceHandle, b32 vsync)
     presentInfo.pImageIndices = &device.curSwapChainIndex;
     presentInfo.pResults = nullptr;
 
-    VkResult result = vkQueuePresentKHR(device.q_present.handle, &presentInfo);
+    result = vkQueuePresentKHR(device.q_present.handle, &presentInfo);
 
     if(result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
     {

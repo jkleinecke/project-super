@@ -627,7 +627,7 @@ struct gfx_api
     // TODO(james): Schedule work on different queues (Transfer, Compute, Graphics, etc..)
     API_FUNCTION(GfxRenderTargetView, AcquireNextSwapChainTarget, GfxDevice device);
     API_FUNCTION(GfxResult, SubmitCommands, GfxDevice device, u32 count, GfxCmdContext* pContexts);
-    API_FUNCTION(GfxResult, Frame, GfxDevice device, b32 vsync);
+    API_FUNCTION(GfxResult, Frame, GfxDevice device, u32 contextCount, GfxCmdContext* pContexts);
     API_FUNCTION(GfxResult, Finish, GfxDevice device);
     API_FUNCTION(GfxResult, CleanupUnusedRenderingResources, GfxDevice device);     // cleans up any transient resources that were allocated during rendering but are no longer needed..  Varies based on backend
     

@@ -404,7 +404,7 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.CmdBindKernel(cmds, state.mainKernel);
 
     GfxDescriptor descriptors[] = {
-        { GfxDescriptorType::Buffer, 0, "", state.materialBuffer }
+        { GfxDescriptorType::Buffer, 0, (char*)"", state.materialBuffer }
     };
 
     GfxDescriptorSet desc = {};
@@ -427,10 +427,7 @@ RenderFrame(game_state& state, render_context& rc)
 
     gfx.EndEncodingCmds(cmds);
 
-    gfx.SubmitCommands(gfx.device, 1, &cmds);
-
-    b32 vsync = true;
-    gfx.Frame(gfx.device, vsync);
+    gfx.Frame(gfx.device, 1, &cmds);
 }
 
 internal void
@@ -511,9 +508,6 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             gameState.box.geometry.indexCount = ARRAY_COUNT(indices);
             gameState.box.geometry.indexBuffer = gfx.CreateBuffer(gfx.device, ib, 0);
             gameState.box.geometry.vertexBuffer = gfx.CreateBuffer(gfx.device, vb, 0);
-
-            // CopyArray(ARRAY_COUNT(indices), indices, gfx.GetBufferData(gfx.device, gameState.box.geometry.indexBuffer));
-            // CopyArray(ARRAY_COUNT(vertices), vertices, gfx.GetBufferData(gfx.device, gameState.box.geometry.vertexBuffer));
 
             gameState.shaderProgram = LoadProgram(*gameState.frameArena, "shader.vert.spv", "shader.frag.spv");
             gameState.mainKernel = gfx.CreateGraphicsKernel(gfx.device, gameState.shaderProgram, DefaultPipeline());
