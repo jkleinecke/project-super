@@ -522,8 +522,7 @@ struct GfxRenderTargetBarrier
 enum class GfxDescriptorType
 {
     Buffer,
-    Images,
-    Sampler,
+    Image,
     Constant,
 };
 
@@ -535,14 +534,17 @@ struct GfxDescriptor
 
     GfxBuffer buffer;
     
-    u32 numTextures;
-    GfxTexture* pTextures;
-    u32* mipLevels;
-
+    // u32 numTextures;
+    // GfxTexture* pTextures;
+    // u32* mipLevels;
+    GfxTexture texture;
     GfxSampler sampler;
+    u32 mipLevel;
 
     u32 numBytes;
     void* pBytes;
+
+    // TODO(james): Add expected resource state?
 };
 
 struct GfxDescriptorSet
@@ -568,7 +570,7 @@ struct gfx_api
     API_FUNCTION(GfxTexture, CreateTexture, GfxDevice device, const GfxTextureDesc& textureDesc);
     API_FUNCTION(GfxResult, DestroyTexture, GfxDevice device, GfxTexture texture);
 
-    API_FUNCTION(GfxSampler, CreateSampler, GfxDevice device, const GfxSamplerDesc samplerDesc);
+    API_FUNCTION(GfxSampler, CreateSampler, GfxDevice device, const GfxSamplerDesc& samplerDesc);
     API_FUNCTION(GfxResult, DestroySampler, GfxDevice device, GfxSampler sampler);
 
     API_FUNCTION(GfxProgram, CreateProgram, GfxDevice device, const GfxProgramDesc& programDesc);

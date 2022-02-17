@@ -3735,7 +3735,7 @@ GfxResult DestroyTexture( GfxDevice deviceHandle, GfxTexture resource)
 }
 
 internal
-GfxSampler CreateSampler( GfxDevice deviceHandle, const GfxSamplerDesc samplerDesc)
+GfxSampler CreateSampler( GfxDevice deviceHandle, const GfxSamplerDesc& samplerDesc)
 {
     vg_device& device = DeviceObject::From(deviceHandle);
     vg_resourceheap* pHeap = device.resourceHeaps->get(samplerDesc.heap.id);
@@ -5237,11 +5237,20 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
                     writeData.pBufferInfo = &bufferInfo;
                 }
                 break;
-            case GfxDescriptorType::Images:
-                NotImplemented;
-                break;
-            case GfxDescriptorType::Sampler:
-                NotImplemented;
+            case GfxDescriptorType::Image:
+                {
+                    vg_image* image = FromGfxTexture(device, desc.texture);
+                    vg_sampler* sampler = FromGfxSampler(device, desc.sampler);
+
+                    VkDescriptorImageInfo imageInfo{};
+                    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    imageInfo.imageView = image->view;
+                    imageInfo.sampler = sampler->handle;
+
+                    writeData.descriptorCount = 1;
+                    writeData.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    writeData.pImageInfo = &imageInfo;
+                }
                 break;
             case GfxDescriptorType::Constant:
                 NotImplemented;

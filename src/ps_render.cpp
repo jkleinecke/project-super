@@ -201,3 +201,40 @@ UniformBuffer(u64 size)
 
     return desc;
 }
+
+internal GfxSamplerDesc
+Sampler()
+{
+    GfxSamplerDesc desc = {};
+    desc.enableAnisotropy = false;
+    desc.coordinatesNotNormalized = false;
+    desc.minFilter = GfxSamplerFilter::Linear;
+    desc.magFilter = GfxSamplerFilter::Linear;
+    desc.addressMode_U = GfxSamplerAddressMode::Repeat;
+    desc.addressMode_V = GfxSamplerAddressMode::Repeat;
+    desc.addressMode_W = GfxSamplerAddressMode::Repeat;
+    desc.mipmapMode = GfxSamplerMipMapMode::Nearest;
+
+    return desc;
+}
+
+inline GfxDescriptor
+BufferDescriptor(u16 bindingLocation, GfxBuffer buffer)
+{
+    GfxDescriptor desc{};
+    desc.type = GfxDescriptorType::Buffer;
+    desc.bindingLocation = bindingLocation;
+    desc.buffer = buffer;
+    return desc;
+}
+
+internal GfxDescriptor
+TextureDescriptor(u16 bindingLocation, GfxTexture texture, GfxSampler sampler)
+{
+    GfxDescriptor desc{};
+    desc.type = GfxDescriptorType::Image;
+    desc.bindingLocation = bindingLocation;
+    desc.texture = texture;
+    desc.sampler = sampler;
+    return desc;
+}

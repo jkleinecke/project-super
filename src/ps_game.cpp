@@ -406,7 +406,8 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.CmdBindKernel(cmds, state.mainKernel);
 
     GfxDescriptor descriptors[] = {
-        { GfxDescriptorType::Buffer, 0, (char*)"", state.materialBuffer }
+        // BufferDescriptor(0, state.materialBuffer),
+        TextureDescriptor(0, state.texture, state.sampler),
     };
 
     GfxDescriptorSet desc = {};
@@ -573,6 +574,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             texDesc.access = GfxMemoryAccess::GpuOnly;
 
             gameState.texture = gfx.CreateTexture(gfx.device, texDesc);
+            gameState.sampler = gfx.CreateSampler(gfx.device, Sampler());
 
             {
                 GfxCmdContext cmds = gameState.cmds;
