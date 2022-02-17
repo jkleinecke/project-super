@@ -435,7 +435,7 @@ RenderFrame(game_state& state, render_context& rc)
 
 
 internal void
-TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* height, u32* channels, void** pixeldata)
+TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* height, u32* channels, void* pixeldata)
 {
     temporary_memory temp = BeginTemporaryMemory(arena);
 
@@ -458,10 +458,7 @@ TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* 
     if(width) *width = (u32)texWidth;
     if(height) *height = (u32)texHeight;
     if(channels) *channels = (u32)texChannels;
-    if(pixeldata) {
-        *pixeldata = PushSize(arena, texWidth*texHeight*4);
-        Copy(texWidth*texHeight*4, pixels, *pixeldata);
-    }
+    Copy(texWidth*texHeight*4, pixels, pixeldata);
 
     stbi_image_free(pixels);
 }
@@ -517,10 +514,10 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             umm vsize = sizeof(render_mesh_vertex);
 
             render_mesh_vertex vertices[] = {
-                {{ -halfWidth,  halfHeight, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f }},
-                {{ -halfWidth, -halfHeight, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f }},
-                {{  halfWidth, -halfHeight, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }},
-                {{  halfWidth,  halfHeight, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{ -halfWidth,  halfHeight, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{ -halfWidth, -halfHeight, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfWidth, -halfHeight, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfWidth,  halfHeight, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
             };
             u32 indices[] = { 0, 1, 2, 0, 2, 3 };
 
@@ -567,8 +564,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
             GfxTextureDesc texDesc = {};
 
-            void* pixelData = 0;
-            TempLoadImagePixels(*gameState.frameArena, "texture.jpg", &texDesc.width, &texDesc.height, 0, &pixelData);
+            TempLoadImagePixels(*gameState.frameArena, "texture.jpg", &texDesc.width, &texDesc.height, 0, stagingPtr);
             texDesc.type = GfxTextureType::Tex2D;
             texDesc.format = TinyImageFormat_R8G8B8A8_SRGB;
             texDesc.access = GfxMemoryAccess::GpuOnly;
