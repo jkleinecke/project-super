@@ -727,8 +727,8 @@ int main(int argc, const char* argv[])
 
 		ps_graphics_backend graphicsDriver = platform_load_graphics_backend(layer, windowWidth, windowHeight);
 		gfx_api& gfx = graphicsDriver.gfx; 
-		gameRender.renderDimensions.Width = windowWidth;
-		gameRender.renderDimensions.Height = windowHeight;
+		gameRender.renderDimensions.Width = graphicsDriver.width;
+		gameRender.renderDimensions.Height = graphicsDriver.height;
 		gameRender.gfx = gfx;
 
 		macos_game_function_table gameFunctions = {};

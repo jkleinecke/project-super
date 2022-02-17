@@ -580,8 +580,6 @@ extern "C" int __stdcall WinMainCRTStartup()
   
     game_memory gameMemory = {};
     render_context gameRender = {};
-    gameRender.renderDimensions.Width = (f32)FIXED_RENDER_WIDTH;  // TODO(james): make these dynamic at runtime..
-    gameRender.renderDimensions.Height = (f32)FIXED_RENDER_HEIGHT;
 
     gameMemory.highPriorityQueue = &highPriorityQueue;
     gameMemory.lowPriorityQueue = &lowPriorityQueue;
@@ -626,6 +624,8 @@ extern "C" int __stdcall WinMainCRTStartup()
     ps_graphics_backend graphicsDriver = platform_load_graphics_backend(hInstance, mainWindow);
     gfx_api& gfx = graphicsDriver.gfx; 
     gameRender.gfx = gfx;
+    gameRender.renderDimensions.Width = graphicsDriver.width;
+    gameRender.renderDimensions.Height = graphicsDriver.height;
 
     ShowWindow(mainWindow, SW_SHOW);
     Win32LoadXinput();

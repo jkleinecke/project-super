@@ -43,6 +43,8 @@ struct ps_graphics_backend
 {
     gfx_api gfx;
     vg_backend* instance;
+    f32 width;
+    f32 height;
 };
 
 #if PROJECTSUPER_WIN32

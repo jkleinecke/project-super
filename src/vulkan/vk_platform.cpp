@@ -193,6 +193,8 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
 
     ps_graphics_backend backend = {};
     backend.instance = &g_VulkanBackend;
+    backend.width = vb.device.extent.width;
+    backend.height = vb.device.extent.height;
     // WINDOWS SPECIFIC
     // TODO(james): Setup resource operation thread
     //backend.resourceQueue.semaphore = CreateSemaphore(0, 0, 1, 0);    // Only 1 resource operation thread will be active
