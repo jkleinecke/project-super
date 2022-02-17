@@ -1302,6 +1302,7 @@ VkResult vgCreateSwapChain(vg_device& device, VkFormat preferredFormat, VkColorS
         swapChainImg->width = extent.width;
         swapChainImg->height = extent.height;
         swapChainImg->layers = 1;
+        swapChainImg->numMipLevels = 1;
 
         device.swapChainImages->push_back(swapChainImg);    
 
@@ -3350,7 +3351,7 @@ FromGfxSampler(vg_device& device, GfxSampler resource)
 }
 
 inline vg_rendertargetview* 
-FromGfxRenderTargetView(vg_device& device, GfxRenderTarget resource)
+FromGfxRenderTarget(vg_device& device, GfxRenderTarget resource)
 {
     vg_resourceheap* pHeap = device.resourceHeaps->get(resource.heap);
     return pHeap->rtvs->get(resource.id);
@@ -3713,6 +3714,7 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
     image->width = textureDesc.width;
     image->height = textureDesc.height;
     image->layers = Maximum(textureDesc.slice_count, 1);
+    image->numMipLevels = imageInfo.mipLevels;
 
     u64 key = HASH(pHeap->textures->size()+1);
     pHeap->textures->set(key, image);
@@ -3886,6 +3888,7 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
         program->descriptorSetLayouts = array_create(pHeap->arena, VkDescriptorSetLayout, descriptorSetLayoutCount);
         program->mapBindingDesc = hashtable_create(pHeap->arena, vg_program_binding_desc, 1024); // NOTE(james): 1024 bindings is waaay overkill, but it's just a pointer...
+        program->mapPushConstantDesc = hashtable_create(pHeap->arena, vg_program_pushconstant_desc, 32);    // NOTE(james): 32 push constants should be enough. Only have 128 bytes
 
         temporary_memory temp = BeginTemporaryMemory(pHeap->arena);
 
@@ -3914,7 +3917,7 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 #endif
                     binding_desc.set = set.set;
                     binding_desc.binding = spvBinding.binding;
-                    program->mapBindingDesc->set(C_HASH64(spvBinding.name), binding_desc);
+                    program->mapBindingDesc->set(strhash64(spvBinding.name, StringLength(spvBinding.name)-1), binding_desc);
                 }
 
                 VkDescriptorSetLayoutCreateInfo descLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -3941,6 +3944,16 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
                 pushConstant.offset = (VkDeviceSize)block->offset;
                 pushConstant.size = (VkDeviceSize)block->size;
                 pushConstant.stageFlags = entrypoint.shader_stage;
+
+                vg_program_pushconstant_desc pc_desc = {};
+#if PROJECTSUPER_INTERNAL
+                CopyString(block->name, pc_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
+#endif
+                pc_desc.offset = block->offset;
+                pc_desc.size = block->size;
+                pc_desc.shaderStage = entrypoint.shader_stage;
+
+                program->mapPushConstantDesc->set(strhash64(block->name, StringLength(block->name)-1), pc_desc);
             }
         }
 
@@ -4013,99 +4026,6 @@ GfxResult DestroyProgram( GfxDevice deviceHandle, GfxProgram resource)
     return GfxResult::Ok;
 }
 
-// internal
-// GfxResult SetProgramBuffer( GfxDevice deviceHandle, GfxProgram programHandle, const char* param_name, GfxBuffer bufferHandle)
-// {
-//     vg_device& device = DeviceObject::From(deviceHandle);
-//     vg_program* program = FromGfxProgram(device, programHandle);
-//     vg_buffer* buffer = FromGfxBuffer(device, bufferHandle);
-
-//     if(!program)
-//     {
-//         return GfxResult::InvalidParameter;
-//     }
-
-//     if(!buffer)
-//     {
-//         return GfxResult::InvalidParameter;
-//     }
-
-//     vg_program_binding_desc binding = {};
-//     if(!program->mapBindingDesc->try_get(C_HASH64(param_name), &binding))
-//     {
-//         return GfxResult::InvalidParameter;
-//     }
-// #if PROJECTSUPER_INTERNAL
-//     ASSERT(CompareStrings(binding.name, param_name));
-// #endif
-
-//     vg_shader_param* pParam = PushStruct(*device.frameArena, vg_shader_param);
-    
-//     pParam->type = VgShaderParamType::Buffer;
-//     pParam->set = binding.set;
-//     pParam->binding = binding.binding;
-//     pParam->buffer = buffer;
-
-//     program->updateParams->push_back(pParam);
-
-//     return GfxResult::Ok;
-// }
-
-// internal
-// GfxResult SetProgramTexture( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel)
-// {
-//     NotImplemented;
-//     return GfxResult::Ok;
-// }
-
-// internal
-// GfxResult SetProgramTextures( GfxDevice deviceHandle, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels)
-// {
-//     NotImplemented;
-//     return GfxResult::Ok;
-// }
-
-// internal
-// GfxResult SetProgramSampler( GfxDevice deviceHandle, GfxProgram program, const char* param_name, GfxSampler sampler)
-// {
-//     NotImplemented;
-//     return GfxResult::Ok;
-// }
-
-// internal
-// GfxResult SetProgramConstants( GfxDevice deviceHandle, GfxProgram program, const char* param_name, const void* data, u32 size)
-// {
-//     vg_device& device = DeviceObject::From(deviceHandle);
-//     vg_program* program = FromGfxProgram(device, programHandle);
-//     vg_buffer* buffer = FromGfxBuffer(device, bufferHandle);
-
-//     if(!program)
-//     {
-//         return GfxResult::InvalidParameter;
-//     }
-
-//     vg_program_binding_desc binding = {};
-//     if(!program->mapBindingDesc->try_get(C_HASH64(param_name), &binding))
-//     {
-//         return GfxResult::InvalidParameter;
-//     }
-// #if PROJECTSUPER_INTERNAL
-//     ASSERT(CompareStrings(binding.name, param_name));
-// #endif
-
-//     vg_shader_param* pParam = PushStruct(*device.frameArena, vg_shader_param);
-    
-//     pParam->type = VgShaderParamType::Constant;
-//     pParam->set = binding.set;
-//     pParam->binding = binding.binding;
-//     pParam->numBytes = size;
-//     pParam->pBytes = data;
-
-//     program->updateParams->push_back(pParam);
-
-//     return GfxResult::Ok;
-// }
-
 internal
 GfxKernel CreateComputeKernel( GfxDevice deviceHandle, GfxProgram program)
 {
@@ -4176,6 +4096,7 @@ GfxRenderTarget CreateRenderTarget( GfxDevice deviceHandle, const GfxRenderTarge
     image->height = rtvDesc.height;
     image->layers = Maximum(rtvDesc.depth, 1);
     image->format = imageInfo.format;
+    image->numMipLevels = imageInfo.mipLevels;
 
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = memUsage;
@@ -4757,7 +4678,7 @@ CmdResourceBarrier(GfxCmdContext cmds,
     {
         const GfxRenderTargetBarrier& gfxBarrier = pRenderTargetBarriers[i];
         VkImageMemoryBarrier& barrier = imgBarriers[numTextureBarriers + i];
-        vg_rendertargetview* rtv = FromGfxRenderTargetView(device, gfxBarrier.rtv);
+        vg_rendertargetview* rtv = FromGfxRenderTarget(device, gfxBarrier.rtv);
 
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 
@@ -4874,37 +4795,118 @@ GfxResult CmdClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
 internal
 GfxResult CmdClearTexture( GfxCmdContext cmds, GfxTexture texture, GfxColor color)
 {
-    NotImplemented;
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
 
-    // VkClearColorValue clear = { color.r, color.g, color.b, color.a };
-    // VkImageSubresourceRange range{};
+    // Cannot perform a clear during a render pass!
+    ASSERT(!context->activeKernel);
+    vg_image* image = FromGfxTexture(device, texture);
 
+    VkClearColorValue clear = { color.r, color.g, color.b, color.a };
+    VkImageSubresourceRange range{};
+    range.aspectMask = DetermineAspectMaskFromFormat(image->format, false);
+    range.baseMipLevel = 0;
+    range.levelCount = image->numMipLevels;
+    range.baseArrayLayer = 0;
+    range.layerCount = image->layers;
 
-    // vkCmdClearColorImage(cmdBuffer, image->handle, image->layout, &clear, 1, &range);
-    //vkCmdClearColorImage
+    // NOTE(james): layout must be in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL or VK_IMAGE_LAYOUT_GENERAL for this to work
+    vkCmdClearColorImage(cmdBuffer, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+
     return GfxResult::Ok;
 }
 
 internal
 GfxResult CmdCopyTexture( GfxCmdContext cmds, GfxTexture src, GfxTexture dest)
 {
-    NotImplemented;
-    //vkCmdCopyImage()
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    // Cannot perform a copy during a render pass!
+    ASSERT(!context->activeKernel);
+
+    vg_image* srcImage = FromGfxTexture(device, src);
+    vg_image* dstImage = FromGfxTexture(device, dest);
+
+    VkImageCopy region{};
+    region.srcSubresource.aspectMask = DetermineAspectMaskFromFormat(srcImage->format, false);
+    region.srcSubresource.mipLevel = 0;
+    region.srcSubresource.baseArrayLayer = 0;
+    region.srcSubresource.layerCount = srcImage->layers;
+    region.srcOffset = {0,0,0};
+    region.dstSubresource.aspectMask = DetermineAspectMaskFromFormat(dstImage->format, false);
+    region.dstSubresource.mipLevel = 0;
+    region.dstSubresource.baseArrayLayer = 0;
+    region.dstSubresource.layerCount = dstImage->layers;
+    region.dstOffset = {0,0,0};
+    region.extent = {srcImage->width,srcImage->height,srcImage->layers};
+
+    // NOTE(james): source layout must be in VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL and dest layout must be in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL or VK_IMAGE_LAYOUT_GENERAL for this to work
+    vkCmdCopyImage(cmdBuffer, srcImage->handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     return GfxResult::Ok;
 }
 
 internal
-GfxResult CmdClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice)
+GfxResult CmdClearImage( GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice, GfxColor color)
 {
-    NotImplemented;
-    //vkCmdClearColorImage
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    // Cannot perform a clear during a render pass!
+    ASSERT(!context->activeKernel);
+
+    vg_image* image = FromGfxTexture(device, texture);
+
+    VkClearColorValue clear = { color.r, color.g, color.b, color.a };
+    VkImageSubresourceRange range{};
+    range.aspectMask = DetermineAspectMaskFromFormat(image->format, false);
+    range.baseMipLevel = mipLevel;
+    range.levelCount = 1;
+    range.baseArrayLayer = slice;
+    range.layerCount = 1;
+
+    // NOTE(james): layout must be in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL or VK_IMAGE_LAYOUT_GENERAL for this to work
+    vkCmdClearColorImage(cmdBuffer, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+
     return GfxResult::Ok;
 }
 
 internal
-GfxResult CmdClearBackBuffer( GfxCmdContext cmds, GfxColor color )
+GfxResult CmdClearRenderTarget( GfxCmdContext cmds, GfxRenderTarget renderTarget, GfxColor color, f32 depth, u8 stencil )
 {
-    NotImplemented;
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    // Cannot perform a clear during a render pass!
+    ASSERT(!context->activeKernel);
+
+    vg_rendertargetview* rtv = FromGfxRenderTarget(device, renderTarget);
+    vg_image* image = rtv->image;
+
+    VkClearColorValue clear = { color.r, color.g, color.b, color.a };
+    VkImageSubresourceRange range{};
+    range.aspectMask = DetermineAspectMaskFromFormat(image->format, true);
+    range.baseMipLevel = 0;
+    range.levelCount = 1;
+    range.baseArrayLayer = 0;
+    range.layerCount = 1;
+
+    if(range.aspectMask == VK_IMAGE_ASPECT_COLOR_BIT)
+    {
+        // NOTE(james): layout must be in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL or VK_IMAGE_LAYOUT_GENERAL for this to work
+        vkCmdClearColorImage(cmdBuffer, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+    }
+    else
+    {
+        // NOTE(james): layout must be in VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL or VK_IMAGE_LAYOUT_GENERAL for this to work
+        VkClearDepthStencilValue depthClear = {depth, stencil};
+        vkCmdClearDepthStencilImage(cmdBuffer, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &depthClear, 1, &range);
+    }
+
     return GfxResult::Ok;
 }
 
@@ -4934,15 +4936,6 @@ GfxResult CmdCopyBufferToTexture( GfxCmdContext cmds, GfxBuffer src, u64 srcOffs
 
     vkCmdCopyBufferToImage(cmdBuffer, buffer->handle, image->handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-//         transfer.lastWritePosition += pixelSizeInBytes;
-
-//         VkImageMemoryBarrier useBarrier = vkInit_image_barrier(
-//             target.handle, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT
-//         );
-
-//         vkCmdPipelineBarrier(transfer.cmds, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1, &useBarrier);
- 
-    //vkCmdCopyBufferToImage
     return GfxResult::Ok;
 }
 
@@ -4979,7 +4972,7 @@ CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTarget* 
         
         for(u32 rtIdx = 0; rtIdx < numRenderTargets; ++rtIdx)
         {
-            rtvList[rtIdx] = FromGfxRenderTargetView(device, pColorRTVs[rtIdx]);
+            rtvList[rtIdx] = FromGfxRenderTarget(device, pColorRTVs[rtIdx]);
 
             if(rtvList[rtIdx]->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR)
             {
@@ -4991,7 +4984,7 @@ CmdBindRenderTargets(GfxCmdContext cmds, u32 numRenderTargets, GfxRenderTarget* 
         vg_rendertargetview* dsRTV = nullptr;  
         if(pDepthStencilRTV)
         {
-            dsRTV = FromGfxRenderTargetView(device, *pDepthStencilRTV);
+            dsRTV = FromGfxRenderTarget(device, *pDepthStencilRTV);
             renderpassKey = MurmurHash64(dsRTV, sizeof(vg_rendertargetview), renderpassKey);
 
             if(dsRTV->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR)
@@ -5210,16 +5203,28 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
         return ToGfxResult(result);
     }
 
+    u32 writeDescriptors = 0;
     VkWriteDescriptorSet* writes = PushArray(*device.frameArena, descSet.count, VkWriteDescriptorSet);
 
     for(u32 i = 0; i < descSet.count; ++i)
     {
-        VkWriteDescriptorSet& writeData = writes[i];
+        VkWriteDescriptorSet& writeData = writes[writeDescriptors++];
         const GfxDescriptor& desc = descSet.pDescriptors[i];
 
         writeData.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writeData.dstSet = descriptorSet;
         writeData.dstBinding = desc.bindingLocation;
+
+        if(desc.name)
+        {
+            // lookup using the reflection name
+            vg_program_binding_desc& bindingDesc = program->mapBindingDesc->get(strhash64(desc.name, StringLength(desc.name)-1));
+            ASSERT(bindingDesc.set == descSet.setLocation);
+#if PROJECTSUPER_INTERNAL
+            ASSERT(CompareStrings(desc.name, bindingDesc.name));
+#endif
+            writeData.dstBinding = bindingDesc.binding;
+        }
 
         switch(desc.type)
         {
@@ -5252,9 +5257,6 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
                     writeData.pImageInfo = &imageInfo;
                 }
                 break;
-            case GfxDescriptorType::Constant:
-                NotImplemented;
-                break;
             InvalidDefaultCase;
         }
     }
@@ -5263,6 +5265,25 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
     context->activeDescriptorSets[descSet.setLocation] = descriptorSet;
     context->shouldBindDescriptors = true;
         
+    return GfxResult::Ok;
+}
+
+internal
+GfxResult CmdBindPushConstant(GfxCmdContext cmds, const char* name, const void* data)
+{
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    vg_program* program = context->activeKernel->program;
+    vg_program_pushconstant_desc& pc = program->mapPushConstantDesc->get(strhash64(name, StringLength(name)-1));
+
+#if PROJECTSUPER_INTERNAL
+    ASSERT(CompareStrings(name, pc.name));
+#endif
+
+    vkCmdPushConstants(cmdBuffer, program->pipelineLayout, pc.shaderStage, pc.offset, pc.size, data);
+
     return GfxResult::Ok;
 }
 
@@ -5484,10 +5505,49 @@ GfxResult Finish(GfxDevice deviceHandle)
 internal
 GfxResult CleanupUnusedRenderingResources(GfxDevice deviceHandle)
 {
-    NotImplemented;
-    // TODO: Cleanup all the renderpass and framebuffer objects that weren't used in the cur frame
-    // Store objects in the free list after releasing vulkan resources
-    return GfxResult::Ok;
+    vg_device& device = DeviceObject::From(deviceHandle);
+    // NOTE(james): to do this safely, must wait until the resources aren't being used
+    VkResult result = vkDeviceWaitIdle(device.handle);
+
+    if(result == VK_SUCCESS)
+    {
+        // Store objects in the free list after releasing vulkan resources
+        for(auto entry = device.mapRenderpasses->begin(); entry != device.mapRenderpasses->end();)
+        {
+            vg_renderpass* renderpass = **entry;
+            if(renderpass->lastUsedInFrameIndex != device.curSwapChainIndex)
+            {
+                vkDestroyRenderPass(device.handle, renderpass->handle, nullptr);
+                renderpass->lastUsedInFrameIndex = U32MAX;
+                renderpass->next = device.freelist_renderpass;
+                device.freelist_renderpass = renderpass;
+                entry = device.mapRenderpasses->erase(entry);
+            }
+            else
+            {
+                entry++;
+            }
+        }
+
+        for(auto entry = device.mapFramebuffers->begin(); entry != device.mapFramebuffers->end();)
+        {
+            vg_framebuffer* framebuffer = **entry;
+            if(framebuffer->lastUsedInFrameIndex != device.curSwapChainIndex)
+            {
+                vkDestroyFramebuffer(device.handle, framebuffer->handle, nullptr);
+                framebuffer->lastUsedInFrameIndex = U32MAX;
+                framebuffer->next = device.freelist_framebuffer;
+                device.freelist_framebuffer = framebuffer;
+                entry = device.mapFramebuffers->erase(entry);
+            }
+            else
+            {
+                entry++;
+            }
+        }
+    }
+
+    return ToGfxResult(result);
 }
 
 internal

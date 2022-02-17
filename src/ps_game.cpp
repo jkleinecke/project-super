@@ -407,7 +407,7 @@ RenderFrame(game_state& state, render_context& rc)
 
     GfxDescriptor descriptors[] = {
         // BufferDescriptor(0, state.materialBuffer),
-        TextureDescriptor(0, state.texture, state.sampler),
+        NamedTextureDescriptor("texSampler", state.texture, state.sampler),
     };
 
     GfxDescriptorSet desc = {};
@@ -417,6 +417,7 @@ RenderFrame(game_state& state, render_context& rc)
     gfx.CmdBindDescriptorSet(cmds, desc);
 
     // TODO(james): send the position of the geometry
+    // gfx.CmdBindPushConstant(cmds, "matObject", ...)
 
     render_geometry& gm = state.box.geometry;
     gfx.CmdBindIndexBuffer(cmds, gm.indexBuffer);
@@ -496,7 +497,6 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // gameState.rotationAngle = 120.188347f;
         gameState.lightPosition = Vec3(1.2f, 3.0f, 2.0f);
         gameState.lightScale = 0.2f;
-
 
         gameState.position = Vec3i(0,0,0);
         gameState.scaleFactor = 1.0f;

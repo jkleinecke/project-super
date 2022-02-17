@@ -523,7 +523,6 @@ enum class GfxDescriptorType
 {
     Buffer,
     Image,
-    Constant,
 };
 
 struct GfxDescriptor
@@ -575,13 +574,7 @@ struct gfx_api
 
     API_FUNCTION(GfxProgram, CreateProgram, GfxDevice device, const GfxProgramDesc& programDesc);
     API_FUNCTION(GfxResult, DestroyProgram, GfxDevice device, GfxProgram program);
-    
-    // API_FUNCTION(GfxResult, SetProgramBuffer, GfxDevice device, GfxProgram program, const char* param_name, GfxBuffer buffer);
-    // API_FUNCTION(GfxResult, SetProgramTexture, GfxDevice device, GfxProgram program, const char* param_name, GfxTexture texture, u32 mipLevel);
-    // API_FUNCTION(GfxResult, SetProgramTextures, GfxDevice device, GfxProgram program, const char* param_name, u32 textureCount, GfxTexture* pTextures, const u32* mipLevels);
-    // API_FUNCTION(GfxResult, SetProgramSampler, GfxDevice device, GfxProgram program, const char* param_name, GfxSampler sampler);
-    // API_FUNCTION(GfxResult, SetProgramConstants, GfxDevice device, GfxProgram program, const char* param_name, const void* data, u32 size);
-
+  
     API_FUNCTION(GfxRenderTarget, CreateRenderTarget, GfxDevice device, const GfxRenderTargetDesc& rtvDesc);
     API_FUNCTION(GfxResult, DestroyRenderTarget, GfxDevice device, GfxRenderTarget rtv);
     API_FUNCTION(TinyImageFormat, GetDeviceBackBufferFormat, GfxDevice device);
@@ -611,8 +604,8 @@ struct gfx_api
     
     API_FUNCTION(GfxResult, CmdClearTexture, GfxCmdContext cmds, GfxTexture texture, GfxColor color);
     API_FUNCTION(GfxResult, CmdCopyTexture, GfxCmdContext cmds, GfxTexture src, GfxTexture dest);
-    API_FUNCTION(GfxResult, CmdClearImage, GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice);
-    API_FUNCTION(GfxResult, CmdClearBackBuffer, GfxCmdContext cmds, GfxColor color);
+    API_FUNCTION(GfxResult, CmdClearImage, GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice, GfxColor color);
+    API_FUNCTION(GfxResult, CmdClearRenderTarget, GfxCmdContext cmds, GfxRenderTarget renderTarget, GfxColor color, f32 depth, u8 stencil);
 
     API_FUNCTION(GfxResult, CmdCopyBufferToTexture, GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdGenerateMips, GfxCmdContext cmds, GfxTexture texture);
@@ -622,6 +615,7 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdBindIndexBuffer, GfxCmdContext cmds, GfxBuffer indexBuffer);
     API_FUNCTION(GfxResult, CmdBindVertexBuffer, GfxCmdContext cmds, GfxBuffer vertexBuffer);
     API_FUNCTION(GfxResult, CmdBindDescriptorSet, GfxCmdContext cmds, const GfxDescriptorSet& descriptorSet);
+    API_FUNCTION(GfxResult, CmdBindPushConstant, GfxCmdContext cmds, const char* name, const void* data);
 
     API_FUNCTION(GfxResult, CmdSetViewport, GfxCmdContext cmds, f32 x, f32 y, f32 width, f32 height);
     API_FUNCTION(GfxResult, CmdSetScissorRect, GfxCmdContext cmds, i32 x, i32 y, u32 width, u32 height);

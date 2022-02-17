@@ -28,6 +28,7 @@ struct vg_image
     u32 width;
     u32 height;
     u32 layers;
+    u32 numMipLevels;
 };
 
 struct vg_sampler
@@ -195,6 +196,17 @@ struct vg_program_binding_desc
 #endif
 };
 
+struct vg_program_pushconstant_desc
+{
+    u32 offset;
+    u32 size;
+    VkShaderStageFlags shaderStage;
+
+#if PROJECTSUPER_INTERNAL
+    char name[GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH];
+#endif
+};
+
 #define VG_MAX_PROGRAM_SHADER_COUNT 6
 struct vg_program
 {
@@ -206,6 +218,7 @@ struct vg_program
     VkPipelineLayout pipelineLayout;
     array<VkDescriptorSetLayout>* descriptorSetLayouts;
     hashtable<vg_program_binding_desc>* mapBindingDesc;
+    hashtable<vg_program_pushconstant_desc>* mapPushConstantDesc;
 };
 
 struct vg_kernel

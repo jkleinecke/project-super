@@ -362,6 +362,13 @@ struct hashtable
     {
         return _find_or_fail(key) != end_pos;
     }
+    
+    T& get(u64 key)
+    {
+        u32 index = _find_or_fail(key);
+        ASSERT(index != end_pos);
+        return index == end_pos ? default_value : _entries[index].value;
+    }
 
     const T& get(u64 key) const
     {
@@ -391,6 +398,14 @@ struct hashtable
     void erase(u64 key)
     {
         _find_and_erase(key);
+    }
+
+    entry* erase(entry* e)
+    {
+        _find_and_erase(e->key);
+        // NOTE(james): this erase will happen in place, so the
+        // "next" entry in the list is now in the same address
+        return e;
     }
 
     void clear() 

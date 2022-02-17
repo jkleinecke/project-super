@@ -228,12 +228,33 @@ BufferDescriptor(u16 bindingLocation, GfxBuffer buffer)
     return desc;
 }
 
+inline GfxDescriptor
+NamedBufferDescriptor(const char* name, GfxBuffer buffer)
+{
+    GfxDescriptor desc{};
+    desc.type = GfxDescriptorType::Buffer;
+    desc.name = (char*)name;
+    desc.buffer = buffer;
+    return desc;
+}
+
 internal GfxDescriptor
 TextureDescriptor(u16 bindingLocation, GfxTexture texture, GfxSampler sampler)
 {
     GfxDescriptor desc{};
     desc.type = GfxDescriptorType::Image;
     desc.bindingLocation = bindingLocation;
+    desc.texture = texture;
+    desc.sampler = sampler;
+    return desc;
+}
+
+internal GfxDescriptor
+NamedTextureDescriptor(const char* name, GfxTexture texture, GfxSampler sampler)
+{
+    GfxDescriptor desc{};
+    desc.type = GfxDescriptorType::Image;
+    desc.name = (char*)name;
     desc.texture = texture;
     desc.sampler = sampler;
     return desc;

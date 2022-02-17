@@ -238,7 +238,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.CmdClearTexture = CmdClearTexture;
     backend.gfx.CmdCopyTexture = CmdCopyTexture;
     backend.gfx.CmdClearImage = CmdClearImage;
-    backend.gfx.CmdClearBackBuffer = CmdClearBackBuffer;
+    backend.gfx.CmdClearRenderTarget = CmdClearRenderTarget;
     backend.gfx.CmdCopyBufferToTexture = CmdCopyBufferToTexture;
     backend.gfx.CmdGenerateMips = CmdGenerateMips;
     backend.gfx.CmdBindRenderTargets = CmdBindRenderTargets;
@@ -246,6 +246,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.CmdBindIndexBuffer = CmdBindIndexBuffer;
     backend.gfx.CmdBindVertexBuffer = CmdBindVertexBuffer;
     backend.gfx.CmdBindDescriptorSet = CmdBindDescriptorSet;
+    backend.gfx.CmdBindPushConstant = CmdBindPushConstant;
     backend.gfx.CmdSetViewport = CmdSetViewport;
     backend.gfx.CmdSetScissorRect = CmdSetScissorRect;
     backend.gfx.CmdDraw = CmdDraw;
