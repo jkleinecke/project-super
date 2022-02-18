@@ -385,7 +385,7 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 #endif
 
 internal void
-RenderFrame(game_state& state, render_context& rc)
+RenderFrame(game_state& state, render_context& rc, const GameClock& clock)
 {
     GfxRenderTarget screenRTV = gfx.AcquireNextSwapChainTarget(gfx.device);
 
@@ -416,8 +416,25 @@ RenderFrame(game_state& state, render_context& rc)
     desc.pDescriptors = descriptors;
     gfx.CmdBindDescriptorSet(cmds, desc);
 
+    // local_persist f32 angle = 0.0f;
+    // angle += Minimum(clock.elapsedFrameTime * 90.0f, 15.0f);
+    // if(angle >= 360.0f)
+    // {
+    //     angle -= 360.0f;
+    // }
+    // m4 matrix = Rotate(angle, Vec3(0.0f,1.0f,0.0f));
+    //matrix = Mat4d(1.0f);
+
+    local_persist f32 offset = 0.0f;
+    offset += Minimum(clock.elapsedFrameTime * 0.5f, 0.5f);
+    if(offset > 0.5f)
+    {
+        offset -= 1.0f;
+    }
+    m4 matrix = Translate(Vec3(offset, 0.0f, 0.0f));
+
     // TODO(james): send the position of the geometry
-    // gfx.CmdBindPushConstant(cmds, "matObject", ...)
+    gfx.CmdBindPushConstant(cmds, "constants", &matrix);
 
     render_geometry& gm = state.box.geometry;
     gfx.CmdBindIndexBuffer(cmds, gm.indexBuffer);
@@ -680,7 +697,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
     }
 
-    RenderFrame(gameState, render);
+    RenderFrame(gameState, render, input.clock);
     
     // BuildRenderCommands(gameState, render, input.clock);
     
