@@ -16,6 +16,8 @@
 #include <cstdint>
 #include <algorithm>
 
+#include <VulkanMemoryAllocator/include/vk_mem_alloc.h>
+
 #include "../ps_image.h"            // this may not be the right place for this include
 #include "../ps_render.h"
 #include "vk_device.cpp"
@@ -27,8 +29,6 @@
 
     TODO List:
 
-    - Integrate vulkan memory allocator or build one
-        - logical resource memory groups?
     - Use volk to load vulkan functions direct from the driver
     - Asset resource creation
         - buffers
@@ -47,62 +47,6 @@
 ********************************************************************************/
 
 global vg_backend g_VulkanBackend = {};
-
-internal render_sync_token
-PlatformAddResourceOperation(render_resource_queue* queue, RenderResourceOpType operationType, render_manifest* manifest)
-{
-    render_sync_token syncToken = 0;
-
-    {    
-        // TODO(james): switch to InterlockedCompareExchange() so any thread can add a resource operation
-        u32 writeIndex = queue->writeIndex;
-        u32 nextWriteIndex = (queue->writeIndex + 1) % ARRAY_COUNT(queue->resourceOps);
-        ASSERT(nextWriteIndex != queue->readIndex);
-
-        u32 index = AtomicCompareExchangeUInt32(&queue->writeIndex, nextWriteIndex, writeIndex);
-        if(index == writeIndex)
-        {
-            render_resource_op* op = queue->resourceOps + index;
-            op->type = operationType;
-            op->manifest = manifest;
-
-            syncToken = AtomicIncrementU64(&queue->requestedSyncToken);
-        }
-        else
-        {   
-            // TODO(james): Setup a loop here so that we can ensure that the resource operation is always added
-            InvalidCodePath;
-        }
-    }
-
-    
-    // TODO(james): Move this part to a different thread
-    {
-        // NOTE(james): assumes that this queue works on the main vulkan device
-        u32 readIndex = queue->readIndex;
-        u32 nextReadIndex = (readIndex + 1) % ARRAY_COUNT(queue->resourceOps);
-        if(readIndex != queue->writeIndex)
-        {
-            u32 index = AtomicCompareExchangeUInt32(&queue->readIndex, nextReadIndex, readIndex);
-
-            if(index == readIndex)
-            {
-                render_resource_op& operation = queue->resourceOps[index];
-                vgPerformResourceOperation(g_VulkanBackend.device, operation.type, operation.manifest);
-                AtomicIncrementU64(&queue->currentSyncToken);
-            }
-        }
-    }
-
-    return syncToken;
-}
-
-internal b32
-PlatformIsResourceOperationComplete(render_resource_queue* queue, render_sync_token syncToken)
-{
-    // TODO(james): account for a wrapping 64-bit integer <-- how "correct" do we really need to be here?
-    return syncToken <= queue->currentSyncToken;
-}
 
 extern "C"
 LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
@@ -160,10 +104,30 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
             ASSERT(false);
             vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
         }
+
+        // TODO(james): Tune these limits
+        vb.device.frameArena = BootstrapScratchArena("VkDeviceFrameArena", NonRestoredArena(Megabytes(1)));
+        vb.device.frameTemp = BeginTemporaryMemory(*vb.device.frameArena);
+        vb.device.resourceHeaps = hashtable_create(vb.device.arena, vg_resourceheap*, 32); // TODO(james): tune this to the actual application
+
+        // NOTE(james): default resource heap is always at key 0
+        vb.device.resourceHeaps->set(0, vgAllocateResourceHeap());
+        vb.device.encoderPools = hashtable_create(vb.device.arena, vg_command_encoder_pool*, 32); // TODO(james): tune this to the actual application
+
+        // TODO(james): Change swap chain creation to create the framebuffers and add them to the runtime lookup
+        // At runtime the backend will allocate both framebuffers and renderpasses as required, so just
+        // passing a valid rendertargetview for each swap chain image will either create them OR lookup one that was
+        // already created.
+        vb.device.mapRenderpasses = hashtable_create(vb.device.arena, vg_renderpass*, 128); // TODO(james): also tune these...
+        vb.device.mapFramebuffers = hashtable_create(vb.device.arena, vg_framebuffer*, 128);
+
+        // initially there a no objects in the freelist
+        vb.device.freelist_descriptorPool = 0;
+        vb.device.freelist_renderpass = 0;
+        vb.device.freelist_framebuffer = 0;
     }
 
     // now setup the swap chain
-    // TODO(james): Should ALL of this be done in the platform agnostic backend??
     {
 
 #if PROJECTSUPER_WIN32
@@ -190,97 +154,74 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     // Setup device caches and allocators
     result = vgInitializeMemory(vb.device);
 
-    // just temporary here until we have more framework in place
-    result = vgCreateScreenRenderPass(vb.device);
-
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-    }
-
-    result = vgCreateDepthResources(vb.device);
-
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-    }
-    
-    result = vgCreateFramebuffers(vb.device);
-
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-    }
-
-    result = vgCreateCommandPool(vb.device);
-
-    if(result != VK_SUCCESS)
-    {
-        ASSERT(false);
-        vgDestroy(vb);  // destroy the instance since we failed to create the win32 surface
-    }
-
-    vgCreateStandardBuffers(vb.device);
-
     ps_graphics_backend backend = {};
     backend.instance = &g_VulkanBackend;
-
-    // WINDOWS SPECIFIC
-    // TODO(james): Setup resource operation thread
-    //backend.resourceQueue.semaphore = CreateSemaphore(0, 0, 1, 0);    // Only 1 resource operation thread will be active
+    backend.width = vb.device.extent.width;
+    backend.height = vb.device.extent.height;
     // ----------------
-
-    backend.api.BeginFrame = &VulkanGraphicsBeginFrame;
-    backend.api.EndFrame = &VulkanGraphicsEndFrame;
-    backend.api.AddResourceOperation = &PlatformAddResourceOperation;
-    backend.api.IsResourceOperationComplete = &PlatformIsResourceOperationComplete;
-    
-    //vgLoadApi(g_VulkanBackend, api.graphics);
+    backend.gfx.device = DeviceObject::To(g_VulkanBackend.device);
+    backend.gfx.CreateResourceHeap = CreateResourceHeap;
+    backend.gfx.DestroyResourceHeap = DestroyResourceHeap;
+    backend.gfx.CreateBuffer = CreateBuffer;
+    backend.gfx.DestroyBuffer = DestroyBuffer;
+    backend.gfx.GetBufferData = GetBufferData;
+    backend.gfx.CreateTexture = CreateTexture;
+    backend.gfx.DestroyTexture = DestroyTexture;
+    backend.gfx.CreateSampler = CreateSampler;
+    backend.gfx.DestroySampler = DestroySampler;
+    backend.gfx.CreateProgram = CreateProgram;
+    backend.gfx.DestroyProgram = DestroyProgram;
+    backend.gfx.CreateRenderTarget = CreateRenderTarget;
+    backend.gfx.DestroyRenderTarget = DestroyRenderTarget;
+    backend.gfx.GetDeviceBackBufferFormat = GetDeviceBackBufferFormat;
+    backend.gfx.CreateComputeKernel = CreateComputeKernel;
+    backend.gfx.CreateGraphicsKernel = CreateGraphicsKernel;
+    backend.gfx.DestroyKernel = DestroyKernel;
+    backend.gfx.CreateEncoderPool = CreateEncoderPool;
+    backend.gfx.DestroyCmdEncoderPool = DestroyCmdEncoderPool;
+    backend.gfx.CreateEncoderContext = CreateEncoderContext;
+    backend.gfx.CreateEncoderContexts = CreateEncoderContexts;
+    backend.gfx.ResetCmdEncoderPool = ResetCmdEncoderPool;
+    backend.gfx.BeginEncodingCmds = BeginEncodingCmds;
+    backend.gfx.EndEncodingCmds = EndEncodingCmds;
+    backend.gfx.CmdResourceBarrier = CmdResourceBarrier;
+    backend.gfx.CmdCopyBuffer = CmdCopyBuffer;
+    backend.gfx.CmdCopyBufferRange = CmdCopyBufferRange;
+    backend.gfx.CmdClearBuffer = CmdClearBuffer;
+    backend.gfx.CmdClearTexture = CmdClearTexture;
+    backend.gfx.CmdCopyTexture = CmdCopyTexture;
+    backend.gfx.CmdClearImage = CmdClearImage;
+    backend.gfx.CmdClearRenderTarget = CmdClearRenderTarget;
+    backend.gfx.CmdCopyBufferToTexture = CmdCopyBufferToTexture;
+    backend.gfx.CmdGenerateMips = CmdGenerateMips;
+    backend.gfx.CmdBindRenderTargets = CmdBindRenderTargets;
+    backend.gfx.CmdBindKernel = CmdBindKernel;
+    backend.gfx.CmdBindIndexBuffer = CmdBindIndexBuffer;
+    backend.gfx.CmdBindVertexBuffer = CmdBindVertexBuffer;
+    backend.gfx.CmdBindDescriptorSet = CmdBindDescriptorSet;
+    backend.gfx.CmdBindPushConstant = CmdBindPushConstant;
+    backend.gfx.CmdSetViewport = CmdSetViewport;
+    backend.gfx.CmdSetScissorRect = CmdSetScissorRect;
+    backend.gfx.CmdDraw = CmdDraw;
+    backend.gfx.CmdDrawIndexed = CmdDrawIndexed;
+    backend.gfx.CmdDispatch = CmdDispatch;
+    backend.gfx.CmdDispatchIndirect = CmdDispatchIndirect;
+    backend.gfx.AcquireNextSwapChainTarget = AcquireNextSwapChainTarget;
+    backend.gfx.SubmitCommands = SubmitCommands;
+    backend.gfx.Frame = Frame;
+    backend.gfx.Finish = Finish;
+    backend.gfx.CleanupUnusedRenderingResources = CleanupUnusedRenderingResources;
+    backend.gfx.CreateTimestampQuery = CreateTimestampQuery;
+    backend.gfx.DestroyTimestampQuery = DestroyTimestampQuery;
+    backend.gfx.GetTimestampQueryDuration = GetTimestampQueryDuration;
+    backend.gfx.BeginTimestampQuery = BeginTimestampQuery;
+    backend.gfx.EndTimestampQuery = EndTimestampQuery;
+    backend.gfx.BeginEvent = BeginEvent;
+    backend.gfx.BeginColorEvent = BeginColorEvent;
+    backend.gfx.EndEvent = EndEvent;
 
     return backend;
 }
-
-// internal void
-// Win32RecreateSwapChain(win32_vulkan_backend &graphics)
-// {
-    // TODO(james): Still need to handle window resize events better.. explicit hook to handle resizing?
-
-    // vg_backend& vb = graphics.vulkan;
-
-    // vkDeviceWaitIdle(vb.device);
-
-    // vbDestroySwapChain(vb);
-
-    //  // TODO(james): Should ALL of this be done in the platform agnostic backend??
-    // {
-    //     VkSurfaceCapabilitiesKHR surfaceCaps{};
-    //     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vb.physicalDevice, vb.swap_chain.platform_surface, &surfaceCaps);
-
-    //     VkSurfaceFormatKHR surfaceFormat = Win32VbChooseSwapSurfaceFormat(vb);
-    //     VkPresentModeKHR presentMode = Win32VbChooseSwapPresentMode(vb);
-    //     VkExtent2D extent = Win32VbChooseSwapExtent(graphics.window_handle, surfaceCaps);
-
-    //     vbCreateSwapChain(vb, surfaceCaps, surfaceFormat, presentMode, extent);
-    // }
-
-    // // just temporary here until we have more framework in place
-    // VkResult result = vbCreateGraphicsPipeline(vb);
-
-    // if(result != VK_SUCCESS)
-    // {
-    //     ASSERT(false);
-    // }
-
-    // result = vbCreateFramebuffers(vb);
-
-    // if(result != VK_SUCCESS)
-    // {
-    //     ASSERT(false);
-    // }
-// }
 
 extern "C"
 UNLOAD_GRAPHICS_BACKEND(platform_unload_graphics_backend)
@@ -288,6 +229,13 @@ UNLOAD_GRAPHICS_BACKEND(platform_unload_graphics_backend)
     vkDeviceWaitIdle(backend->instance->device.handle);
 
     vgDestroy(*backend->instance);
+
+    // release all the graphics memory arenas since it's possible that
+    // the graphics driver is just being unload and a new one will
+    // be loaded soon
+    EndTemporaryMemory(backend->instance->device.frameTemp);
+    Clear(*(backend->instance->device.frameArena));
+    Clear(backend->instance->device.arena);
 
     ZeroStruct(*backend->instance);
 }

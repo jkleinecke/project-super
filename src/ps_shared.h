@@ -11,7 +11,6 @@
 // will overlap!  If you need that, write another copy method that
 // supports that case.
 
-#define CopyString(src, dest) CopyBuffer(src, dest)
 #define CopyBuffer(src, dest) Copy(src.size, src.data, dest.data)
 #define CopyArray(count, src, dest) Copy((count)*sizeof(*(src)), (src), (dest))
 internal void*
@@ -38,6 +37,61 @@ Copy(umm size, const void* src, void* dst)
     ASSERT3(s8 == ((u8*)src + size));
     ASSERT3(d8 == ((u8*)dst + size));
     return dst;
+}
+
+// NOTE(james): This is a special copy helper specifically to pull a member of struct in an array
+//  into an array of single values.
+//  To use:
+//      count       - The number of elements in each array
+//      offset      - The memory offset of the member in the struct
+//      elementSize - The size of the member in bytes
+//      stride      - The size of the struct
+//      src         - pointer to the source array
+//      dstSize     - The total size of the dst array in bytes
+//      dst         - pointer to the destination array
+//
+//      returns - pointer to the destination array
+internal void*
+SparseCopyArray(u32 count, umm offset, umm elementSize, umm stride, const void* src, umm dstSize, void* dst)
+{
+    ASSERT(elementSize * count <= dstSize);
+
+    u8* s = (u8*)src;
+    u8* d = (u8*)dst;
+    s += offset;
+
+    for(u32 i = 0; i < count; ++i)
+    {
+        Copy(elementSize, s, d);
+        d += elementSize;
+        s += stride;
+    }
+
+    return dst;
+}
+
+internal b32
+MemCompare(umm size, const void* a, const void* b)
+{
+    CompileAssert(sizeof(umm)==sizeof(a));   // verify pointer size
+    memory_index chunks = size / sizeof(a);  // Compare by CPU bit width
+    memory_index slice = size % sizeof(a);   // remaining bytes < CPU bit width
+
+    umm* l = (umm*)a;
+    umm* r = (umm*)b;
+
+    while(chunks--) {
+        if(*l++ != *r++) { return false; }
+    }
+
+    u8* l8 = (u8*)l;
+    u8* r8 = (u8*)r;
+
+    while(slice--) {
+        if(*l8++ != *r8++) { return false; }
+    }
+
+    return true;
 }
 
 #define ZeroStruct(instance) ZeroSize(sizeof(instance), &(instance))
@@ -79,6 +133,28 @@ int StringLength(const char* s)
     char* ch = (char*)s;
     for(; *ch; ++ch) {}
     return (int)(ch - s);
+}
+
+internal char*
+CopyString(const char* src, char* dst, umm maxdstsize)
+{
+    umm srclength = (umm)StringLength(src);
+    umm sizetocopy = srclength < maxdstsize-1 ? srclength : maxdstsize-1;
+    Copy(sizetocopy, src, dst);
+    dst[sizetocopy] = 0; // put the null terminator at the end
+    return dst;
+}
+
+internal b32
+CompareStrings(const char* l, const char* r)
+{
+    int l_size = StringLength(l);
+    int r_size = StringLength(r);
+
+    if(l_size != r_size)
+        return false;
+
+    return MemCompare((umm)l_size, l, r);
 }
 
 inline internal

@@ -17,7 +17,7 @@ layout( push_constant ) uniform constants
 } PushConstants;
 
 void main() {
-    //gl_Position = ubo.proj * ubo.view * ubo.model * vec4(inPosition, 1.0);
+    // gl_Position = vec4(inPosition, 1.0);
     gl_Position = PushConstants.mvp * vec4(inPosition, 1.0);
     fragColor = inColor;
     fragTexCoord = inTexCoord;

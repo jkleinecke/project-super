@@ -295,6 +295,7 @@ void RenderScene(GraphicsContext& graphics, GameTestState& gameState, FrameConte
 
 #endif
 
+#if 0
 internal void
 RenderModel(render_commands& cmds, model_asset* model, u32 materialId, m4& viewProj, m4& world, m4& scale)
 {
@@ -363,23 +364,126 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 
     PushCmd_UpdateLight(cmds, state.lightPosition, lite_ambient, lite_diffuse, lite_spec);
 
-    PushCmd_UsePipeline(cmds, state.assets->mapPipelines->get(pl_box)->id);;
+    // PushCmd_UsePipeline(cmds, state.assets->mapPipelines->get(pl_box)->id);;
 
-    {
-        m4 scale = Scale(Vec3(state.scaleFactor,state.scaleFactor,state.scaleFactor));
-        m4 model = Translate(state.position) * Rotate(state.rotationAngle, Vec3i(0,1,0)) ;
-        RenderModel(cmds, state.assets->models, state.assets->mapMaterials->get(mat_box)->id, viewProj, model, scale);
-    }
+    // {
+    //     m4 scale = Scale(Vec3(state.scaleFactor,state.scaleFactor,state.scaleFactor));
+    //     m4 model = Translate(state.position) * Rotate(state.rotationAngle, Vec3i(0,1,0)) ;
+    //     RenderModel(cmds, state.assets->models, state.assets->mapMaterials->get(mat_box)->id, viewProj, model, scale);
+    // }
 
-    PushCmd_UsePipeline(cmds, state.assets->mapPipelines->get(pl_lightbox)->id);
+    // PushCmd_UsePipeline(cmds, state.assets->mapPipelines->get(pl_lightbox)->id);
 
-    {
-        m4 scale = Scale(Vec3(state.lightScale, state.lightScale, state.lightScale));
-        m4 model = Translate(state.lightPosition);
-        RenderModel(cmds, state.assets->models, state.assets->mapMaterials->get(mat_box)->id, viewProj, model, scale);
-    }
+    // {
+    //     m4 scale = Scale(Vec3(state.lightScale, state.lightScale, state.lightScale));
+    //     m4 model = Translate(state.lightPosition);
+    //     RenderModel(cmds, state.assets->models, state.assets->mapMaterials->get(mat_box)->id, viewProj, model, scale);
+    // }
 
     EndRenderCommands(cmds);
+}
+#endif
+
+internal void
+RenderFrame(game_state& state, render_context& rc, const GameClock& clock)
+{
+    GfxRenderTarget screenRTV = gfx.AcquireNextSwapChainTarget(gfx.device);
+
+    GfxCmdContext& cmds = state.cmds;
+
+    gfx.ResetCmdEncoderPool(state.cmdpool);
+    gfx.BeginEncodingCmds(cmds);
+
+    GfxRenderTargetBarrier barrierRTVs[] = {
+        { screenRTV, GfxResourceState::Present, GfxResourceState::RenderTarget },
+    };
+    gfx.CmdResourceBarrier(cmds, 0, nullptr, 0, nullptr, ARRAY_COUNT(barrierRTVs), barrierRTVs);
+
+    gfx.CmdSetViewport(cmds, 0, 0, rc.renderDimensions.Width, rc.renderDimensions.Height);
+    gfx.CmdSetScissorRect(cmds, 0, 0, (u32)rc.renderDimensions.Width, (u32)rc.renderDimensions.Height);
+
+    gfx.CmdBindRenderTargets(cmds, 1, &screenRTV, &state.depthTarget);
+    gfx.CmdBindKernel(cmds, state.mainKernel);
+
+    GfxDescriptor descriptors[] = {
+        // BufferDescriptor(0, state.materialBuffer),
+        NamedTextureDescriptor("texSampler", state.texture, state.sampler),
+    };
+
+    GfxDescriptorSet desc = {};
+    desc.setLocation = 0;   
+    desc.count = ARRAY_COUNT(descriptors);
+    desc.pDescriptors = descriptors;
+    gfx.CmdBindDescriptorSet(cmds, desc);
+
+    // local_persist f32 angle = 0.0f;
+    // angle += Minimum(clock.elapsedFrameTime * 90.0f, 15.0f);
+    // if(angle >= 360.0f)
+    // {
+    //     angle -= 360.0f;
+    // }
+    // m4 matrix = Rotate(angle, Vec3(0.0f,1.0f,0.0f));
+    //matrix = Mat4d(1.0f);
+
+    local_persist f32 offset = 0.0f;
+    offset += Minimum(clock.elapsedFrameTime * 0.5f, 0.5f);
+    if(offset > 0.5f)
+    {
+        offset -= 1.0f;
+    }
+    m4 matrix = Translate(Vec3(offset, 0.0f, 0.0f));
+
+    gfx.CmdBindPushConstant(cmds, "constants", &matrix);
+
+    render_geometry& gm = state.box.geometry;
+    gfx.CmdBindIndexBuffer(cmds, gm.indexBuffer);
+    gfx.CmdBindVertexBuffer(cmds, gm.vertexBuffer);
+    gfx.CmdDrawIndexed(cmds, gm.indexCount, 1, 0, 0, 0);
+
+    gfx.CmdBindRenderTargets(cmds, 0, nullptr, nullptr);    // Unbind the render targets so we can move the RTV to the Present Mode
+
+    GfxRenderTargetBarrier barrierPresent = { screenRTV, GfxResourceState::RenderTarget, GfxResourceState::Present };
+    gfx.CmdResourceBarrier(cmds, 0, nullptr, 0, nullptr, 1, &barrierPresent);
+
+    gfx.EndEncodingCmds(cmds);
+
+    gfx.Frame(gfx.device, 1, &cmds);
+}
+
+
+internal void
+TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* height, u32* channels, void* pixeldata)
+{
+    temporary_memory temp = BeginTemporaryMemory(arena);
+
+    platform_file file = Platform.OpenFile(FileLocation::Content, filename, FileUsage::Read);
+    ASSERT(file.size <= (u64)U32MAX);
+
+    void* fileBytes = PushSize(arena, file.size);
+    u64 bytesRead = Platform.ReadFile(file, fileBytes, file.size);
+    ASSERT(bytesRead == file.size);
+
+    Platform.CloseFile(file);
+
+    int texWidth, texHeight, texChannels;
+    stbi_uc *pixels = stbi_load_from_memory((stbi_uc*)fileBytes, (int)file.size, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    ASSERT(pixels);
+    ASSERT(texChannels == 3);   // NOTE(james): all we support right now
+
+    EndTemporaryMemory(temp);
+
+    if(width) *width = (u32)texWidth;
+    if(height) *height = (u32)texHeight;
+    if(channels) *channels = (u32)texChannels;
+    Copy(texWidth*texHeight*4, pixels, pixeldata);
+
+    stbi_image_free(pixels);
+}
+
+internal void
+SetupRenderResources(game_state& state, render_context& render)
+{
+
 }
 
 platform_api Platform;
@@ -387,18 +491,17 @@ extern "C"
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
     Platform = gameMemory.platformApi;
+    gfx = render.gfx;
     
-    // TODO(james): Use bootstrap arena to allocate and initialize game state!!!
-
     if(!gameMemory.state)
     {
         gameMemory.state = BootstrapPushStructMember(game_state, totalArena);
         game_state& gameState = *gameMemory.state;
-        gameState.frameArena = (memory_arena*)BootstrapPushSize_(DEBUG_MEMORY_NAME("FrameArena") sizeof(memory_arena), 0, NonRestoredArena());
+        gameState.frameArena = BootstrapScratchArena("FrameArena", NonRestoredArena(Megabytes(1)));
         gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
 
-        gameState.resourceQueue = render.resourceQueue;   
-        gameState.assets = AllocateGameAssets(gameState, render);
+        // gameState.resourceQueue = render.resourceQueue;   
+        gameState.assets = AllocateGameAssets(gameState);
      
         gameState.camera.position = Vec3(1.0f, 5.0f, 5.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
@@ -411,10 +514,96 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.lightPosition = Vec3(1.2f, 3.0f, 2.0f);
         gameState.lightScale = 0.2f;
 
-
         gameState.position = Vec3i(0,0,0);
         gameState.scaleFactor = 1.0f;
         //gameState.rotationAngle = 120.188347f;
+
+        {
+            f32 width = 1.0f;//render.renderDimensions.Width;
+            f32 height = 1.0f;//render.renderDimensions.Height;
+            f32 halfWidth = width/2.0f;
+            f32 halfHeight = height/2.0f;
+
+            umm posOffset = OffsetOf(render_mesh_vertex, pos);
+            umm colorOffset = OffsetOf(render_mesh_vertex, color);
+            umm uvOffset = OffsetOf(render_mesh_vertex, texCoord);
+            umm vsize = sizeof(render_mesh_vertex);
+
+            render_mesh_vertex vertices[] = {
+                {{ -halfWidth,  halfHeight, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{ -halfWidth, -halfHeight, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfWidth, -halfHeight, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfWidth,  halfHeight, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
+            };
+            u32 indices[] = { 0, 1, 2, 0, 2, 3 };
+
+            umm totalSize = sizeof(vertices);
+            umm elemSize = sizeof(vertices[0]);
+
+            GfxColor color = gfxColor(1.0f, 0.0f, 1.0f);
+
+            GfxBufferDesc vb = MeshVertexBuffer(ARRAY_COUNT(vertices));
+            GfxBufferDesc ib = IndexBuffer(ARRAY_COUNT(indices));
+            GfxBufferDesc mb = UniformBuffer(sizeof(GfxColor));
+
+            GfxBufferDesc sb = StagingBuffer(Megabytes(16));
+            gameState.stagingBuffer = gfx.CreateBuffer(gfx.device, sb, nullptr);
+
+            gameState.materialBuffer = gfx.CreateBuffer(gfx.device, mb, 0);
+            gameState.box.geometry.indexCount = ARRAY_COUNT(indices);
+            gameState.box.geometry.indexBuffer = gfx.CreateBuffer(gfx.device, ib, 0);
+            gameState.box.geometry.vertexBuffer = gfx.CreateBuffer(gfx.device, vb, 0);
+
+            gameState.shaderProgram = LoadProgram(*gameState.frameArena, "shader.vert.spv", "shader.frag.spv");
+            gameState.mainKernel = gfx.CreateGraphicsKernel(gfx.device, gameState.shaderProgram, DefaultPipeline(true));
+            gameState.cmdpool = gfx.CreateEncoderPool(gfx.device, {GfxQueueType::Graphics});
+            gameState.cmds = gfx.CreateEncoderContext(gameState.cmdpool);
+
+            gameState.depthTarget = gfx.CreateRenderTarget(gfx.device, DepthRenderTarget(render.renderDimensions.Width, render.renderDimensions.Height));
+
+            // TODO(james): build this into a rendering layer, and rework cuz it's stupid slow
+            void* stagingPtr = gfx.GetBufferData(gfx.device, gameState.stagingBuffer);
+            {
+                Copy(sizeof(vertices), vertices, stagingPtr);
+                Copy(sizeof(indices), indices, OffsetPtr(stagingPtr, sizeof(vertices)));
+                Copy(sizeof(color), &color, OffsetPtr(stagingPtr, sizeof(vertices) + sizeof(indices)));
+
+                GfxCmdContext cmds = gameState.cmds;
+                gfx.BeginEncodingCmds(cmds);
+                gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, 0, gameState.box.geometry.vertexBuffer, 0, sizeof(vertices));
+                gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices), gameState.box.geometry.indexBuffer, 0, sizeof(indices));
+                gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices) + sizeof(indices), gameState.materialBuffer, 0, sizeof(color));
+                gfx.EndEncodingCmds(cmds);
+                gfx.SubmitCommands(gfx.device, 1, &cmds);
+                gfx.Finish(gfx.device);
+            }
+
+            GfxTextureDesc texDesc = {};
+
+            TempLoadImagePixels(*gameState.frameArena, "texture.jpg", &texDesc.width, &texDesc.height, 0, stagingPtr);
+            texDesc.type = GfxTextureType::Tex2D;
+            texDesc.format = TinyImageFormat_R8G8B8A8_SRGB;
+            texDesc.access = GfxMemoryAccess::GpuOnly;
+
+            gameState.texture = gfx.CreateTexture(gfx.device, texDesc);
+            gameState.sampler = gfx.CreateSampler(gfx.device, Sampler());
+
+            {
+                GfxCmdContext cmds = gameState.cmds;
+                gfx.ResetCmdEncoderPool(gameState.cmdpool);
+                gfx.BeginEncodingCmds(cmds);
+
+                GfxTextureBarrier texBarrier = { gameState.texture, GfxResourceState::Undefined, GfxResourceState::CopyDst };
+                gfx.CmdResourceBarrier(cmds, 0, 0, 1, &texBarrier, 0, 0);
+                gfx.CmdCopyBufferToTexture(cmds, gameState.stagingBuffer, 0, gameState.texture);
+                texBarrier = { gameState.texture, GfxResourceState::CopyDst, GfxResourceState::PixelShaderResource };
+                gfx.CmdResourceBarrier(cmds, 0, 0, 1, &texBarrier, 0, 0);
+
+                gfx.EndEncodingCmds(cmds);
+                gfx.SubmitCommands(gfx.device, 1, &cmds);
+                gfx.Finish(gfx.device);
+            }
+        }
     }    
     
     game_state& gameState = *gameMemory.state;
@@ -506,8 +695,10 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             }
         }
     }
+
+    RenderFrame(gameState, render, input.clock);
     
-    BuildRenderCommands(gameState, render, input.clock);
+    // BuildRenderCommands(gameState, render, input.clock);
     
 #if 0
     // TODO(james): needs a better allocation scheme 

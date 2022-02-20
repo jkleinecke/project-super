@@ -8,6 +8,7 @@
 // insert() moves the element at the index to the end of the array to make room rather than moving all the elements down a position
 // erase() moves the element at the end of the array to the slot being erased
 
+
 template<typename T>
 struct slice
 {
@@ -61,6 +62,14 @@ struct slice
 };
 
 template<typename T>
+inline slice<T> make_slice(T* ptr, u32 size) { return slice<T>{ptr, size}; }
+
+#define array_create(arena, type, capacity) array<type>::create(arena, capacity)
+#define array_create_init(arena, type, init, ...) array<type>::create(arena, init, ## __VA_ARGS__)
+#define array_create_copy(arena, srcarray, ...) array<type>::create_copy(arena, srcarray, ## __VA_ARGS__)
+
+
+template<typename T>
 struct array
 {
     typedef slice<T> slice;
@@ -73,10 +82,25 @@ struct array
 
     static array<T>* create(memory_arena& arena, u32 capacity)
     {
-        ASSERT(capacity > 0);
         array<T>* arr = PushStruct(arena, array<T>);
-        arr->_data = PushArray(arena, capacity, T);
         arr->_capacity = capacity;
+        if(capacity) 
+        {
+            arr->_data = PushArray(arena, capacity, T);
+        }
+        return arr;
+    }
+
+    static array<T>* create_copy(memory_arena& arena, const array<T>* src, u32 capacity = 0)
+    {
+        array<T>* arr = PushStruct(arena, array<T>);
+        arr->capacity = capacity ? capacity : src->_capacity;
+        if(arr->capacity) 
+        {
+            arr->_data = PushArray(arena, capacity, T);
+        }
+        arr->_size = src->_size;
+        CopyArray(arr->_size, src->_data, arr->_data);
         return arr;
     }
 
@@ -85,7 +109,10 @@ struct array
     {
         ASSERT(capacity >= N);
         array<T>* arr = PushStruct(arena, array<T>);
-        arr->_data = PushArray(arena, capacity, T);
+        if(capacity)
+        {
+            arr->_data = PushArray(arena, capacity, T);
+        }
         arr->_capacity = capacity;
         CopyArray(N, init, arr->_data);
         arr->_size = N;
@@ -113,12 +140,16 @@ struct array
     T* data() { return _data; }
     const T* data() const { return _data; }
 
+    void set_size(u32 size) { ASSERT(size <= _capacity); _size = size; }
+
     u32 size() const { return _size; }
     u32 capacity() const { return _capacity; }
     b32 empty() const { return _size == 0; }
+    b32 full() const { return _size == _capacity; }
 
-    T& front() const { ASSERT(_size > 0); return _data[0]; }
-    T& back() const { ASSERT(_size > 0); return _data[_size-1]; }
+    T& at(u32 index) { ASSERT(index < _size); return _data[index]; }
+    T& front() { ASSERT(_size > 0); return _data[0]; }
+    T& back() { ASSERT(_size > 0); return _data[_size-1]; }
 
     T* begin() { return _data; }
     T* end() { return _data + _size; }
@@ -187,11 +218,12 @@ struct array
     }
 };
 
-template<typename T, u32 SIZE>
+#define hashtable_create(arena, type, size) hashtable<type>::create<size>(arena)
+
+template<typename T>
 struct hashtable
 {
     enum : u32 { 
-        capacity = SIZE, 
         end_pos = U32MAX
     };
 
@@ -200,6 +232,8 @@ struct hashtable
         u64 key;
         u32 next_idx;
         T value;
+
+        T& operator*() { return value; }
     };
 
     struct find_result
@@ -210,19 +244,21 @@ struct hashtable
     };
 
     T default_value;
-    u32 _keys[SIZE];
+    u32* _keys;
     array<entry> _entries;
 
-    static hashtable<T, SIZE>* create(memory_arena& arena)
+    template<u32 SIZE>
+    static hashtable<T>* create(memory_arena& arena)
     {
-        hashtable<T,SIZE>* ht = (hashtable<T,SIZE>*)PushSize_(DEBUG_MEMORY_NAME("PushStruct") arena, sizeof(hashtable<T,SIZE>));
+        hashtable<T>* ht = (hashtable<T>*)PushSize_(DEBUG_MEMORY_NAME("PushStruct") arena, sizeof(hashtable<T>));
+        ht->_keys = PushArray(arena, SIZE, u32);
         for(umm i = 0; i < SIZE; ++i)
             ht->_keys[i] = end_pos; 
-        ht->_entries = *array<entry>::create(arena, SIZE);
+        ht->_entries = *array_create(arena, entry, SIZE);
         return ht;
     }
 
-    u32 _hash_idx(u64 key) const { return key % SIZE; }
+    u32 _hash_idx(u64 key) const { return key % _entries.capacity(); }
 
     u32 _add_entry(u64 key)
     {
@@ -326,6 +362,13 @@ struct hashtable
     {
         return _find_or_fail(key) != end_pos;
     }
+    
+    T& get(u64 key)
+    {
+        u32 index = _find_or_fail(key);
+        ASSERT(index != end_pos);
+        return index == end_pos ? default_value : _entries[index].value;
+    }
 
     const T& get(u64 key) const
     {
@@ -357,16 +400,27 @@ struct hashtable
         _find_and_erase(key);
     }
 
+    entry* erase(entry* e)
+    {
+        _find_and_erase(e->key);
+        // NOTE(james): this erase will happen in place, so the
+        // "next" entry in the list is now in the same address
+        return e;
+    }
+
     void clear() 
     {
-        for(u32 i = 0; i < SIZE; ++i) 
+        for(u32 i = 0; i < _entries.capacity(); ++i) 
             _keys[i] = end_pos;
         _entries.clear(); 
     }
 
+    b32 full() { return _entries.full(); }
+
     entry* begin() { return _entries.begin(); }
     entry* end() { return _entries.end(); }
 
+    u32 capacity() { return _entries.capacity(); }
     u32 size() { return _entries.size(); }
 
     // NOTE(james): I'm intentionally leaving these out of the struct...
@@ -490,7 +544,7 @@ namespace sort
 b32 TestArray()
 {
     memory_arena scratch = {};
-    array<u32>& arr = *array<u32>::create(scratch, 10);
+    array<u32>& arr = *array_create(scratch, u32, 10);
     EXPECT(arr.data());
     EXPECT(arr.size() == 0);
     EXPECT(arr.capacity() == 10);
@@ -557,7 +611,7 @@ struct test_sort_item
 b32 TestSort()
 {
     memory_arena scratch = {};
-    array<u32>& arr = *array<u32>::create(scratch, {5, 7, 3, 1, 0, 9, 2, 4, 8, 6});
+    array<u32>& arr = *array_create_init(scratch, u32, {5, 7, 3, 1, 0, 9, 2, 4, 8, 6});
 
     sort::quickSort(arr);
 
@@ -597,7 +651,7 @@ b32 TestHashTable()
 {
     memory_arena scratch = {};
 
-    auto& ht = *hashtable<u64, 1024>::create(scratch);
+    auto& ht = *hashtable_create(scratch, u64, 1024);
     for(u64 i = 0; i < 1024; ++i)
     {
         ht.set(i, i);
