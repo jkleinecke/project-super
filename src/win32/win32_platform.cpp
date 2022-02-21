@@ -579,7 +579,7 @@ extern "C" int __stdcall WinMainCRTStartup()
     Win32SetupFileLocationsTable(GlobalWin32State);
   
     game_memory gameMemory = {};
-    render_context gameRender = {};
+    graphics_context gameGraphics = {};
 
     gameMemory.highPriorityQueue = &highPriorityQueue;
     gameMemory.lowPriorityQueue = &lowPriorityQueue;
@@ -622,10 +622,9 @@ extern "C" int __stdcall WinMainCRTStartup()
     HRESULT hr = 0;
 
     ps_graphics_backend graphicsDriver = platform_load_graphics_backend(hInstance, mainWindow);
-    gfx_api& gfx = graphicsDriver.gfx; 
-    gameRender.gfx = gfx;
-    gameRender.renderDimensions.Width = graphicsDriver.width;
-    gameRender.renderDimensions.Height = graphicsDriver.height;
+    gameGraphics.gfx = graphicsDriver.gfx;
+    gameGraphics.windowWidth = RoundReal32ToUInt32(graphicsDriver.width);
+    gameGraphics.windowHeight = RoundReal32ToUInt32(graphicsDriver.height);
 
     ShowWindow(mainWindow, SW_SHOW);
     Win32LoadXinput();
@@ -824,11 +823,9 @@ extern "C" int __stdcall WinMainCRTStartup()
                 break;
         }
 
-        // graphicsApi.BeginFrame(graphicsDriver.instance, &gameRender.commands);
-
         if(gameFunctions.GameUpdateAndRender)
         {
-            gameFunctions.GameUpdateAndRender(gameMemory, gameRender, input, audio.gameAudioBuffer);
+            gameFunctions.GameUpdateAndRender(gameMemory, gameGraphics, input, audio.gameAudioBuffer);
         }
 
         Win32Clock gameSimTime = Win32GetWallClock();
@@ -850,7 +847,7 @@ extern "C" int __stdcall WinMainCRTStartup()
             //     }
             //     elapsedFrameTime = Win32GetElapsedTime(lastFrameStartTime);
             // }
-            #if 1
+            #if 0
             LOG_DEBUG("Frame Time: %.2f ms, Total Time: %.2f ms", frameTime * 1000.0f, elapsedFrameTime * 1000.0f);
             #endif
         }

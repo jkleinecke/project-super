@@ -87,9 +87,9 @@ struct InstanceData
 
 struct SceneBufferObject
 {
-    ALIGNAS(16) SceneData scene;
-    ALIGNAS(16) FrameData frame;
-    ALIGNAS(16) CameraData camera;
+    ALIGNAS(16) m4 viewProj;
+    ALIGNAS(16) v3 pos;
+    ALIGNAS(16) LightData light;
 };
 
 struct render_material
@@ -113,6 +113,12 @@ struct render_geometry
     GfxBuffer vertexBuffer;  // For now we only need 1
 };
 
+struct renderable
+{
+    render_material material;
+    render_geometry geometry;
+};
+
 // Resource Descriptions
 
 struct render_mesh_vertex
@@ -127,4 +133,32 @@ struct render_mesh_vertex
     }
 };
 
+struct render_context
+{
+    memory_arena arena;
+    memory_arena* frameArena;
+    graphics_context* gc;
 
+    GfxCmdEncoderPool cmdpool;
+    GfxCmdContext cmds;
+    GfxRenderTarget depthTarget;
+
+    u64 stagingPos;
+    GfxBuffer stagingBuffer;
+    GfxCmdEncoderPool stagingCmdPool;
+    GfxCmdContext stagingCmds;
+    
+    GfxBuffer groundMaterial;
+    GfxProgram groundProgram;
+    GfxKernel groundKernel;
+    GfxTexture texture;
+    GfxSampler sampler;
+
+    render_geometry ground;
+    
+    GfxBuffer meshMaterial;
+    GfxProgram meshProgram;
+    GfxKernel meshKernel;
+    u32 numMeshes;
+    render_geometry* meshes;
+};

@@ -9,15 +9,8 @@
 #include "ps_collections.h"
 #include "ps_stream.h"
 #include "ps_image.h"
-// #include "ps_graphics.h"
 #include "ps_render.h"
 #include "ps_asset.h"
-
-struct renderable
-{
-    render_material material;
-    render_geometry geometry;
-};
 
 struct game_state
 {
@@ -26,19 +19,7 @@ struct game_state
     temporary_memory temporaryFrameMemory;
 
     game_assets* assets;
-    // render_resource_queue* resourceQueue;
-
-    GfxRenderTarget depthTarget;
-
-    GfxTexture texture;
-    GfxSampler sampler;
-    GfxBuffer stagingBuffer;
-    GfxBuffer materialBuffer;
-    GfxCmdEncoderPool cmdpool;
-    GfxCmdContext cmds;
-    GfxProgram shaderProgram;
-    GfxKernel mainKernel;
-    renderable box;
+    render_context* renderer;
 
     m4 cameraProjection;
     camera camera;
