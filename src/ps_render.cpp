@@ -125,7 +125,7 @@ DepthRenderTarget(u32 width, u32 height)
     rtv.format = TinyImageFormat_D32_SFLOAT;
     rtv.mipLevels = 1;
     rtv.loadOp = GfxLoadAction::Clear;
-    rtv.depthValue = 0.0f;
+    rtv.depthValue = 1.0f;
     rtv.initialState = GfxResourceState::DepthWrite;
 
     return rtv;
@@ -174,7 +174,7 @@ MeshVertexBuffer(u32 count)
 {
     GfxBufferDesc desc = {};
     desc.usageFlags = GfxBufferUsageFlags::Vertex;
-    desc.access = GfxMemoryAccess::GpuOnly;    // TODO(james): use a staging buffer instead
+    desc.access = GfxMemoryAccess::GpuOnly; 
     desc.size = count * sizeof(render_mesh_vertex);
 
     return desc;
@@ -185,7 +185,7 @@ IndexBuffer(u32 count)
 {
     GfxBufferDesc desc = {};
     desc.usageFlags = GfxBufferUsageFlags::Index;
-    desc.access = GfxMemoryAccess::GpuOnly;    // TODO(james): use a staging buffer instead
+    desc.access = GfxMemoryAccess::GpuOnly; 
     desc.size = count * sizeof(u32);
 
     return desc;
@@ -196,7 +196,7 @@ UniformBuffer(u64 size)
 {
     GfxBufferDesc desc = {};
     desc.usageFlags = GfxBufferUsageFlags::Uniform;
-    desc.access = GfxMemoryAccess::GpuOnly;    // TODO(james): use a staging buffer instead
+    desc.access = GfxMemoryAccess::GpuOnly; 
     desc.size = size;
 
     return desc;
@@ -219,22 +219,24 @@ Sampler()
 }
 
 inline GfxDescriptor
-BufferDescriptor(u16 bindingLocation, GfxBuffer buffer)
+BufferDescriptor(u16 bindingLocation, GfxBuffer buffer, u32 offset = 0)
 {
     GfxDescriptor desc{};
     desc.type = GfxDescriptorType::Buffer;
     desc.bindingLocation = bindingLocation;
     desc.buffer = buffer;
+    desc.offset = offset;
     return desc;
 }
 
 inline GfxDescriptor
-NamedBufferDescriptor(const char* name, GfxBuffer buffer)
+NamedBufferDescriptor(const char* name, GfxBuffer buffer, u32 offset = 0)
 {
     GfxDescriptor desc{};
     desc.type = GfxDescriptorType::Buffer;
     desc.name = (char*)name;
     desc.buffer = buffer;
+    desc.offset = offset;
     return desc;
 }
 

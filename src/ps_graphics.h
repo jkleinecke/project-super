@@ -176,6 +176,15 @@ gfxColor(int r, int g, int b, int a)
     return GfxColor{ r/255.0f, g/255.0f, b/255.0f, a/255.0f };
 }
 
+inline GfxColor
+gfxColor(u32 chex)
+{
+    u8 r = (chex >> 16) & 0xFF;
+    u8 g = (chex >> 8) & 0xFF;
+    u8 b = (chex >> 0) & 0xFF;
+    return GfxColor{ r/255.0f, g/255.0f, b/255.0f, 1.0f };
+}
+
 inline v4
 gfxColorToVec4(const GfxColor& c)
 {
@@ -531,6 +540,7 @@ struct GfxDescriptor
     u16 bindingLocation;
     char* name;
 
+    u32 offset;
     GfxBuffer buffer;
     
     // u32 numTextures;

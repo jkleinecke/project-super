@@ -387,6 +387,10 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 internal void
 RenderFrame(game_state& state, render_context& rc, const GameClock& clock)
 {
+    m4 cameraView = LookAt(state.camera.position, state.camera.target, V3_Y_UP);
+    m4 projection = Perspective(45.0f, rc.renderDimensions.Width, rc.renderDimensions.Height, 0.1f, 100.0f);
+    m4 viewProj = projection * cameraView;
+
     GfxRenderTarget screenRTV = gfx.AcquireNextSwapChainTarget(gfx.device);
 
     GfxCmdContext& cmds = state.cmds;
@@ -407,7 +411,8 @@ RenderFrame(game_state& state, render_context& rc, const GameClock& clock)
 
     GfxDescriptor descriptors[] = {
         // BufferDescriptor(0, state.materialBuffer),
-        NamedTextureDescriptor("texSampler", state.texture, state.sampler),
+        NamedBufferDescriptor("material", state.materialBuffer),
+        //NamedTextureDescriptor("texSampler", state.texture, state.sampler),
     };
 
     GfxDescriptorSet desc = {};
@@ -425,13 +430,13 @@ RenderFrame(game_state& state, render_context& rc, const GameClock& clock)
     // m4 matrix = Rotate(angle, Vec3(0.0f,1.0f,0.0f));
     //matrix = Mat4d(1.0f);
 
-    local_persist f32 offset = 0.0f;
-    offset += Minimum(clock.elapsedFrameTime * 0.5f, 0.5f);
-    if(offset > 0.5f)
-    {
-        offset -= 1.0f;
-    }
-    m4 matrix = Translate(Vec3(offset, 0.0f, 0.0f));
+    // local_persist f32 offset = 0.0f;
+    // offset += Minimum(clock.elapsedFrameTime * 0.5f, 0.5f);
+    // if(offset > 0.5f)
+    // {
+    //     offset -= 1.0f;
+    // }
+    m4 matrix = viewProj * Translate(Vec3(0.0f, 0.0f, 0.0f));
 
     gfx.CmdBindPushConstant(cmds, "constants", &matrix);
 
@@ -503,7 +508,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // gameState.resourceQueue = render.resourceQueue;   
         gameState.assets = AllocateGameAssets(gameState);
      
-        gameState.camera.position = Vec3(1.0f, 5.0f, 5.0f);
+        gameState.camera.position = Vec3(20.0f, 20.0f, 20.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
         gameState.cameraProjection = Perspective(45.0f, render.renderDimensions.Width, render.renderDimensions.Height, 0.1f, 100.0f);
 
@@ -519,10 +524,10 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //gameState.rotationAngle = 120.188347f;
 
         {
-            f32 width = 1.0f;//render.renderDimensions.Width;
-            f32 height = 1.0f;//render.renderDimensions.Height;
+            f32 width = 20.0f;
+            f32 depth = 20.0f;
             f32 halfWidth = width/2.0f;
-            f32 halfHeight = height/2.0f;
+            f32 halfDepth = depth/2.0f;
 
             umm posOffset = OffsetOf(render_mesh_vertex, pos);
             umm colorOffset = OffsetOf(render_mesh_vertex, color);
@@ -530,21 +535,69 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             umm vsize = sizeof(render_mesh_vertex);
 
             render_mesh_vertex vertices[] = {
-                {{ -halfWidth,  halfHeight, 0.0f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
-                {{ -halfWidth, -halfHeight, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
-                {{  halfWidth, -halfHeight, 0.0f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
-                {{  halfWidth,  halfHeight, 0.0f }, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
+                {{ -halfWidth, 0.0f,  halfDepth }, { 0.0f, 1.0f, 0.0f}, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{ -halfWidth, 0.0f, -halfDepth }, { 0.0f, 1.0f, 0.0f}, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfWidth, 0.0f, -halfDepth }, { 0.0f, 1.0f, 0.0f}, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfWidth, 0.0f,  halfDepth }, { 0.0f, 1.0f, 0.0f}, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
             };
             u32 indices[] = { 0, 1, 2, 0, 2, 3 };
 
-            umm totalSize = sizeof(vertices);
-            umm elemSize = sizeof(vertices[0]);
+            f32 halfBoxSize = 2.5f;
+            render_mesh_vertex boxVerts[] = {
+                // top face
+                {{ -halfBoxSize,  halfBoxSize,  halfBoxSize }, { 0.0f, 1.0f, 0.0f}, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{ -halfBoxSize,  halfBoxSize, -halfBoxSize }, { 0.0f, 1.0f, 0.0f}, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfBoxSize,  halfBoxSize, -halfBoxSize }, { 0.0f, 1.0f, 0.0f}, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfBoxSize,  halfBoxSize,  halfBoxSize }, { 0.0f, 1.0f, 0.0f}, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
+                // front face
+                {{ -halfBoxSize,  halfBoxSize,  halfBoxSize }, { 0.0f, 0.0f, 1.0f}, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{ -halfBoxSize, -halfBoxSize,  halfBoxSize }, { 0.0f, 0.0f, 1.0f}, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfBoxSize, -halfBoxSize,  halfBoxSize }, { 0.0f, 0.0f, 1.0f}, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfBoxSize,  halfBoxSize,  halfBoxSize }, { 0.0f, 0.0f, 1.0f}, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
+                // bottom face
+                {{ -halfBoxSize, -halfBoxSize,  halfBoxSize }, { 0.0f, -1.0f, 0.0f}, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{ -halfBoxSize, -halfBoxSize, -halfBoxSize }, { 0.0f, -1.0f, 0.0f}, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfBoxSize, -halfBoxSize, -halfBoxSize }, { 0.0f, -1.0f, 0.0f}, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfBoxSize, -halfBoxSize,  halfBoxSize }, { 0.0f, -1.0f, 0.0f}, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
+                // back face
+                {{ -halfBoxSize,  halfBoxSize, -halfBoxSize }, { 0.0f, 0.0f, -1.0f}, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{ -halfBoxSize, -halfBoxSize, -halfBoxSize }, { 0.0f, 0.0f, -1.0f}, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfBoxSize, -halfBoxSize, -halfBoxSize }, { 0.0f, 0.0f, -1.0f}, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfBoxSize,  halfBoxSize, -halfBoxSize }, { 0.0f, 0.0f, -1.0f}, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
+                // left face
+                {{  halfBoxSize, -halfBoxSize,  halfBoxSize }, { -1.0f, 0.0f, 0.0f}, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{  halfBoxSize, -halfBoxSize, -halfBoxSize }, { -1.0f, 0.0f, 0.0f}, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfBoxSize,  halfBoxSize, -halfBoxSize }, { -1.0f, 0.0f, 0.0f}, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfBoxSize,  halfBoxSize,  halfBoxSize }, { -1.0f, 0.0f, 0.0f}, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
+                // right face
+                {{  halfBoxSize, -halfBoxSize,  halfBoxSize }, { 1.0f, 0.0f, 0.0f}, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }},
+                {{  halfBoxSize, -halfBoxSize, -halfBoxSize }, { 1.0f, 0.0f, 0.0f}, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }},
+                {{  halfBoxSize,  halfBoxSize, -halfBoxSize }, { 1.0f, 0.0f, 0.0f}, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
+                {{  halfBoxSize,  halfBoxSize,  halfBoxSize }, { 1.0f, 0.0f, 0.0f}, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
+            };
+            u32 boxIndices[] = { 
+                // top face
+                0, 1, 2, 0, 2, 3,
+                // front face
+                4, 5, 6, 4, 6, 7,
+                // bottom face
+                8, 10, 9, 8, 11, 10,
+                // back face
+                12, 14, 13, 12, 15, 14,
+                // left face
+                16, 17, 18, 16, 18, 19,
+                // right face
+                20, 22, 21, 20, 23, 22,
+            };
 
-            GfxColor color = gfxColor(1.0f, 0.0f, 1.0f);
+            GfxColor colors[] = {
+                gfxColor(0x065535), // green
+                gfxColor(0x701778), // brown
+            };
 
             GfxBufferDesc vb = MeshVertexBuffer(ARRAY_COUNT(vertices));
             GfxBufferDesc ib = IndexBuffer(ARRAY_COUNT(indices));
-            GfxBufferDesc mb = UniformBuffer(sizeof(GfxColor));
+            GfxBufferDesc mb = UniformBuffer(sizeof(colors));
 
             GfxBufferDesc sb = StagingBuffer(Megabytes(16));
             gameState.stagingBuffer = gfx.CreateBuffer(gfx.device, sb, nullptr);
@@ -566,13 +619,13 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             {
                 Copy(sizeof(vertices), vertices, stagingPtr);
                 Copy(sizeof(indices), indices, OffsetPtr(stagingPtr, sizeof(vertices)));
-                Copy(sizeof(color), &color, OffsetPtr(stagingPtr, sizeof(vertices) + sizeof(indices)));
+                Copy(sizeof(colors), colors, OffsetPtr(stagingPtr, sizeof(vertices) + sizeof(indices)));
 
                 GfxCmdContext cmds = gameState.cmds;
                 gfx.BeginEncodingCmds(cmds);
                 gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, 0, gameState.box.geometry.vertexBuffer, 0, sizeof(vertices));
                 gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices), gameState.box.geometry.indexBuffer, 0, sizeof(indices));
-                gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices) + sizeof(indices), gameState.materialBuffer, 0, sizeof(color));
+                gfx.CmdCopyBufferRange(cmds, gameState.stagingBuffer, sizeof(vertices) + sizeof(indices), gameState.materialBuffer, 0, sizeof(colors));
                 gfx.EndEncodingCmds(cmds);
                 gfx.SubmitCommands(gfx.device, 1, &cmds);
                 gfx.Finish(gfx.device);

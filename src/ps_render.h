@@ -118,6 +118,7 @@ struct render_geometry
 struct render_mesh_vertex
 {
     v3 pos;
+    v3 normal;
     v3 color;
     v2 texCoord;
     

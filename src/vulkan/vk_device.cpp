@@ -3600,7 +3600,7 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
                     
                     VkDescriptorBufferInfo bufferInfo{};
                     bufferInfo.buffer = buffer->handle;
-                    bufferInfo.offset = 0;
+                    bufferInfo.offset = (VkDeviceSize)desc.offset;
                     bufferInfo.range = VK_WHOLE_SIZE;
 
                     writeData.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
