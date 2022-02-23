@@ -156,6 +156,7 @@ struct render_context
 
     render_geometry ground;
     
+    GfxBuffer meshSceneBuffer;
     GfxBuffer meshMaterial;
     GfxProgram meshProgram;
     GfxKernel meshKernel;

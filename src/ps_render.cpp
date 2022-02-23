@@ -1,4 +1,6 @@
-
+// TODO(james): Just for testing
+#define CGLTF_IMPLEMENTATION
+#include <cgltf/cgltf.h>
 
 /*
     RenderScene - API psuedocode
@@ -283,7 +285,7 @@ StageBufferData(render_context& rc, u64 size, const void* data, GfxBuffer buffer
 
     void* stagingData = gfx.GetBufferData(gfx.device, rc.stagingBuffer);
     Copy(size, data, OffsetPtr(stagingData, rc.stagingPos));
-    gfx.CmdCopyBufferRange(cmds, rc.stagingBuffer, rc.stagingPos, buffer, 0, size);
+    gfx.CmdCopyBufferRange(rc.stagingCmds, rc.stagingBuffer, rc.stagingPos, buffer, 0, size);
 
     rc.stagingPos += size;
 }
@@ -292,7 +294,7 @@ internal void
 StageTextureData(render_context& rc, u64 size, const void* data, GfxTexture texture)
 {
     GfxTextureBarrier texBarrier = { rc.texture, GfxResourceState::Undefined, GfxResourceState::CopyDst };
-    gfx.CmdResourceBarrier(cmds, 0, 0, 1, &texBarrier, 0, 0);
+    gfx.CmdResourceBarrier(rc.stagingCmds, 0, 0, 1, &texBarrier, 0, 0);
 
     while(rc.stagingPos + size > STAGING_BUFFER_SIZE)
     {
@@ -303,10 +305,10 @@ StageTextureData(render_context& rc, u64 size, const void* data, GfxTexture text
     void* stagingData = gfx.GetBufferData(gfx.device, rc.stagingBuffer);
     Copy(size, data, OffsetPtr(stagingData, rc.stagingPos));
 
-    gfx.CmdCopyBufferToTexture(cmds, rc.stagingBuffer, rc.stagingPos, rc.texture);
+    gfx.CmdCopyBufferToTexture(rc.stagingCmds, rc.stagingBuffer, rc.stagingPos, rc.texture);
  
     texBarrier = { rc.texture, GfxResourceState::CopyDst, GfxResourceState::PixelShaderResource };
-    gfx.CmdResourceBarrier(cmds, 0, 0, 1, &texBarrier, 0, 0);
+    gfx.CmdResourceBarrier(rc.stagingCmds, 0, 0, 1, &texBarrier, 0, 0);
 
     rc.stagingPos += size;
 }
@@ -387,7 +389,7 @@ TempLoadGltfGeometry(render_context& rc, const char* filename, u32* pNumMeshes, 
             // NOTE(james): We'll treat a single cgltf file as a single manifest...
             //              no matter how many scenes it holds.
 
-            *pNumMeshes = data->meshes_count;
+            *pNumMeshes = (u32)data->meshes_count;
             *pOutMeshes = PushArray(rc.arena, data->meshes_count, render_geometry);
 
             render_geometry* loadedMesh = *pOutMeshes;
@@ -400,14 +402,13 @@ TempLoadGltfGeometry(render_context& rc, const char* filename, u32* pNumMeshes, 
                     cgltf_accessor* indices = primitive->indices;
 
                     loadedMesh->indexCount = (u32)indices->count;
-                    loadedMesh->indexBuffer = gfx.CreateBuffer(gfx.device, IndexBuffer(indices->count));
+                    loadedMesh->indexBuffer = gfx.CreateBuffer(gfx.device, IndexBuffer((u32)indices->count), 0);
                     
-                    u32 meshIndices = PushArray(*rc.frameArena, model->indexCount, u32);
+                    u32* meshIndices = PushArray(*rc.frameArena, loadedMesh->indexCount, u32);
 
                     // TODO(james): Change this logic to just setup the buffer views and directly load the buffer bytes
-                    cgltf_size i = 0;
-                    FOREACH(idx, meshIndices, loadedMesh->indexCount) {
-                        *idx = (u32)cgltf_accessor_read_index(indices, i++);
+                    for(u32 idx = 0; idx < loadedMesh->indexCount; ++idx) {
+                        meshIndices[idx] = (u32)cgltf_accessor_read_index(indices, idx);
                     }
                     StageBufferData(rc, sizeof(u32)*loadedMesh->indexCount, meshIndices, loadedMesh->indexBuffer);
 
@@ -422,7 +423,7 @@ TempLoadGltfGeometry(render_context& rc, const char* filename, u32* pNumMeshes, 
                     FOREACH(attr, primitive->attributes, primitive->attributes_count)
                     {
                         cgltf_accessor* access = attr->data;
-                        vertexSize += cgltf_num_components(access->type) * sizeof(f32);
+                        vertexSize += (u32)cgltf_num_components(access->type) * sizeof(f32);
                         ASSERT(!vertexCount || vertexCount == access->count);   // NOTE(james): verifies that all attributes have the same number of elements
                         vertexCount = (u32)access->count;
                     }
@@ -509,7 +510,6 @@ SetupRenderer(game_state& game)
     rc.groundProgram = LoadProgram(*rc.frameArena, "shader.vert.spv", "shader.frag.spv");
     rc.groundKernel = gfx.CreateGraphicsKernel(gfx.device, rc.groundProgram, DefaultPipeline(true));
 
-    // TODO(james): upload a material and set the scene buffer...
     rc.meshSceneBuffer = gfx.CreateBuffer(gfx.device, UniformBuffer(sizeof(SceneBufferObject), GfxMemoryAccess::CpuToGpu), 0);
     rc.meshMaterial = gfx.CreateBuffer(gfx.device, UniformBuffer(sizeof(render_material)), 0);
     rc.meshProgram = LoadProgram(*rc.frameArena, "box.vert.spv", "box.frag.spv");
@@ -528,10 +528,17 @@ SetupRenderer(game_state& game)
     rc.texture = gfx.CreateTexture(gfx.device, texDesc);
     rc.sampler = gfx.CreateSampler(gfx.device, Sampler());
 
+    render_material meshMaterial = {};
+    meshMaterial.ambient = Vec3(1.0f, 0.5f, 0.31f);
+    meshMaterial.diffuse = Vec3(1.0f, 0.5f, 0.31f);
+    meshMaterial.specular = Vec3(0.5f, 0.5f, 0.5f);
+    meshMaterial.shininess = 32.0f;
+
     BeginStagingData(rc);
     StageBufferData(rc, sizeof(vertices), vertices, rc.ground.vertexBuffer);
     StageBufferData(rc, sizeof(indices), indices, rc.ground.indexBuffer);
     StageBufferData(rc, sizeof(colors), colors, rc.groundMaterial);
+    StageBufferData(rc, sizeof(meshMaterial), &meshMaterial, rc.meshMaterial);
     StageTextureData(rc, texDesc.width*texDesc.height*4, pixels, rc.texture);
     TempLoadGltfGeometry(rc, "box.glb", &rc.numMeshes, &rc.meshes);
     EndStagingData(rc);
@@ -545,6 +552,17 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     m4 cameraView = LookAt(game.camera.position, game.camera.target, V3_Y_UP);
     m4 projection = Perspective(45.0f, gc.windowWidth, gc.windowHeight, 0.1f, 100.0f);
     m4 viewProj = projection * cameraView;
+
+    SceneBufferObject sbo{};
+    sbo.viewProj = viewProj;
+    sbo.pos = game.camera.position;
+    sbo.light.pos = game.lightPosition;
+    sbo.light.ambient = Vec3(0.2f, 0.2f, 0.2f);
+    sbo.light.diffuse = Vec3(0.5f, 0.5f, 0.5f);
+    sbo.light.specular = Vec3(1.0f, 1.0f, 1.0f);
+
+    void* sceneBufferData = gfx.GetBufferData(gfx.device, rc.meshSceneBuffer);
+    Copy(sizeof(sbo), &sbo, sceneBufferData);
 
     GfxRenderTarget screenRTV = gfx.AcquireNextSwapChainTarget(gfx.device);
 
@@ -562,6 +580,8 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     gfx.CmdSetScissorRect(cmds, 0, 0, gc.windowWidth, gc.windowHeight);
 
     gfx.CmdBindRenderTargets(cmds, 1, &screenRTV, &rc.depthTarget);
+    
+    // Render Ground
     gfx.CmdBindKernel(cmds, rc.groundKernel);
 
     GfxDescriptor descriptors[] = {
@@ -583,6 +603,34 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     gfx.CmdBindIndexBuffer(cmds, rc.ground.indexBuffer);
     gfx.CmdBindVertexBuffer(cmds, rc.ground.vertexBuffer);
     gfx.CmdDrawIndexed(cmds, rc.ground.indexCount, 1, 0, 0, 0);
+
+    // Render Mesh(es)
+    gfx.CmdBindKernel(cmds, rc.meshKernel);
+    
+    GfxDescriptor sceneDescriptors[] = {
+        NamedBufferDescriptor("scene", rc.meshSceneBuffer),
+    };
+    desc.setLocation = 0;
+    desc.count = ARRAY_COUNT(sceneDescriptors);
+    desc.pDescriptors = sceneDescriptors;
+    gfx.CmdBindDescriptorSet(cmds, desc);
+
+    GfxDescriptor meshMaterialDescriptors[] = {
+        NamedBufferDescriptor("material", rc.meshMaterial),
+    };
+    desc.setLocation = 1;
+    desc.count = ARRAY_COUNT(meshMaterialDescriptors);
+    desc.pDescriptors = meshMaterialDescriptors;
+    gfx.CmdBindDescriptorSet(cmds, desc);
+
+    if(rc.numMeshes > 0)
+    {
+        gfx.CmdBindIndexBuffer(cmds, rc.meshes[0].indexBuffer);
+        gfx.CmdBindVertexBuffer(cmds, rc.meshes[0].vertexBuffer);
+        gfx.CmdDrawIndexed(cmds, rc.meshes[0].indexCount, 1, 0, 0, 0);
+    }
+
+    // Now we're done, prep for presenting
 
     gfx.CmdBindRenderTargets(cmds, 0, nullptr, nullptr);    // Unbind the render targets so we can move the RTV to the Present Mode
 

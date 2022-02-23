@@ -384,20 +384,6 @@ void BuildRenderCommands(game_state& state, render_context& render, const GameCl
 }
 #endif
 
-internal void
-RenderFrame(game_state& state, graphics_context& gc, const GameClock& clock)
-{
-    
-}
-
-
-
-internal void
-SetupRenderResources(game_state& state, graphics_context& gc)
-{
-
-}
-
 platform_api Platform;
 extern "C"
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
@@ -412,7 +398,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.frameArena = BootstrapScratchArena("FrameArena", NonRestoredArena(Megabytes(1)));
         gameState.temporaryFrameMemory = BeginTemporaryMemory(*gameState.frameArena);
 
-        gameState.renderer = BoostrapPushStructMember(render_context, renderArena);
+        gameState.renderer = BootstrapPushStructMember(render_context, arena);
         gameState.renderer->frameArena = gameState.frameArena;
         gameState.renderer->gc = &graphics;
 

@@ -7,9 +7,7 @@
 #include <unordered_map>
 // ----------------------------------------------
 
-// TODO(james): Just for testing
-#define CGLTF_IMPLEMENTATION
-#include <cgltf/cgltf.h>
+
 // ----------------------------------------------
 
 internal

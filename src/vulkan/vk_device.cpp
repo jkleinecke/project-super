@@ -2258,6 +2258,9 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
         temporary_memory temp = BeginTemporaryMemory(pHeap->arena);
 
+        // TODO(james): This is not the correct way to create the descriptor set layout objects
+        // instead they should be merged across each shader that shares the binding types and
+        // the binding points.
         for(u32 shaderIdx = 0; shaderIdx < program->numShaders; ++shaderIdx)
         {
             SpvReflectShaderModule& module = *program->shaderReflections[shaderIdx];
@@ -2266,7 +2269,7 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
             for(u32 setIdx = 0; setIdx < entrypoint.descriptor_set_count; ++setIdx)
             {
                 SpvReflectDescriptorSet& set = entrypoint.descriptor_sets[setIdx];
-                VkDescriptorSetLayoutBinding* descriptorBindings = PushArray(pHeap->arena, set.binding_count, VkDescriptorSetLayoutBinding);
+                VkDescriptorSetLayoutBinding* descriptorBindings = PushArray(*device.frameArena, set.binding_count, VkDescriptorSetLayoutBinding);
 
                 for(u32 bindingIdx = 0; bindingIdx < set.binding_count; ++bindingIdx)
                 {
@@ -2278,12 +2281,23 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
                     binding.stageFlags = (VkShaderStageFlags)entrypoint.shader_stage;
 
                     vg_program_binding_desc binding_desc = {};
+                    u64 bindingKey = strhash64(spvBinding.name, StringLength(spvBinding.name)-1);
+                    if(program->mapBindingDesc->try_get(bindingKey, &binding_desc))
+                    {
+                        // This is odd and not really supported by the lookup syntax
+                        ASSERT(binding_desc.set != set.set);
+                        ASSERT(binding_desc.binding != spvBinding.binding);
+                    }
+                    else
+                    {
 #if PROJECTSUPER_INTERNAL
-                    CopyString(spvBinding.name, binding_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
+                        CopyString(spvBinding.name, binding_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
 #endif
-                    binding_desc.set = set.set;
-                    binding_desc.binding = spvBinding.binding;
-                    program->mapBindingDesc->set(strhash64(spvBinding.name, StringLength(spvBinding.name)-1), binding_desc);
+                        binding_desc.set = set.set;
+                        binding_desc.binding = spvBinding.binding;
+
+                        program->mapBindingDesc->set(strhash64(spvBinding.name, StringLength(spvBinding.name)-1), binding_desc);
+                    }
                 }
 
                 VkDescriptorSetLayoutCreateInfo descLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
