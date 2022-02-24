@@ -9,7 +9,7 @@
                 "${env:VULKAN_SDK}/Include"
             ],
             "compilerPath": "",
-            "intelliSenseMode": "windows-msvc-x64",
+            "intelliSenseMode": "${default}",
             "compilerArgs": [
                 "-Oi",
                 "-Od",

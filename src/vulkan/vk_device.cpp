@@ -2237,12 +2237,23 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
     if(result == VK_SUCCESS)
     {
+        // NOTE(james): A program expects all shaders included to share a set of descriptor layouts
+        // that will work across all the shaders (even if they aren't being used).
+
         u32 totalPushConstants = 0;
-        u32 descriptorSetLayoutCount = 0;
+        u32 totalDescriptorSetCount = 0;
+        u32 maxDescriptorSetId = 0;
         for(u32 shaderIdx = 0; shaderIdx < program->numShaders; ++shaderIdx)
         {
             totalPushConstants += program->entrypoints[shaderIdx]->used_push_constant_count;
-            descriptorSetLayoutCount += program->entrypoints[shaderIdx]->descriptor_set_count;
+
+            SpvReflectEntryPoint& entrypoint = *program->entrypoints[shaderIdx];
+            for(u32 setIdx = 0; setIdx < entrypoint.descriptor_set_count; ++setIdx)
+            {
+                SpvReflectDescriptorSet& set = entrypoint.descriptor_sets[setIdx];
+                maxDescriptorSetId = Maximum(set.set, maxDescriptorSetId);
+                totalDescriptorSetCount = maxDescriptorSetId + 1;
+            }
         }
         
         u32 pushConstantCount = 0;
@@ -2252,7 +2263,9 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
             pushConstants = PushArray(*device.frameArena, totalPushConstants, VkPushConstantRange);
         }
 
-        program->descriptorSetLayouts = array_create(pHeap->arena, VkDescriptorSetLayout, descriptorSetLayoutCount);
+        array<VkDescriptorSetLayoutBinding>** ppDescriptorSetBindings = PushArray(*device.frameArena, totalDescriptorSetCount, array<VkDescriptorSetLayoutBinding>*);
+        
+        program->descriptorSetLayouts = array_create(pHeap->arena, VkDescriptorSetLayout, totalDescriptorSetCount);
         program->mapBindingDesc = hashtable_create(pHeap->arena, vg_program_binding_desc, 1024); // NOTE(james): 1024 bindings is waaay overkill, but it's just a pointer...
         program->mapPushConstantDesc = hashtable_create(pHeap->arena, vg_program_pushconstant_desc, 32);    // NOTE(james): 32 push constants should be enough. Only have 128 bytes
 
@@ -2261,6 +2274,7 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
         // TODO(james): This is not the correct way to create the descriptor set layout objects
         // instead they should be merged across each shader that shares the binding types and
         // the binding points.
+
         for(u32 shaderIdx = 0; shaderIdx < program->numShaders; ++shaderIdx)
         {
             SpvReflectShaderModule& module = *program->shaderReflections[shaderIdx];
@@ -2269,24 +2283,44 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
             for(u32 setIdx = 0; setIdx < entrypoint.descriptor_set_count; ++setIdx)
             {
                 SpvReflectDescriptorSet& set = entrypoint.descriptor_sets[setIdx];
-                VkDescriptorSetLayoutBinding* descriptorBindings = PushArray(*device.frameArena, set.binding_count, VkDescriptorSetLayoutBinding);
+                array<VkDescriptorSetLayoutBinding>*& descriptorBindings = ppDescriptorSetBindings[set.set];
+                if(!descriptorBindings)
+                {
+                    // TODO(james): surely there won't be more than 64 bindings in a set...
+                    descriptorBindings = array_create(*device.frameArena, VkDescriptorSetLayoutBinding, 64);
+                }
 
                 for(u32 bindingIdx = 0; bindingIdx < set.binding_count; ++bindingIdx)
                 {
                     const SpvReflectDescriptorBinding& spvBinding = *set.bindings[bindingIdx];
-                    VkDescriptorSetLayoutBinding& binding = descriptorBindings[bindingIdx];
-                    binding.binding = spvBinding.binding;
-                    binding.descriptorType = (VkDescriptorType)spvBinding.descriptor_type;
-                    binding.descriptorCount = spvBinding.count;
-                    binding.stageFlags = (VkShaderStageFlags)entrypoint.shader_stage;
+                    
+                    if(spvBinding.binding < descriptorBindings->size())
+                    {
+                        // TODO(james): probably shouldn't assume that each binding point is at the slot...
+                        VkDescriptorSetLayoutBinding& binding = descriptorBindings->at(spvBinding.binding);
+                        ASSERT(binding.binding == spvBinding.binding);
+                        ASSERT(binding.descriptorType == (VkDescriptorType)spvBinding.descriptor_type);
+                        ASSERT(binding.descriptorCount == spvBinding.count);    
+                        binding.stageFlags |= (VkShaderStageFlags)entrypoint.shader_stage;  // just add the shader stage
+                    }
+                    else
+                    {
+                        VkDescriptorSetLayoutBinding binding{};
+                        binding.binding = spvBinding.binding;
+                        binding.descriptorType = (VkDescriptorType)spvBinding.descriptor_type;
+                        binding.descriptorCount = spvBinding.count;
+                        binding.stageFlags = (VkShaderStageFlags)entrypoint.shader_stage;
+                        descriptorBindings->push_back(binding);
+                    }
 
+                    // TODO(james): just get rid of this... engine should have a scheme for the sets
                     vg_program_binding_desc binding_desc = {};
                     u64 bindingKey = strhash64(spvBinding.name, StringLength(spvBinding.name)-1);
                     if(program->mapBindingDesc->try_get(bindingKey, &binding_desc))
                     {
                         // This is odd and not really supported by the lookup syntax
-                        ASSERT(binding_desc.set != set.set);
-                        ASSERT(binding_desc.binding != spvBinding.binding);
+                        ASSERT(binding_desc.set == set.set);
+                        ASSERT(binding_desc.binding == spvBinding.binding);
                     }
                     else
                     {
@@ -2298,17 +2332,6 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
                         program->mapBindingDesc->set(strhash64(spvBinding.name, StringLength(spvBinding.name)-1), binding_desc);
                     }
-                }
-
-                VkDescriptorSetLayoutCreateInfo descLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-                descLayoutInfo.bindingCount = set.binding_count;
-                descLayoutInfo.pBindings = descriptorBindings;
-
-                VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
-                result = vkCreateDescriptorSetLayout(device.handle, &descLayoutInfo, nullptr, &setLayout);
-                if(result == VK_SUCCESS)
-                {
-                    program->descriptorSetLayouts->push_back(setLayout);
                 }
             }
 
@@ -2334,6 +2357,28 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
                 pc_desc.shaderStage = entrypoint.shader_stage;
 
                 program->mapPushConstantDesc->set(strhash64(block->name, StringLength(block->name)-1), pc_desc);
+            }
+        }
+
+        for(u32 i = 0; i <= maxDescriptorSetId; ++i)
+        {
+            array<VkDescriptorSetLayoutBinding>* descriptorBindings = ppDescriptorSetBindings[i];
+            if(descriptorBindings)
+            {
+                VkDescriptorSetLayoutCreateInfo descLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+                descLayoutInfo.bindingCount = descriptorBindings->size();
+                descLayoutInfo.pBindings = descriptorBindings->data();
+
+                VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+                result = vkCreateDescriptorSetLayout(device.handle, &descLayoutInfo, nullptr, &setLayout);
+                if(result == VK_SUCCESS)
+                {
+                    program->descriptorSetLayouts->push_back(setLayout);
+                }
+            }
+            else
+            {
+                program->descriptorSetLayouts->push_back(VK_NULL_HANDLE);
             }
         }
 

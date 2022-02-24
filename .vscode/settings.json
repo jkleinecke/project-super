@@ -93,8 +93,10 @@
         "*.mm": "cpp"
     },
     "editor.suggestOnTriggerCharacters": false,
-    "editor.suggest.localityBonus": true,
     "editor.suggest.showWords": false,
     "editor.suggest.showUsers": false,
-    "editor.suggest.showIssues": false
+    "editor.suggest.showIssues": false,
+    "editor.suggest.filterGraceful": false,
+    "editor.suggestSelection": "recentlyUsedByPrefix",
+    "editor.wordBasedSuggestions": false
 }

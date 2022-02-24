@@ -403,7 +403,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.renderer->gc = &graphics;
 
         SetupRenderer(gameState);
-
+        
         // gameState.resourceQueue = render.resourceQueue;   
         gameState.assets = AllocateGameAssets(gameState);
      

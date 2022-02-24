@@ -325,7 +325,7 @@ EndStagingData(render_context& rc)
 }
 
 internal void
-TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* height, u32* channels, void* pixeldata)
+TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* height, u32* channels, void*& pixeldata)
 {
     temporary_memory temp = BeginTemporaryMemory(arena);
 
@@ -364,7 +364,7 @@ TempLoadGltfGeometry(render_context& rc, const char* filename, u32* pNumMeshes, 
     void* bytes = PushSize(*rc.frameArena, file.size); 
     u64 bytesRead = Platform.ReadFile(file, bytes, file.size);
     ASSERT(bytesRead == file.size);
-
+    
     cgltf_options options = {};
     cgltf_data* data = NULL;
     cgltf_result result = cgltf_parse(&options, bytes, file.size, &data);
@@ -540,6 +540,7 @@ SetupRenderer(game_state& game)
     StageBufferData(rc, sizeof(colors), colors, rc.groundMaterial);
     StageBufferData(rc, sizeof(meshMaterial), &meshMaterial, rc.meshMaterial);
     StageTextureData(rc, texDesc.width*texDesc.height*4, pixels, rc.texture);
+    // TODO(james): fix the crash in this next call...
     TempLoadGltfGeometry(rc, "box.glb", &rc.numMeshes, &rc.meshes);
     EndStagingData(rc);
 }
