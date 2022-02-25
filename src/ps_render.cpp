@@ -183,6 +183,17 @@ MeshVertexBuffer(u32 count)
 }
 
 internal GfxBufferDesc
+VertexBuffer(u32 count, u32 vertexSize)
+{
+    GfxBufferDesc desc = {};
+    desc.usageFlags = GfxBufferUsageFlags::Vertex;
+    desc.access = GfxMemoryAccess::GpuOnly;
+    desc.size = count * vertexSize;
+
+    return desc;
+}
+
+internal GfxBufferDesc
 IndexBuffer(u32 count)
 {
     GfxBufferDesc desc = {};
@@ -429,6 +440,7 @@ TempLoadGltfGeometry(render_context& rc, const char* filename, u32* pNumMeshes, 
                     }
 
                     void* meshVertices = PushSize(*rc.frameArena, vertexSize * vertexCount);
+                    loadedMesh->vertexBuffer = gfx.CreateBuffer(gfx.device, VertexBuffer(vertexCount, vertexSize), 0);
 
                     umm offset = 0;
                     FOREACH(attr, primitive->attributes, primitive->attributes_count)
@@ -551,6 +563,7 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     graphics_context& gc = *rc.gc;
 
     m4 cameraView = LookAt(game.camera.position, game.camera.target, V3_Y_UP);
+    //m4 cameraView = LookAt(Vec3(5.0f, 5.0f, -5.0f), game.camera.target, V3_Y_UP);
     m4 projection = Perspective(45.0f, gc.windowWidth, gc.windowHeight, 0.1f, 100.0f);
     m4 viewProj = projection * cameraView;
 
@@ -626,6 +639,10 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
 
     if(rc.numMeshes > 0)
     {
+        matrix = viewProj * Scale(Vec3(4.0f, 4.0f, 4.0f)) * Translate(Vec3(0.0f, -5.0f, 0.0f));
+
+        gfx.CmdBindPushConstant(cmds, "constants", &matrix);
+
         gfx.CmdBindIndexBuffer(cmds, rc.meshes[0].indexBuffer);
         gfx.CmdBindVertexBuffer(cmds, rc.meshes[0].vertexBuffer);
         gfx.CmdDrawIndexed(cmds, rc.meshes[0].indexCount, 1, 0, 0, 0);
