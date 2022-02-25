@@ -10,14 +10,14 @@ struct LightData
 };
 
 // Per Scene
-layout(set = 0, binding = 0) uniform Scene {
+layout(std140, set = 0, binding = 0) uniform Scene {
     mat4 viewProj;
-    uniform vec3 cameraPos;
-    uniform LightData light;
+    vec3 cameraPos;
+    LightData light;
 } scene;
 
 // Per Material
-layout(set = 1, binding = 0) uniform Material {
+layout(std140, set = 1, binding = 0) uniform Material {
     vec3 ambient;
     vec3 diffuse;
     vec3 specular;

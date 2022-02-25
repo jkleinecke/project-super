@@ -146,7 +146,7 @@ DefaultPipeline(b32 depthEnable)
 
     GfxRasterizerState rs = {};
     rs.fillMode = GfxFillMode::Solid;
-    rs.cullMode = GfxCullMode::None;
+    rs.cullMode = GfxCullMode::Back;
     rs.frontCCW = true;
 
     GfxPipelineDesc desc = {};
@@ -439,7 +439,7 @@ TempLoadGltfGeometry(render_context& rc, const char* filename, u32* pNumMeshes, 
                         vertexCount = (u32)access->count;
                     }
 
-                    void* meshVertices = PushSize(*rc.frameArena, vertexSize * vertexCount);
+                    gltf_vertex* meshVertices = PushArray(*rc.frameArena, vertexCount, gltf_vertex);
                     loadedMesh->vertexBuffer = gfx.CreateBuffer(gfx.device, VertexBuffer(vertexCount, vertexSize), 0);
 
                     umm offset = 0;
@@ -495,7 +495,7 @@ SetupRenderer(game_state& game)
         {{  halfWidth, 0.0f, -halfDepth }, { 0.0f, 1.0f, 0.0f}, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }},
         {{  halfWidth, 0.0f,  halfDepth }, { 0.0f, 1.0f, 0.0f}, { 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f }},
     };
-    u32 indices[] = { 0, 1, 2, 0, 2, 3 };
+    u32 indices[] = { 0, 2, 1, 0, 3, 2 };
 
     GfxColor colors[] = {
         gfxColor(0x065535), // green
@@ -564,7 +564,7 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
 
     m4 cameraView = LookAt(game.camera.position, game.camera.target, V3_Y_UP);
     //m4 cameraView = LookAt(Vec3(5.0f, 5.0f, -5.0f), game.camera.target, V3_Y_UP);
-    m4 projection = Perspective(45.0f, gc.windowWidth, gc.windowHeight, 0.1f, 100.0f);
+    m4 projection = game.cameraProjection;
     m4 viewProj = projection * cameraView;
 
     SceneBufferObject sbo{};
@@ -639,7 +639,9 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
 
     if(rc.numMeshes > 0)
     {
-        matrix = viewProj * Scale(Vec3(4.0f, 4.0f, 4.0f)) * Translate(Vec3(0.0f, -5.0f, 0.0f));
+        matrix = Translate(game.position) 
+            * Rotate(game.rotationAngle, Vec3i(0,-1,0))
+            * Scale(Vec3(game.scaleFactor, game.scaleFactor, game.scaleFactor));
 
         gfx.CmdBindPushConstant(cmds, "constants", &matrix);
 

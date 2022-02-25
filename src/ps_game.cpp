@@ -407,7 +407,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // gameState.resourceQueue = render.resourceQueue;   
         gameState.assets = AllocateGameAssets(gameState);
      
-        gameState.camera.position = Vec3(20.0f, 20.0f, 20.0f);
+        gameState.camera.position = Vec3(10.0f, 10.0f, 10.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
         gameState.cameraProjection = Perspective(45.0f, graphics.windowWidth, graphics.windowHeight, 0.1f, 100.0f);
 
@@ -418,7 +418,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.lightPosition = Vec3(1.2f, 3.0f, 2.0f);
         gameState.lightScale = 0.2f;
 
-        gameState.position = Vec3i(0,0,0);
+        gameState.position = Vec3i(0,5,0);
         gameState.scaleFactor = 1.0f;
         //gameState.rotationAngle = 120.188347f;
     }    
@@ -513,6 +513,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
     }
 
+    gameState.camera.target = gameState.position;
     RenderFrame(*gameState.renderer, gameState, input.clock);
     
     // BuildRenderCommands(gameState, render, input.clock);

@@ -121,6 +121,12 @@ struct renderable
 
 // Resource Descriptions
 
+struct gltf_vertex
+{
+    v3 normal;
+    v3 pos;
+};
+
 struct render_mesh_vertex
 {
     v3 pos;
