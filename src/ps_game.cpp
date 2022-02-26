@@ -436,7 +436,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     const f32 scaleRate = 0.4f * clock.elapsedFrameTime;
     const f32 rotRate = 90.0f * clock.elapsedFrameTime;
 
-    gameState.rotationAngle += rotRate;
+    //gameState.rotationAngle += rotRate;
     
     for(int controllerIndex = 0; controllerIndex < 5; ++controllerIndex)
     {

@@ -171,4 +171,6 @@ struct render_context
 
     GfxProgram lightProgram;
     GfxKernel lightKernel;
+    
+    render_geometry sphere;
 };
