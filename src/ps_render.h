@@ -72,9 +72,10 @@ struct CameraData
 struct LightData
 {
     ALIGNAS(16) v3 pos;
-    ALIGNAS(16) v3 ambient;
-    ALIGNAS(16) v3 diffuse;
-    ALIGNAS(16) v3 specular;
+    ALIGNAS(16) v3 color;
+    // ALIGNAS(16) v3 ambient;
+    // ALIGNAS(16) v3 diffuse;
+    // ALIGNAS(16) v3 specular;
 };  
 
 struct InstanceData
@@ -94,10 +95,14 @@ struct SceneBufferObject
 
 struct render_material
 {
-    ALIGNAS(16) v3 ambient;
-    ALIGNAS(16) v3 diffuse;
-    ALIGNAS(16) v3 specular;
-    ALIGNAS(4) f32 shininess;
+    ALIGNAS(16) v3 albedo;
+    ALIGNAS(4) f32 metallic;
+    ALIGNAS(4) f32 roughness;
+    ALIGNAS(4) f32 ao;
+    // ALIGNAS(16) v3 ambient;
+    // ALIGNAS(16) v3 diffuse;
+    // ALIGNAS(16) v3 specular;
+    // ALIGNAS(4) f32 shininess;
 };
 
 struct camera

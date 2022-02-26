@@ -415,7 +415,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //gameState.position = Vec3(0.218433440f,0.126181871f,0.596520841f);
         // gameState.scaleFactor = 0.0172703639f;
         // gameState.rotationAngle = 120.188347f;
-        gameState.lightPosition = Vec3(-0.5f, 5.0f, 2.0f);
+        gameState.lightPosition = Vec3(0.0f, 5.0f, 2.0f);
         gameState.lightScale = 0.2f;
 
         gameState.position = Vec3i(0,5,0);

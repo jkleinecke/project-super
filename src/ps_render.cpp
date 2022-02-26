@@ -879,7 +879,7 @@ SetupRenderer(game_state& game)
 
     rc.meshSceneBuffer = gfx.CreateBuffer(gfx.device, UniformBuffer(sizeof(SceneBufferObject), GfxMemoryAccess::CpuToGpu), 0);
     rc.meshMaterial = gfx.CreateBuffer(gfx.device, UniformBuffer(sizeof(render_material)), 0);
-    rc.meshProgram = LoadProgram(*rc.frameArena, "box.vert.spv", "box.frag.spv");
+    rc.meshProgram = LoadProgram(*rc.frameArena, "pbrbox.vert.spv", "pbrbox.frag.spv");
     rc.meshKernel = gfx.CreateGraphicsKernel(gfx.device, rc.meshProgram, DefaultPipeline(true));
 
     rc.lightProgram = LoadProgram(*rc.frameArena, "lightbox.vert.spv", "lightbox.frag.spv");
@@ -899,10 +899,10 @@ SetupRenderer(game_state& game)
     rc.sampler = gfx.CreateSampler(gfx.device, Sampler());
 
     render_material meshMaterial = {};
-    meshMaterial.ambient = Vec3(1.0f, 0.5f, 0.31f);
-    meshMaterial.diffuse = Vec3(1.0f, 0.5f, 0.31f);
-    meshMaterial.specular = Vec3(0.5f, 0.5f, 0.5f);
-    meshMaterial.shininess = 32.0f;
+    meshMaterial.albedo = Vec3(1.0f, 0.0f, 0.0f);
+    meshMaterial.metallic = 0.0f;
+    meshMaterial.roughness = 0.2f;
+    meshMaterial.ao = 0.2f;
 
     // rc.sphere = CreateIcosphere(rc, 1.0f, 2);
     rc.sphere = CreateSphere(rc, 1.0f, 18, 36);
@@ -932,9 +932,7 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     sbo.viewProj = viewProj;
     sbo.pos = game.camera.position;
     sbo.light.pos = game.lightPosition;
-    sbo.light.ambient = Vec3(0.2f, 0.2f, 0.2f);
-    sbo.light.diffuse = Vec3(0.5f, 0.5f, 0.5f);
-    sbo.light.specular = Vec3(1.0f, 1.0f, 1.0f);
+    sbo.light.color = Vec3(1.0f, 1.0f, 1.0f);
 
     void* sceneBufferData = gfx.GetBufferData(gfx.device, rc.meshSceneBuffer);
     Copy(sizeof(sbo), &sbo, sceneBufferData);
