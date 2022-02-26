@@ -1921,7 +1921,12 @@ GfxBuffer CreateBuffer( GfxDevice deviceHandle, const GfxBufferDesc& bufferDesc,
             memUsage = VMA_MEMORY_USAGE_CPU_ONLY;
             break;
         case GfxMemoryAccess::CpuToGpu:
+#if PROJECTSUPER_MACOS
+            // TODO(james): figure out why MoltenVK can't use VMA_MEMORY_USAGE_CPU_TO_GPU
+            memUsage = VMA_MEMORY_USAGE_CPU_ONLY;
+#else
             memUsage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+#endif
             break;
         case GfxMemoryAccess::GpuToCpu:
             memUsage = VMA_MEMORY_USAGE_GPU_TO_CPU;

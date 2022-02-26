@@ -640,7 +640,7 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     if(rc.numMeshes > 0)
     {
         matrix = Translate(game.position) 
-            * Rotate(game.rotationAngle, Vec3i(0,-1,0))
+            * Rotate(game.rotationAngle, Vec3i(0,1,0))
             * Scale(Vec3(game.scaleFactor, game.scaleFactor, game.scaleFactor));
 
         gfx.CmdBindPushConstant(cmds, "constants", &matrix);

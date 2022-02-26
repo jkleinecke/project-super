@@ -719,7 +719,7 @@ int main(int argc, const char* argv[])
         [Window makeKeyAndOrderFront:nil];
 
 		game_memory gameMemory = {};
-		render_context gameRender = {};
+		graphics_context gameGraphics = {};
 		InputContext input = {};
 		AudioContext audio = {};
 
@@ -727,9 +727,9 @@ int main(int argc, const char* argv[])
 
 		ps_graphics_backend graphicsDriver = platform_load_graphics_backend(layer, windowWidth, windowHeight);
 		gfx_api& gfx = graphicsDriver.gfx; 
-		gameRender.renderDimensions.Width = graphicsDriver.width;
-		gameRender.renderDimensions.Height = graphicsDriver.height;
-		gameRender.gfx = gfx;
+		gameGraphics.windowWidth = graphicsDriver.width;
+		gameGraphics.windowHeight = graphicsDriver.height;
+		gameGraphics.gfx = gfx;
 
 		macos_game_function_table gameFunctions = {};
 		macos_loaded_code gameCode = {};
@@ -756,7 +756,7 @@ int main(int argc, const char* argv[])
 
 			if(gameFunctions.UpdateAndRender)
 			{
-				gameFunctions.UpdateAndRender(gameMemory, gameRender, input, audio);
+				gameFunctions.UpdateAndRender(gameMemory, gameGraphics, input, audio);
 			}
 
 			u64 gameSimTime = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
