@@ -415,7 +415,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //gameState.position = Vec3(0.218433440f,0.126181871f,0.596520841f);
         // gameState.scaleFactor = 0.0172703639f;
         // gameState.rotationAngle = 120.188347f;
-        gameState.lightPosition = Vec3(1.2f, 3.0f, 2.0f);
+        gameState.lightPosition = Vec3(-0.5f, 5.0f, 2.0f);
         gameState.lightScale = 0.2f;
 
         gameState.position = Vec3i(0,5,0);
@@ -434,7 +434,9 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     //gameState.skullRotationAngle += clock.elapsedFrameTime * 90.0f;
     const f32 velocity = 1.5f * clock.elapsedFrameTime;
     const f32 scaleRate = 0.4f * clock.elapsedFrameTime;
-    const f32 rotRate = 360.0f * clock.elapsedFrameTime;
+    const f32 rotRate = 90.0f * clock.elapsedFrameTime;
+
+    gameState.rotationAngle += rotRate;
     
     for(int controllerIndex = 0; controllerIndex < 5; ++controllerIndex)
     {

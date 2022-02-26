@@ -527,6 +527,9 @@ SetupRenderer(game_state& game)
     rc.meshProgram = LoadProgram(*rc.frameArena, "box.vert.spv", "box.frag.spv");
     rc.meshKernel = gfx.CreateGraphicsKernel(gfx.device, rc.meshProgram, DefaultPipeline(true));
 
+    rc.lightProgram = LoadProgram(*rc.frameArena, "box.vert.spv", "lightbox.frag.spv");
+    rc.lightKernel = gfx.CreateGraphicsKernel(gfx.device, rc.lightProgram, DefaultPipeline(true));
+
     rc.depthTarget = gfx.CreateRenderTarget(gfx.device, DepthRenderTarget(gc.windowWidth, gc.windowHeight));
 
     GfxTextureDesc texDesc = {};
@@ -648,6 +651,26 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
         gfx.CmdBindIndexBuffer(cmds, rc.meshes[0].indexBuffer);
         gfx.CmdBindVertexBuffer(cmds, rc.meshes[0].vertexBuffer);
         gfx.CmdDrawIndexed(cmds, rc.meshes[0].indexCount, 1, 0, 0, 0);
+
+        // Render the light...
+        // TODO(james): find a better way than assuming that mesh[0] is a cube
+        gfx.CmdBindKernel(cmds, rc.lightKernel);
+
+        // TODO(james): find a way to re-use an allocated descriptor set
+        desc.setLocation = 0;
+        desc.count = ARRAY_COUNT(sceneDescriptors);
+        desc.pDescriptors = sceneDescriptors;
+        gfx.CmdBindDescriptorSet(cmds, desc);
+        
+        matrix = Translate(game.lightPosition)
+            * Scale(Vec3(game.lightScale, game.lightScale, game.lightScale));
+
+        gfx.CmdBindPushConstant(cmds, "constants", &matrix);
+
+        //gfx.CmdBindIndexBuffer(cmds, rc.meshes[0].indexBuffer);
+        //gfx.CmdBindVertexBuffer(cmds, rc.meshes[0].vertexBuffer);
+        gfx.CmdDrawIndexed(cmds, rc.meshes[0].indexCount, 1, 0, 0, 0);
+
     }
 
     // Now we're done, prep for presenting

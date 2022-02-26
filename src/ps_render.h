@@ -168,4 +168,7 @@ struct render_context
     GfxKernel meshKernel;
     u32 numMeshes;
     render_geometry* meshes;
+
+    GfxProgram lightProgram;
+    GfxKernel lightKernel;
 };
