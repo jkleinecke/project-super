@@ -829,6 +829,9 @@ CreateSphere(render_context& rc, f32 radius, u32 stackCount, u32 sliceCount)
     return sphere;
 }
 
+#define NUM_ROWS 7
+#define NUM_COLS 7
+
 internal void
 SetupRenderer(game_state& game)
 {
@@ -878,7 +881,7 @@ SetupRenderer(game_state& game)
     rc.groundKernel = gfx.CreateGraphicsKernel(gfx.device, rc.groundProgram, DefaultPipeline(true));
 
     rc.meshSceneBuffer = gfx.CreateBuffer(gfx.device, UniformBuffer(sizeof(SceneBufferObject), GfxMemoryAccess::CpuToGpu), 0);
-    rc.meshMaterial = gfx.CreateBuffer(gfx.device, UniformBuffer(sizeof(render_material)), 0);
+    rc.meshMaterial = gfx.CreateBuffer(gfx.device, UniformBuffer(sizeof(render_material) * NUM_ROWS * NUM_COLS), 0);
     rc.meshProgram = LoadProgram(*rc.frameArena, "pbrbox.vert.spv", "pbrbox.frag.spv");
     rc.meshKernel = gfx.CreateGraphicsKernel(gfx.device, rc.meshProgram, DefaultPipeline(true));
 
@@ -898,11 +901,20 @@ SetupRenderer(game_state& game)
     rc.texture = gfx.CreateTexture(gfx.device, texDesc);
     rc.sampler = gfx.CreateSampler(gfx.device, Sampler());
 
-    render_material meshMaterial = {};
-    meshMaterial.albedo = Vec3(1.0f, 0.0f, 0.0f);
-    meshMaterial.metallic = 0.0f;
-    meshMaterial.roughness = 0.2f;
-    meshMaterial.ao = 0.2f;
+    render_material meshMaterials[NUM_ROWS * NUM_COLS] = {};
+    
+    for(u32 row = 0; row < NUM_ROWS; ++row)
+    {
+        f32 metallic = (f32)row / (f32)NUM_ROWS;
+        for(u32 col = 0; col < NUM_COLS; ++col)
+        {
+            render_material& material = meshMaterials[(row * NUM_ROWS) + col];
+            material.albedo = Vec3(0.5f, 0.0f, 0.0f);
+            material.ao = 1.0f;
+            material.metallic = metallic;
+            material.roughness = Clamp((f32)col / (f32)NUM_COLS, 0.05f, 1.0f);  // clamp min to 0.05 because 0 looks "off"
+        }
+    }
 
     // rc.sphere = CreateIcosphere(rc, 1.0f, 2);
     rc.sphere = CreateSphere(rc, 1.0f, 18, 36);
@@ -911,7 +923,7 @@ SetupRenderer(game_state& game)
     StageBufferData(rc, sizeof(vertices), vertices, rc.ground.vertexBuffer);
     StageBufferData(rc, sizeof(indices), indices, rc.ground.indexBuffer);
     StageBufferData(rc, sizeof(colors), colors, rc.groundMaterial);
-    StageBufferData(rc, sizeof(meshMaterial), &meshMaterial, rc.meshMaterial);
+    StageBufferData(rc, sizeof(meshMaterials), meshMaterials, rc.meshMaterial);
     StageTextureData(rc, texDesc.width*texDesc.height*4, pixels, rc.texture);
     // TODO(james): fix the crash in this next call...
     TempLoadGltfGeometry(rc, "box.glb", &rc.numMeshes, &rc.meshes);
@@ -932,7 +944,7 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     sbo.viewProj = viewProj;
     sbo.pos = game.camera.position;
     sbo.light.pos = game.lightPosition;
-    sbo.light.color = Vec3(1.0f, 1.0f, 1.0f);
+    sbo.light.color = Vec3(300.0f, 300.0f, 300.0f);
 
     void* sceneBufferData = gfx.GetBufferData(gfx.device, rc.meshSceneBuffer);
     Copy(sizeof(sbo), &sbo, sceneBufferData);
@@ -955,7 +967,7 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     gfx.CmdBindRenderTargets(cmds, 1, &screenRTV, &rc.depthTarget);
     
     // Render Ground
-    gfx.CmdBindKernel(cmds, rc.groundKernel);
+    // gfx.CmdBindKernel(cmds, rc.groundKernel);
 
     GfxDescriptor descriptors[] = {
         // BufferDescriptor(0, state.materialBuffer),
@@ -964,18 +976,18 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     };
 
     GfxDescriptorSet desc = {};
-    desc.setLocation = 0;   
-    desc.count = ARRAY_COUNT(descriptors);
-    desc.pDescriptors = descriptors;
-    gfx.CmdBindDescriptorSet(cmds, desc);
+    // desc.setLocation = 0;   
+    // desc.count = ARRAY_COUNT(descriptors);
+    // desc.pDescriptors = descriptors;
+    // gfx.CmdBindDescriptorSet(cmds, desc);
 
     m4 matrix = viewProj * Translate(Vec3(0.0f, 0.0f, 0.0f));
 
-    gfx.CmdBindPushConstant(cmds, "constants", &matrix);
+    // gfx.CmdBindPushConstant(cmds, "constants", &matrix);
 
-    gfx.CmdBindIndexBuffer(cmds, rc.ground.indexBuffer);
-    gfx.CmdBindVertexBuffer(cmds, rc.ground.vertexBuffer);
-    gfx.CmdDrawIndexed(cmds, rc.ground.indexCount, 1, 0, 0, 0);
+    // gfx.CmdBindIndexBuffer(cmds, rc.ground.indexBuffer);
+    // gfx.CmdBindVertexBuffer(cmds, rc.ground.vertexBuffer);
+    // gfx.CmdDrawIndexed(cmds, rc.ground.indexCount, 1, 0, 0, 0);
 
     // Render Mesh(es)
     gfx.CmdBindKernel(cmds, rc.meshKernel);
@@ -989,22 +1001,32 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     gfx.CmdBindDescriptorSet(cmds, desc);
 
     GfxDescriptor meshMaterialDescriptors[] = {
-        NamedBufferDescriptor("material", rc.meshMaterial),
+        NamedBufferDescriptor("materials", rc.meshMaterial),
     };
     desc.setLocation = 1;
     desc.count = ARRAY_COUNT(meshMaterialDescriptors);
     desc.pDescriptors = meshMaterialDescriptors;
     gfx.CmdBindDescriptorSet(cmds, desc);
 
-    matrix = Translate(game.position) 
-        * Rotate(game.rotationAngle, Vec3i(0,1,0))
-        * Scale(Vec3(game.scaleFactor, game.scaleFactor, game.scaleFactor));
+    const f32 spacing = 2.5f;
+    for(u32 row = 0; row < NUM_ROWS; ++row)
+    {
+        for(u32 col = 0; col < NUM_COLS; ++col)
+        {
+            // matrix = Translate(game.position) 
+            //     * Rotate(game.rotationAngle, Vec3i(0,1,0))
+            //     * Scale(Vec3(game.scaleFactor, game.scaleFactor, game.scaleFactor));
+            render_instance instance{};
+            instance.worldMatrix = Translate(Vec3( (col - (NUM_COLS/2)) * spacing, (row - (NUM_ROWS/2)) * spacing, 0.0f));
+            instance.materialIndex = (row & NUM_COLS) + col;
 
-    gfx.CmdBindPushConstant(cmds, "constants", &matrix);
-
-    gfx.CmdBindIndexBuffer(cmds, rc.sphere.indexBuffer);
-    gfx.CmdBindVertexBuffer(cmds, rc.sphere.vertexBuffer);
-    gfx.CmdDrawIndexed(cmds, rc.sphere.indexCount, 1, 0, 0, 0);
+            gfx.CmdBindPushConstant(cmds, "constants", &instance);
+        
+            gfx.CmdBindIndexBuffer(cmds, rc.sphere.indexBuffer);
+            gfx.CmdBindVertexBuffer(cmds, rc.sphere.vertexBuffer);
+            gfx.CmdDrawIndexed(cmds, rc.sphere.indexCount, 1, 0, 0, 0);
+        }
+    }
 
     // Render the light...
     // TODO(james): find a better way than assuming that mesh[0] is a cube
@@ -1016,10 +1038,12 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     desc.pDescriptors = sceneDescriptors;
     gfx.CmdBindDescriptorSet(cmds, desc);
     
-    matrix = Translate(game.lightPosition)
+    render_instance instance{};
+    instance.worldMatrix = Translate(game.lightPosition)
         * Scale(Vec3(game.lightScale, game.lightScale, game.lightScale));
+    instance.materialIndex = 0;
 
-    gfx.CmdBindPushConstant(cmds, "constants", &matrix);
+    gfx.CmdBindPushConstant(cmds, "constants", &instance);
 
     //gfx.CmdBindIndexBuffer(cmds, rc.meshes[0].indexBuffer);
     //gfx.CmdBindVertexBuffer(cmds, rc.meshes[0].vertexBuffer);

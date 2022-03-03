@@ -20,7 +20,7 @@ layout(std140, set = 1, binding = 0) uniform Material {
     float metallic;
     float roughness;
     float ao;
-} material;
+} materials[];
 
 // Per Instance
 // layout(set = 2, binding = 0) uniform PerInstance {
@@ -40,6 +40,7 @@ layout(location = 1) out vec3 outFragPos;
 layout( push_constant ) uniform constants
 { 
     mat4 world;
+    uint materialIndex;
 } PushConstants;
 
 void main()

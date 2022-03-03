@@ -2353,15 +2353,25 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
                 pushConstant.size = (VkDeviceSize)block->size;
                 pushConstant.stageFlags = entrypoint.shader_stage;
 
+                u64 hashKey = strhash64(block->name, StringLength(block->name)-1);
                 vg_program_pushconstant_desc pc_desc = {};
+                if(program->mapPushConstantDesc->try_get(hashKey, &pc_desc))
+                {
+                    ASSERT(pc_desc.offset == block->offset);
+                    ASSERT(pc_desc.size == block->size);
+                    pc_desc.shaderStage |= entrypoint.shader_stage;
+                }
+                else
+                {
 #if PROJECTSUPER_INTERNAL
-                CopyString(block->name, pc_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
-#endif
-                pc_desc.offset = block->offset;
-                pc_desc.size = block->size;
-                pc_desc.shaderStage = entrypoint.shader_stage;
+                    CopyString(block->name, pc_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
+ #endif
+                    pc_desc.offset = block->offset;
+                    pc_desc.size = block->size;
+                    pc_desc.shaderStage = entrypoint.shader_stage;
 
-                program->mapPushConstantDesc->set(strhash64(block->name, StringLength(block->name)-1), pc_desc);
+                }
+                program->mapPushConstantDesc->set(hashKey, pc_desc);
             }
         }
 
@@ -3219,6 +3229,19 @@ GfxResult CmdClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
     vg_buffer* dstBuffer = FromGfxBuffer(device, buffer);
     vkCmdFillBuffer(cmdBuffer, dstBuffer->handle, 0, VK_WHOLE_SIZE, clearValue);
     
+    return GfxResult::Ok;
+}
+
+internal 
+GfxResult CmdUpdateBuffer(GfxCmdContext cmds, GfxBuffer dest, u64 destOffset, u64 size, const void* data)
+{
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    vg_buffer* dstBuffer = FromGfxBuffer(device, dest);
+    vkCmdUpdateBuffer(cmdBuffer, dstBuffer->handle, (VkDeviceSize)destOffset, (VkDeviceSize)size, data);
+
     return GfxResult::Ok;
 }
 

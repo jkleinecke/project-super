@@ -1,4 +1,5 @@
 #version 460
+
 struct LightData
 {
     vec3 pos;
@@ -18,14 +19,21 @@ layout(std140, set = 1, binding = 0) uniform Material {
     float metallic;
     float roughness;
     float ao;
-} material;
+} materials[50];
 
 layout(location = 0) in vec3 inNormal;
-layout(location = 1) in vec3 inFragPos;
+layout(location = 1) in vec3 inWorldPos;
 
 layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
+
+layout( push_constant ) uniform constants
+{ 
+    mat4 world;
+    uint materialIndex;
+} PushConstants;
+
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
 {
@@ -70,50 +78,48 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 void main()
 {
     vec3 N = normalize(inNormal);
-    vec3 V = normalize(scene.cameraPos - inFragPos);
+    vec3 V = normalize(scene.cameraPos - inWorldPos);
 
-    vec3 F0 = vec3(0.4);
-    F0      = mix(F0, material.albedo, material.metallic);
+    // NOTE(james): PBR metallic workflow let's us assume dailectric surface uses a constant of 0.4
+    vec3 F0 = vec3(0.04);
+    F0      = mix(F0, materials[PushConstants.materialIndex].albedo, materials[PushConstants.materialIndex].metallic);
 
     vec3 Lo = vec3(0.0);    // light-out
     /////
     // for each light (we only have one right now)   
     /////
 
-    vec3 L = normalize(scene.light.pos - inFragPos);
+    vec3 L = normalize(scene.light.pos - inWorldPos);
     vec3 H = normalize(V + L);
-    float distance = length(scene.light.pos - inFragPos);
+    float distance = length(scene.light.pos - inWorldPos);
     float attenuation = 1.0 / (distance * distance);
     vec3 radiance = scene.light.color * attenuation;
 
-    // NOTE(james): PBR metallic workflow let's us assume dailectric surface uses a constant of 0.4
-
+    // NOTE(james): Cook-Torrance BRDF
+    float NDF = DistributionGGX(N, H, materials[PushConstants.materialIndex].roughness);
+    float G = GeometrySmith(N, V, L, materials[PushConstants.materialIndex].roughness);
     vec3 F  = fresnelSchlick(max(dot(H, V), 0.0), F0);
 
-    float NDF = DistributionGGX(N, H, material.roughness);
-    float G = GeometrySmith(N, V, L, material.roughness);
-
-    // NOTE(james): Cook-Torrance BRDF
     vec3 numerator = NDF * G * F;
     float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
     vec3 specular = numerator / denominator;
 
     vec3 kS = F;
     vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - material.metallic;
+    kD *= 1.0 - materials[PushConstants.materialIndex].metallic;
 
     float NdotL = max(dot(N, L), 0.0);        
-    Lo += (kD * material.albedo / PI + specular) * radiance * NdotL;
+    Lo += (kD * materials[PushConstants.materialIndex].albedo / PI + specular) * radiance * NdotL;
     //////////////////
     // end light calc
     //////////////////
 
-    vec3 ambient = vec3(0.03) * material.albedo * material.ao;
+    vec3 ambient = vec3(0.03) * materials[PushConstants.materialIndex].albedo * materials[PushConstants.materialIndex].ao;
     vec3 color = ambient + Lo;
 
     //-- Tone-map
     color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0/2.2)); 
+    //color = pow(color, vec3(1.0/2.2)); 
 
     outColor = vec4(color, 1.0);
 }

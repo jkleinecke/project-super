@@ -105,6 +105,12 @@ struct render_material
     // ALIGNAS(4) f32 shininess;
 };
 
+struct render_instance
+{
+    ALIGNAS(16) m4 worldMatrix;
+    ALIGNAS(4) u32 materialIndex;
+};
+
 struct camera
 {
     v3  position;
