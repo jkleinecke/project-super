@@ -7,6 +7,7 @@ struct LightData
     vec3 color;
 };
 
+
 // Per Scene
 layout(std140, set = 0, binding = 0) uniform Scene {
     mat4 viewProj;
@@ -14,18 +15,7 @@ layout(std140, set = 0, binding = 0) uniform Scene {
     LightData light;
 } scene;
 
-// Per Material
-layout(std140, set = 1, binding = 0) uniform Material {
-    vec3 albedo;
-    float metallic;
-    float roughness;
-    float ao;
-} materials[];
 
-// Per Instance
-// layout(set = 2, binding = 0) uniform PerInstance {
-//     uint material;
-// } Instance;
 
 // TODO(james): Need to pass the fragment position (via the world matrix) from the vertex shader
 //              This means that I need to spend some time setting up a true material system
@@ -36,6 +26,7 @@ layout(location = 1) in vec3 inPosition;
 
 layout(location = 0) out vec3 outNormal;
 layout(location = 1) out vec3 outFragPos;
+layout(location = 2) flat out uint outMaterialIndex;
 
 layout( push_constant ) uniform constants
 { 
@@ -51,4 +42,5 @@ void main()
     outNormal = mat3(transpose(inverse(PushConstants.world))) * inNormal;     // transforming the normal into world space
     //outNormal = inNormal;     // transforming the normal into world space
     outFragPos = vec3(PushConstants.world * vec4(inPosition, 1.0));
+    outMaterialIndex = PushConstants.materialIndex;
 }

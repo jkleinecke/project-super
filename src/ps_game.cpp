@@ -407,7 +407,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // gameState.resourceQueue = render.resourceQueue;   
         gameState.assets = AllocateGameAssets(gameState);
      
-        gameState.camera.position = Vec3(10.0f, 10.0f, 10.0f);
+        gameState.camera.position = Vec3(0.0f, 0.0f, 50.0f);
         gameState.camera.target = Vec3(0.0f, 0.0f, 0.0f);
         gameState.cameraProjection = Perspective(45.0f, graphics.windowWidth, graphics.windowHeight, 0.1f, 100.0f);
 
@@ -415,7 +415,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //gameState.position = Vec3(0.218433440f,0.126181871f,0.596520841f);
         // gameState.scaleFactor = 0.0172703639f;
         // gameState.rotationAngle = 120.188347f;
-        gameState.lightPosition = Vec3(0.0f, 5.0f, 2.0f);
+        gameState.lightPosition = Vec3(-5.0f, 0.0f, 10.0f);
         gameState.lightScale = 0.2f;
 
         gameState.position = Vec3i(0,5,0);
@@ -454,6 +454,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                     
                     v3 offset = Vec3(norm_lstick.X, 0.0f, -norm_lstick.Y) * (magnitude * velocity);
                     gameState.position += offset;
+                    gameState.lightPosition += Vec3(norm_lstick.X, norm_lstick.Y, 0.0f) * (magnitude * velocity);
                 }
 
                 v2 rstick = Vec2(controller.rightStick.x, controller.rightStick.y);
@@ -514,6 +515,26 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             }
         }
     }
+
+    // const f32 lightSpeedPerSecond = 1 * input.clock.elapsedFrameTime;
+    // local_persist b32 lightDirUp = true;
+    // local_persist b32 lightDirRight = true;
+    // if(lightDirUp)
+    // {
+    //     gameState.lightPosition.Y += lightSpeedPerSecond;
+    //     if(gameState.lightPosition.Y >= 5.0f)
+    //     {
+    //         lightDirUp = false;
+    //     }
+    // }
+    // else
+    // {
+    //     gameState.lightPosition.Y -= lightSpeedPerSecond;
+    //     if(gameState.lightPosition.Y <= -5.0f)
+    //     {
+    //         lightDirUp = true;
+    //     }
+    // }
 
     gameState.camera.target = gameState.position;
     RenderFrame(*gameState.renderer, gameState, input.clock);

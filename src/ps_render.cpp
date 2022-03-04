@@ -903,12 +903,14 @@ SetupRenderer(game_state& game)
 
     render_material meshMaterials[NUM_ROWS * NUM_COLS] = {};
     
+    f32 spacing = 2.5f;
     for(u32 row = 0; row < NUM_ROWS; ++row)
     {
         f32 metallic = (f32)row / (f32)NUM_ROWS;
         for(u32 col = 0; col < NUM_COLS; ++col)
         {
-            render_material& material = meshMaterials[(row * NUM_ROWS) + col];
+            u32 index = (row * NUM_COLS) + col;
+            render_material& material = meshMaterials[index];
             material.albedo = Vec3(0.5f, 0.0f, 0.0f);
             material.ao = 1.0f;
             material.metallic = metallic;
@@ -917,7 +919,7 @@ SetupRenderer(game_state& game)
     }
 
     // rc.sphere = CreateIcosphere(rc, 1.0f, 2);
-    rc.sphere = CreateSphere(rc, 1.0f, 18, 36);
+    rc.sphere = CreateSphere(rc, 1.0f, 64, 64);
 
     BeginStagingData(rc);
     StageBufferData(rc, sizeof(vertices), vertices, rc.ground.vertexBuffer);
@@ -935,7 +937,7 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
 {
     graphics_context& gc = *rc.gc;
 
-    m4 cameraView = LookAt(game.camera.position, game.camera.target, V3_Y_UP);
+    m4 cameraView = LookAt(game.camera.position, game.lightPosition, V3_Y_UP);
     //m4 cameraView = LookAt(Vec3(5.0f, 5.0f, -5.0f), game.camera.target, V3_Y_UP);
     m4 projection = game.cameraProjection;
     m4 viewProj = projection * cameraView;
@@ -1009,6 +1011,7 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     gfx.CmdBindDescriptorSet(cmds, desc);
 
     const f32 spacing = 2.5f;
+    const f32 height_offset = 0;//(NUM_ROWS/4.0f) * spacing;
     for(u32 row = 0; row < NUM_ROWS; ++row)
     {
         for(u32 col = 0; col < NUM_COLS; ++col)
@@ -1017,8 +1020,8 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
             //     * Rotate(game.rotationAngle, Vec3i(0,1,0))
             //     * Scale(Vec3(game.scaleFactor, game.scaleFactor, game.scaleFactor));
             render_instance instance{};
-            instance.worldMatrix = Translate(Vec3( (col - (NUM_COLS/2)) * spacing, (row - (NUM_ROWS/2)) * spacing, 0.0f));
-            instance.materialIndex = (row & NUM_COLS) + col;
+            instance.worldMatrix = Translate(Vec3( (col - (NUM_COLS/2.0f)) * spacing, (row - (NUM_ROWS/2.0f)) * spacing + height_offset, 0.0f));
+            instance.materialIndex = (row * NUM_COLS) + col;
 
             gfx.CmdBindPushConstant(cmds, "constants", &instance);
         

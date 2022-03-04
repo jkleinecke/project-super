@@ -4,9 +4,7 @@
 struct LightData
 {
     vec3 pos;
-    vec3 ambient;
-    vec3 diffuse;
-    vec3 specular;
+    vec3 color;
 };
 
 // Per Scene
@@ -15,14 +13,6 @@ layout(std140, set = 0, binding = 0) uniform Scene {
     vec3 cameraPos;
     LightData light;
 } scene;
-
-// Per Material
-layout(std140, set = 1, binding = 0) uniform Material {
-    vec3 ambient;
-    vec3 diffuse;
-    vec3 specular;
-    float shininess;
-} material;
 
 // Per Instance
 // layout(set = 2, binding = 0) uniform PerInstance {

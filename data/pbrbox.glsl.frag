@@ -6,6 +6,14 @@ struct LightData
     vec3 color;
 };
 
+struct Material
+{
+    vec3 albedo;
+    float metallic;
+    float roughness;
+    float ao;
+};
+
 // Per Scene
 layout(std140, set = 0, binding = 0) uniform Scene {
     mat4 viewProj;
@@ -14,26 +22,17 @@ layout(std140, set = 0, binding = 0) uniform Scene {
 } scene;
 
 // Per Material
-layout(std140, set = 1, binding = 0) uniform Material {
-    vec3 albedo;
-    float metallic;
-    float roughness;
-    float ao;
-} materials[50];
+layout(std140, set = 1, binding = 0) uniform MaterialData {
+    Material data[49]; 
+} materials;
 
 layout(location = 0) in vec3 inNormal;
 layout(location = 1) in vec3 inWorldPos;
+layout(location = 2) flat in uint inMaterialIndex;
 
 layout(location = 0) out vec4 outColor;
 
 const float PI = 3.14159265359;
-
-layout( push_constant ) uniform constants
-{ 
-    mat4 world;
-    uint materialIndex;
-} PushConstants;
-
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
 {
@@ -82,7 +81,7 @@ void main()
 
     // NOTE(james): PBR metallic workflow let's us assume dailectric surface uses a constant of 0.4
     vec3 F0 = vec3(0.04);
-    F0      = mix(F0, materials[PushConstants.materialIndex].albedo, materials[PushConstants.materialIndex].metallic);
+    F0      = mix(F0, materials.data[inMaterialIndex].albedo, materials.data[inMaterialIndex].metallic);
 
     vec3 Lo = vec3(0.0);    // light-out
     /////
@@ -96,8 +95,8 @@ void main()
     vec3 radiance = scene.light.color * attenuation;
 
     // NOTE(james): Cook-Torrance BRDF
-    float NDF = DistributionGGX(N, H, materials[PushConstants.materialIndex].roughness);
-    float G = GeometrySmith(N, V, L, materials[PushConstants.materialIndex].roughness);
+    float NDF = DistributionGGX(N, H, materials.data[inMaterialIndex].roughness);
+    float G = GeometrySmith(N, V, L, materials.data[inMaterialIndex].roughness);
     vec3 F  = fresnelSchlick(max(dot(H, V), 0.0), F0);
 
     vec3 numerator = NDF * G * F;
@@ -106,15 +105,15 @@ void main()
 
     vec3 kS = F;
     vec3 kD = vec3(1.0) - kS;
-    kD *= 1.0 - materials[PushConstants.materialIndex].metallic;
+    kD *= 1.0 - materials.data[inMaterialIndex].metallic;
 
     float NdotL = max(dot(N, L), 0.0);        
-    Lo += (kD * materials[PushConstants.materialIndex].albedo / PI + specular) * radiance * NdotL;
+    Lo += (kD * materials.data[inMaterialIndex].albedo / PI + specular) * radiance * NdotL;
     //////////////////
     // end light calc
     //////////////////
 
-    vec3 ambient = vec3(0.03) * materials[PushConstants.materialIndex].albedo * materials[PushConstants.materialIndex].ao;
+    vec3 ambient = vec3(0.03) * materials.data[inMaterialIndex].albedo * materials.data[inMaterialIndex].ao;
     vec3 color = ambient + Lo;
 
     //-- Tone-map

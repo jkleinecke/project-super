@@ -540,6 +540,8 @@ struct GfxDescriptor
     u16 bindingLocation;
     char* name;
 
+    u32 arrayCount;
+
     u32 offset;
     GfxBuffer buffer;
     
