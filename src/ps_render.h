@@ -72,9 +72,10 @@ struct CameraData
 struct LightData
 {
     ALIGNAS(16) v3 pos;
-    ALIGNAS(16) v3 ambient;
-    ALIGNAS(16) v3 diffuse;
-    ALIGNAS(16) v3 specular;
+    ALIGNAS(16) v3 color;
+    // ALIGNAS(16) v3 ambient;
+    // ALIGNAS(16) v3 diffuse;
+    // ALIGNAS(16) v3 specular;
 };  
 
 struct InstanceData
@@ -87,17 +88,27 @@ struct InstanceData
 
 struct SceneBufferObject
 {
-    ALIGNAS(16) SceneData scene;
-    ALIGNAS(16) FrameData frame;
-    ALIGNAS(16) CameraData camera;
+    ALIGNAS(16) m4 viewProj;
+    ALIGNAS(16) v3 pos;
+    ALIGNAS(16) LightData light;
 };
 
 struct render_material
 {
-    ALIGNAS(16) v3 ambient;
-    ALIGNAS(16) v3 diffuse;
-    ALIGNAS(16) v3 specular;
-    ALIGNAS(4) f32 shininess;
+    ALIGNAS(16) v3 albedo;
+    ALIGNAS(4) f32 metallic;
+    ALIGNAS(4) f32 roughness;
+    ALIGNAS(4) f32 ao;
+    // ALIGNAS(16) v3 ambient;
+    // ALIGNAS(16) v3 diffuse;
+    // ALIGNAS(16) v3 specular;
+    // ALIGNAS(4) f32 shininess;
+};
+
+struct render_instance
+{
+    ALIGNAS(16) m4 worldMatrix;
+    ALIGNAS(4) u32 materialIndex;
 };
 
 struct camera
@@ -113,7 +124,26 @@ struct render_geometry
     GfxBuffer vertexBuffer;  // For now we only need 1
 };
 
+struct renderable
+{
+    render_material material;
+    render_geometry geometry;
+};
+
 // Resource Descriptions
+
+struct gltf_vertex
+{
+    v3 normal;
+    v3 pos;
+};
+
+struct render_vertex
+{
+    v3 pos;
+    v3 normal;
+    v2 texCoords;
+};
 
 struct render_mesh_vertex
 {
@@ -127,4 +157,47 @@ struct render_mesh_vertex
     }
 };
 
+struct render_context
+{
+    memory_arena arena;
+    memory_arena* frameArena;
+    graphics_context* gc;
 
+    GfxCmdEncoderPool cmdpool;
+    GfxCmdContext cmds;
+    GfxRenderTarget depthTarget;
+
+    u64 stagingPos;
+    GfxBuffer stagingBuffer;
+    GfxCmdEncoderPool stagingCmdPool;
+    GfxCmdContext stagingCmds;
+    
+    GfxBuffer groundMaterial;
+    GfxProgram groundProgram;
+    GfxKernel groundKernel;
+    //GfxTexture texture;
+    GfxSampler sampler;
+
+    GfxTexture texAlbedo;
+    GfxSampler albedoSampler;
+    GfxTexture texNormals;
+    GfxSampler normalSampler;
+    GfxTexture texMetallic;
+    GfxSampler metallicSampler;
+    GfxTexture texRoughness;
+    GfxSampler roughnessSampler;
+
+    render_geometry ground;
+    
+    GfxBuffer meshSceneBuffer;
+    GfxBuffer meshMaterial;
+    GfxProgram meshProgram;
+    GfxKernel meshKernel;
+    u32 numMeshes;
+    render_geometry* meshes;
+
+    GfxProgram lightProgram;
+    GfxKernel lightKernel;
+    
+    render_geometry sphere;
+};

@@ -185,25 +185,6 @@ struct InputContext
     InputController controllers[5];
 };
 
-struct render_commands
-{
-    v2 viewportPosition;
-    v2 viewportSize;
-
-    f32 time;
-    f32 timeDelta;
-
-    v3 cameraPos;
-    m4 cameraView;
-    m4 cameraProj;
-
-    u8* pushBufferBase;
-    u8* pushBufferDataAt;
-    umm maxPushBufferSize;
-};
-
-struct render_manifest;
-
 enum class RenderResourceOpType
 {
     Create,
@@ -211,9 +192,10 @@ enum class RenderResourceOpType
     Destroy
 };
 
-struct render_context
+struct graphics_context
 {
-    v2 renderDimensions;
+    u32 windowWidth;
+    u32 windowHeight;
 
     gfx_api gfx;
 };
@@ -229,6 +211,6 @@ struct game_memory
     platform_api platformApi;
 };
 
-#define GAME_UPDATE_AND_RENDER(name) void name(game_memory& gameMemory, render_context& render, InputContext& input, AudioContext& audio)
+#define GAME_UPDATE_AND_RENDER(name) void name(game_memory& gameMemory, graphics_context& graphics, InputContext& input, AudioContext& audio)
 typedef GAME_UPDATE_AND_RENDER(game_update_and_render);
 

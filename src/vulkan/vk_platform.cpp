@@ -188,6 +188,7 @@ LOAD_GRAPHICS_BACKEND(platform_load_graphics_backend)
     backend.gfx.CmdCopyBuffer = CmdCopyBuffer;
     backend.gfx.CmdCopyBufferRange = CmdCopyBufferRange;
     backend.gfx.CmdClearBuffer = CmdClearBuffer;
+    backend.gfx.CmdUpdateBuffer = CmdUpdateBuffer;
     backend.gfx.CmdClearTexture = CmdClearTexture;
     backend.gfx.CmdCopyTexture = CmdCopyTexture;
     backend.gfx.CmdClearImage = CmdClearImage;

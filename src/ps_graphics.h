@@ -540,6 +540,8 @@ struct GfxDescriptor
     u16 bindingLocation;
     char* name;
 
+    u32 arrayCount;
+
     u32 offset;
     GfxBuffer buffer;
     
@@ -611,7 +613,8 @@ struct gfx_api
     API_FUNCTION(GfxResult, CmdCopyBuffer, GfxCmdContext cmds, GfxBuffer src, GfxBuffer dest);
     API_FUNCTION(GfxResult, CmdCopyBufferRange, GfxCmdContext cmds, GfxBuffer src, u64 srcOffset, GfxBuffer dest, u64 destOffset, u64 size);
     API_FUNCTION(GfxResult, CmdClearBuffer, GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue);
-    
+    API_FUNCTION(GfxResult, CmdUpdateBuffer, GfxCmdContext cmds, GfxBuffer dest, u64 destOffset, u64 size, const void* data);
+
     API_FUNCTION(GfxResult, CmdClearTexture, GfxCmdContext cmds, GfxTexture texture, GfxColor color);
     API_FUNCTION(GfxResult, CmdCopyTexture, GfxCmdContext cmds, GfxTexture src, GfxTexture dest);
     API_FUNCTION(GfxResult, CmdClearImage, GfxCmdContext cmds, GfxTexture texture, u32 mipLevel, u32 slice, GfxColor color);

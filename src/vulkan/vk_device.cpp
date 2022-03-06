@@ -1921,7 +1921,12 @@ GfxBuffer CreateBuffer( GfxDevice deviceHandle, const GfxBufferDesc& bufferDesc,
             memUsage = VMA_MEMORY_USAGE_CPU_ONLY;
             break;
         case GfxMemoryAccess::CpuToGpu:
+#if PROJECTSUPER_MACOS
+            // TODO(james): figure out why MoltenVK can't use VMA_MEMORY_USAGE_CPU_TO_GPU
+            memUsage = VMA_MEMORY_USAGE_CPU_ONLY;
+#else
             memUsage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+#endif
             break;
         case GfxMemoryAccess::GpuToCpu:
             memUsage = VMA_MEMORY_USAGE_GPU_TO_CPU;
@@ -2049,6 +2054,11 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
         // so let's specify the transfer src usage bit just in case...
         imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     }
+
+#if PROJECTSUPER_SLOW
+    VkFormatProperties formatProperties{};
+    vkGetPhysicalDeviceFormatProperties(device.physicalDevice, imageInfo.format, &formatProperties);
+#endif
 
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = memUsage;
@@ -2237,12 +2247,23 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
 
     if(result == VK_SUCCESS)
     {
+        // NOTE(james): A program expects all shaders included to share a set of descriptor layouts
+        // that will work across all the shaders (even if they aren't being used).
+
         u32 totalPushConstants = 0;
-        u32 descriptorSetLayoutCount = 0;
+        u32 totalDescriptorSetCount = 0;
+        u32 maxDescriptorSetId = 0;
         for(u32 shaderIdx = 0; shaderIdx < program->numShaders; ++shaderIdx)
         {
             totalPushConstants += program->entrypoints[shaderIdx]->used_push_constant_count;
-            descriptorSetLayoutCount += program->entrypoints[shaderIdx]->descriptor_set_count;
+
+            SpvReflectEntryPoint& entrypoint = *program->entrypoints[shaderIdx];
+            for(u32 setIdx = 0; setIdx < entrypoint.descriptor_set_count; ++setIdx)
+            {
+                SpvReflectDescriptorSet& set = entrypoint.descriptor_sets[setIdx];
+                maxDescriptorSetId = Maximum(set.set, maxDescriptorSetId);
+                totalDescriptorSetCount = maxDescriptorSetId + 1;
+            }
         }
         
         u32 pushConstantCount = 0;
@@ -2252,11 +2273,17 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
             pushConstants = PushArray(*device.frameArena, totalPushConstants, VkPushConstantRange);
         }
 
-        program->descriptorSetLayouts = array_create(pHeap->arena, VkDescriptorSetLayout, descriptorSetLayoutCount);
+        array<VkDescriptorSetLayoutBinding>** ppDescriptorSetBindings = PushArray(*device.frameArena, totalDescriptorSetCount, array<VkDescriptorSetLayoutBinding>*);
+        
+        program->descriptorSetLayouts = array_create(pHeap->arena, VkDescriptorSetLayout, totalDescriptorSetCount);
         program->mapBindingDesc = hashtable_create(pHeap->arena, vg_program_binding_desc, 1024); // NOTE(james): 1024 bindings is waaay overkill, but it's just a pointer...
         program->mapPushConstantDesc = hashtable_create(pHeap->arena, vg_program_pushconstant_desc, 32);    // NOTE(james): 32 push constants should be enough. Only have 128 bytes
 
         temporary_memory temp = BeginTemporaryMemory(pHeap->arena);
+
+        // TODO(james): This is not the correct way to create the descriptor set layout objects
+        // instead they should be merged across each shader that shares the binding types and
+        // the binding points.
 
         for(u32 shaderIdx = 0; shaderIdx < program->numShaders; ++shaderIdx)
         {
@@ -2266,35 +2293,55 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
             for(u32 setIdx = 0; setIdx < entrypoint.descriptor_set_count; ++setIdx)
             {
                 SpvReflectDescriptorSet& set = entrypoint.descriptor_sets[setIdx];
-                VkDescriptorSetLayoutBinding* descriptorBindings = PushArray(pHeap->arena, set.binding_count, VkDescriptorSetLayoutBinding);
+                array<VkDescriptorSetLayoutBinding>*& descriptorBindings = ppDescriptorSetBindings[set.set];
+                if(!descriptorBindings)
+                {
+                    // TODO(james): surely there won't be more than 64 bindings in a set...
+                    descriptorBindings = array_create(*device.frameArena, VkDescriptorSetLayoutBinding, 64);
+                }
 
                 for(u32 bindingIdx = 0; bindingIdx < set.binding_count; ++bindingIdx)
                 {
                     const SpvReflectDescriptorBinding& spvBinding = *set.bindings[bindingIdx];
-                    VkDescriptorSetLayoutBinding& binding = descriptorBindings[bindingIdx];
-                    binding.binding = spvBinding.binding;
-                    binding.descriptorType = (VkDescriptorType)spvBinding.descriptor_type;
-                    binding.descriptorCount = spvBinding.count;
-                    binding.stageFlags = (VkShaderStageFlags)entrypoint.shader_stage;
+                    
+                    if(spvBinding.binding < descriptorBindings->size())
+                    {
+                        // TODO(james): probably shouldn't assume that each binding point is at the slot...
+                        VkDescriptorSetLayoutBinding& binding = descriptorBindings->at(spvBinding.binding);
+                        ASSERT(binding.binding == spvBinding.binding);
+                        ASSERT(binding.descriptorType == (VkDescriptorType)spvBinding.descriptor_type);
+                        ASSERT(binding.descriptorCount == spvBinding.count);    
+                        binding.stageFlags |= (VkShaderStageFlags)entrypoint.shader_stage;  // just add the shader stage
+                    }
+                    else
+                    {
+                        VkDescriptorSetLayoutBinding binding{};
+                        binding.binding = spvBinding.binding;
+                        binding.descriptorType = (VkDescriptorType)spvBinding.descriptor_type;
+                        binding.descriptorCount = spvBinding.count;
+                        binding.stageFlags = (VkShaderStageFlags)entrypoint.shader_stage;
+                        descriptorBindings->push_back(binding);
+                    }
 
+                    // TODO(james): just get rid of this... engine should have a scheme for the sets
                     vg_program_binding_desc binding_desc = {};
+                    u64 bindingKey = strhash64(spvBinding.name, StringLength(spvBinding.name)-1);
+                    if(program->mapBindingDesc->try_get(bindingKey, &binding_desc))
+                    {
+                        // This is odd and not really supported by the lookup syntax
+                        ASSERT(binding_desc.set == set.set);
+                        ASSERT(binding_desc.binding == spvBinding.binding);
+                    }
+                    else
+                    {
 #if PROJECTSUPER_INTERNAL
-                    CopyString(spvBinding.name, binding_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
+                        CopyString(spvBinding.name, binding_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
 #endif
-                    binding_desc.set = set.set;
-                    binding_desc.binding = spvBinding.binding;
-                    program->mapBindingDesc->set(strhash64(spvBinding.name, StringLength(spvBinding.name)-1), binding_desc);
-                }
+                        binding_desc.set = set.set;
+                        binding_desc.binding = spvBinding.binding;
 
-                VkDescriptorSetLayoutCreateInfo descLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-                descLayoutInfo.bindingCount = set.binding_count;
-                descLayoutInfo.pBindings = descriptorBindings;
-
-                VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
-                result = vkCreateDescriptorSetLayout(device.handle, &descLayoutInfo, nullptr, &setLayout);
-                if(result == VK_SUCCESS)
-                {
-                    program->descriptorSetLayouts->push_back(setLayout);
+                        program->mapBindingDesc->set(strhash64(spvBinding.name, StringLength(spvBinding.name)-1), binding_desc);
+                    }
                 }
             }
 
@@ -2311,15 +2358,47 @@ GfxProgram CreateProgram( GfxDevice deviceHandle, const GfxProgramDesc& programD
                 pushConstant.size = (VkDeviceSize)block->size;
                 pushConstant.stageFlags = entrypoint.shader_stage;
 
+                u64 hashKey = strhash64(block->name, StringLength(block->name)-1);
                 vg_program_pushconstant_desc pc_desc = {};
+                if(program->mapPushConstantDesc->try_get(hashKey, &pc_desc))
+                {
+                    ASSERT(pc_desc.offset == block->offset);
+                    ASSERT(pc_desc.size == block->size);
+                    pc_desc.shaderStage |= entrypoint.shader_stage;
+                }
+                else
+                {
 #if PROJECTSUPER_INTERNAL
-                CopyString(block->name, pc_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
-#endif
-                pc_desc.offset = block->offset;
-                pc_desc.size = block->size;
-                pc_desc.shaderStage = entrypoint.shader_stage;
+                    CopyString(block->name, pc_desc.name, GFX_MAX_SHADER_IDENTIFIER_NAME_LENGTH);
+ #endif
+                    pc_desc.offset = block->offset;
+                    pc_desc.size = block->size;
+                    pc_desc.shaderStage = entrypoint.shader_stage;
 
-                program->mapPushConstantDesc->set(strhash64(block->name, StringLength(block->name)-1), pc_desc);
+                }
+                program->mapPushConstantDesc->set(hashKey, pc_desc);
+            }
+        }
+
+        for(u32 i = 0; i <= maxDescriptorSetId; ++i)
+        {
+            array<VkDescriptorSetLayoutBinding>* descriptorBindings = ppDescriptorSetBindings[i];
+            if(descriptorBindings)
+            {
+                VkDescriptorSetLayoutCreateInfo descLayoutInfo = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+                descLayoutInfo.bindingCount = descriptorBindings->size();
+                descLayoutInfo.pBindings = descriptorBindings->data();
+
+                VkDescriptorSetLayout setLayout = VK_NULL_HANDLE;
+                result = vkCreateDescriptorSetLayout(device.handle, &descLayoutInfo, nullptr, &setLayout);
+                if(result == VK_SUCCESS)
+                {
+                    program->descriptorSetLayouts->push_back(setLayout);
+                }
+            }
+            else
+            {
+                program->descriptorSetLayouts->push_back(VK_NULL_HANDLE);
             }
         }
 
@@ -3158,6 +3237,19 @@ GfxResult CmdClearBuffer( GfxCmdContext cmds, GfxBuffer buffer, u32 clearValue)
     return GfxResult::Ok;
 }
 
+internal 
+GfxResult CmdUpdateBuffer(GfxCmdContext cmds, GfxBuffer dest, u64 destOffset, u64 size, const void* data)
+{
+    vg_device& device = DeviceObject::From(cmds.deviceId);
+    vg_cmd_context* context = FromGfxCmdContext(device, cmds);
+    VkCommandBuffer cmdBuffer = CurrentFrameCmdBuffer(device, context);
+
+    vg_buffer* dstBuffer = FromGfxBuffer(device, dest);
+    vkCmdUpdateBuffer(cmdBuffer, dstBuffer->handle, (VkDeviceSize)destOffset, (VkDeviceSize)size, data);
+
+    return GfxResult::Ok;
+}
+
 internal
 GfxResult CmdClearTexture( GfxCmdContext cmds, GfxTexture texture, GfxColor color)
 {
@@ -3598,14 +3690,14 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
                 {
                     vg_buffer* buffer = FromGfxBuffer(device, desc.buffer);
                     
-                    VkDescriptorBufferInfo bufferInfo{};
-                    bufferInfo.buffer = buffer->handle;
-                    bufferInfo.offset = (VkDeviceSize)desc.offset;
-                    bufferInfo.range = VK_WHOLE_SIZE;
+                    VkDescriptorBufferInfo* bufferInfo = PushStruct(*device.frameArena, VkDescriptorBufferInfo);
+                    bufferInfo->buffer = buffer->handle;
+                    bufferInfo->offset = (VkDeviceSize)desc.offset;
+                    bufferInfo->range = VK_WHOLE_SIZE;
 
                     writeData.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                     writeData.descriptorCount = 1;
-                    writeData.pBufferInfo = &bufferInfo;
+                    writeData.pBufferInfo = bufferInfo;
                 }
                 break;
             case GfxDescriptorType::Image:
@@ -3613,14 +3705,14 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
                     vg_image* image = FromGfxTexture(device, desc.texture);
                     vg_sampler* sampler = FromGfxSampler(device, desc.sampler);
 
-                    VkDescriptorImageInfo imageInfo{};
-                    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    imageInfo.imageView = image->view;
-                    imageInfo.sampler = sampler->handle;
+                    VkDescriptorImageInfo* imageInfo = PushStruct(*device.frameArena, VkDescriptorImageInfo);
+                    imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    imageInfo->imageView = image->view;
+                    imageInfo->sampler = sampler->handle;
 
                     writeData.descriptorCount = 1;
                     writeData.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    writeData.pImageInfo = &imageInfo;
+                    writeData.pImageInfo = imageInfo;
                 }
                 break;
             InvalidDefaultCase;

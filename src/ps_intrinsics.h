@@ -15,6 +15,7 @@
 
 #define Minimum(A, B) ((A < B) ? (A) : (B))
 #define Maximum(A, B) ((A > B) ? (A) : (B))
+#define Clamp(Val, min, max) Maximum(Minimum(Val,max), min)
 
 inline int32
 SignOf(int32 Value)

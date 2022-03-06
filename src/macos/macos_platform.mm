@@ -503,6 +503,61 @@ MacosReloadCode(macos_state& state, macos_loaded_code& code)
 //------------------------
 
 
+//------------------------
+//---- APP DELEGATE
+//------------------------
+@interface EngineAppDelegate : NSObject<NSApplicationDelegate, NSWindowDelegate>
+@end
+
+@implementation EngineAppDelegate
+
+// app delegate methods
+- (void)applicationDidFinishLaunching:(id)sender
+{
+	#pragma unused(sender)
+}
+
+
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication*)sender
+{
+	#pragma unused(sender)
+
+	return YES;
+}
+
+
+- (void)applicationWillTerminate:(NSApplication*)sender
+{
+	#pragma unused(sender)
+}
+
+
+// window delegate methods
+- (NSSize)windowWillResize:(NSWindow*)window
+                    toSize:(NSSize)frameSize
+{
+	// Maintain the proper aspect ratio...
+
+	// NSRect WindowRect = [window frame];
+	// NSRect ContentRect = [window contentRectForFrameRect:WindowRect];
+
+	// r32 WidthAdd = (WindowRect.size.width - ContentRect.size.width);
+	// r32 HeightAdd = (WindowRect.size.height - ContentRect.size.height);
+
+	// //r32 NewCy = (GlobalRenderHeight * (frameSize.width - WidthAdd)) / GlobalRenderWidth;
+	// r32 NewCy = (GlobalAspectRatio.Height * (frameSize.width - WidthAdd)) / GlobalAspectRatio.Width;
+
+	// frameSize.height = NewCy + HeightAdd;
+
+	return frameSize;
+}
+
+- (void)windowWillClose:(id)sender
+{
+	GlobalRunning = false;
+}
+
+@end
 
 //------------------------
 //---- OS MESSAGES
@@ -672,6 +727,9 @@ int main(int argc, const char* argv[])
         // }
         NSLog(@"working directory: %@", state.workingDirectory);
 
+		EngineAppDelegate* appDelegate = [[EngineAppDelegate alloc] init];
+		[app setDelegate:appDelegate];
+
         //macContext.AppDelegate = [[HandmadeAppDelegate alloc] init];
         //[app setDelegate:Context.AppDelegate];
 
@@ -694,6 +752,7 @@ int main(int argc, const char* argv[])
                                         defer:NO];
 
         [Window setBackgroundColor: NSColor.redColor];
+		[Window setDelegate:appDelegate];
         //[Window setDelegate:Context.AppDelegate];
 
         NSView* CV = [Window contentView];
@@ -719,7 +778,7 @@ int main(int argc, const char* argv[])
         [Window makeKeyAndOrderFront:nil];
 
 		game_memory gameMemory = {};
-		render_context gameRender = {};
+		graphics_context gameGraphics = {};
 		InputContext input = {};
 		AudioContext audio = {};
 
@@ -727,9 +786,9 @@ int main(int argc, const char* argv[])
 
 		ps_graphics_backend graphicsDriver = platform_load_graphics_backend(layer, windowWidth, windowHeight);
 		gfx_api& gfx = graphicsDriver.gfx; 
-		gameRender.renderDimensions.Width = graphicsDriver.width;
-		gameRender.renderDimensions.Height = graphicsDriver.height;
-		gameRender.gfx = gfx;
+		gameGraphics.windowWidth = graphicsDriver.width;
+		gameGraphics.windowHeight = graphicsDriver.height;
+		gameGraphics.gfx = gfx;
 
 		macos_game_function_table gameFunctions = {};
 		macos_loaded_code gameCode = {};
@@ -756,7 +815,7 @@ int main(int argc, const char* argv[])
 
 			if(gameFunctions.UpdateAndRender)
 			{
-				gameFunctions.UpdateAndRender(gameMemory, gameRender, input, audio);
+				gameFunctions.UpdateAndRender(gameMemory, gameGraphics, input, audio);
 			}
 
 			u64 gameSimTime = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);

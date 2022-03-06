@@ -1,26 +1,26 @@
 #version 460
-
-#include "Common.glsl"
-
-layout(set = 0, binding = 0) uniform SceneBlock {
-    WindowData window;
-    FrameData frame;
-    CameraData camera;
-} Scene;
-
-layout(set = 1, binding = 1) uniform MaterialBlock {
-    vec3 ambient;
-    vec3 diffuse;
-    vec3 specular;
-    float shininess;
-} Material;
-
-layout(set = 2, binding = 0) uniform LightBlock {
+struct LightData
+{
     vec3 pos;
     vec3 ambient;
     vec3 diffuse;
     vec3 specular;
-} Light;
+};
+
+// Per Scene
+layout(set = 0, binding = 0) uniform Scene {
+    mat4 viewProj;
+    uniform vec3 cameraPos;
+    uniform LightData light;
+} scene;
+
+// Per Material
+layout(set = 1, binding = 0) uniform Material {
+    vec3 ambient;
+    vec3 diffuse;
+    vec3 specular;
+    float shininess;
+} material;
 
 // const vec3 viewPos = vec3(1.0, 2.0, 5.0);
 // const vec3 lightPos = vec3(1.2, 1.0, 2.0);
@@ -39,22 +39,22 @@ void main()
 
     // Ambient Term
 
-    vec3 ambient = Light.ambient * Material.ambient;
+    vec3 ambient = scene.light.ambient * material.ambient;
 
     // Diffuse Term
 
     vec3 norm = normalize(inNormal);
-    vec3 lightDir = normalize(Light.pos - inFragPos);
-    vec3 viewDir = normalize(Scene.camera.pos - inFragPos);
+    vec3 lightDir = normalize(scene.light.pos - inFragPos);
+    vec3 viewDir = normalize(scene.cameraPos - inFragPos);
     vec3 halfwayDir = normalize(lightDir + viewDir);
 
     float diff = max(dot(lightDir, norm), 0.0);
-    vec3 diffuse = Light.diffuse * (diff * Material.diffuse);
+    vec3 diffuse = scene.light.diffuse * (diff * material.diffuse);
 
     // Specular Term
 
-    float spec = pow(max(dot(norm, halfwayDir), 0.0), Material.shininess);
-    vec3 specular = Light.specular * (spec * Material.specular);
+    float spec = pow(max(dot(norm, halfwayDir), 0.0), material.shininess);
+    vec3 specular = scene.light.specular * (spec * material.specular);
 
     // Now apply all the lighting
 
