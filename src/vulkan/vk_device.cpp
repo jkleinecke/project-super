@@ -2055,6 +2055,11 @@ GfxTexture CreateTexture( GfxDevice deviceHandle, const GfxTextureDesc& textureD
         imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     }
 
+#if PROJECTSUPER_SLOW
+    VkFormatProperties formatProperties{};
+    vkGetPhysicalDeviceFormatProperties(device.physicalDevice, imageInfo.format, &formatProperties);
+#endif
+
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = memUsage;
     VkResult result = vmaCreateImage(device.allocator, &imageInfo, &allocInfo, &image->handle, &image->allocation, nullptr);
@@ -3700,14 +3705,14 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
                     vg_image* image = FromGfxTexture(device, desc.texture);
                     vg_sampler* sampler = FromGfxSampler(device, desc.sampler);
 
-                    VkDescriptorImageInfo imageInfo{};
-                    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                    imageInfo.imageView = image->view;
-                    imageInfo.sampler = sampler->handle;
+                    VkDescriptorImageInfo* imageInfo = PushStruct(*device.frameArena, VkDescriptorImageInfo);
+                    imageInfo->imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                    imageInfo->imageView = image->view;
+                    imageInfo->sampler = sampler->handle;
 
                     writeData.descriptorCount = 1;
                     writeData.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    writeData.pImageInfo = &imageInfo;
+                    writeData.pImageInfo = imageInfo;
                 }
                 break;
             InvalidDefaultCase;

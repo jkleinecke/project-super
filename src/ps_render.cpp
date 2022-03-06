@@ -275,7 +275,7 @@ NamedTextureDescriptor(const char* name, GfxTexture texture, GfxSampler sampler)
     return desc;
 }
 
-#define STAGING_BUFFER_SIZE Megabytes(64)
+#define STAGING_BUFFER_SIZE Megabytes(128)
 
 internal void
 BeginStagingData(render_context& rc)
@@ -304,7 +304,7 @@ StageBufferData(render_context& rc, u64 size, const void* data, GfxBuffer buffer
 internal void
 StageTextureData(render_context& rc, u64 size, const void* data, GfxTexture texture)
 {
-    GfxTextureBarrier texBarrier = { rc.texture, GfxResourceState::Undefined, GfxResourceState::CopyDst };
+    GfxTextureBarrier texBarrier = { texture, GfxResourceState::Undefined, GfxResourceState::CopyDst };
     gfx.CmdResourceBarrier(rc.stagingCmds, 0, 0, 1, &texBarrier, 0, 0);
 
     while(rc.stagingPos + size > STAGING_BUFFER_SIZE)
@@ -316,9 +316,9 @@ StageTextureData(render_context& rc, u64 size, const void* data, GfxTexture text
     void* stagingData = gfx.GetBufferData(gfx.device, rc.stagingBuffer);
     Copy(size, data, OffsetPtr(stagingData, rc.stagingPos));
 
-    gfx.CmdCopyBufferToTexture(rc.stagingCmds, rc.stagingBuffer, rc.stagingPos, rc.texture);
+    gfx.CmdCopyBufferToTexture(rc.stagingCmds, rc.stagingBuffer, rc.stagingPos, texture);
  
-    texBarrier = { rc.texture, GfxResourceState::CopyDst, GfxResourceState::PixelShaderResource };
+    texBarrier = { texture, GfxResourceState::CopyDst, GfxResourceState::PixelShaderResource };
     gfx.CmdResourceBarrier(rc.stagingCmds, 0, 0, 1, &texBarrier, 0, 0);
 
     rc.stagingPos += size;
@@ -336,7 +336,7 @@ EndStagingData(render_context& rc)
 }
 
 internal void
-TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* height, u32* channels, void*& pixeldata)
+TempLoadImagePixels(memory_arena& arena, const char* filename, u32 desiredChannelCount, u32* width, u32* height, u32* channels, void*& pixeldata)
 {
     temporary_memory temp = BeginTemporaryMemory(arena);
 
@@ -350,17 +350,18 @@ TempLoadImagePixels(memory_arena& arena, const char* filename, u32* width, u32* 
     Platform.CloseFile(file);
 
     int texWidth, texHeight, texChannels;
-    stbi_uc *pixels = stbi_load_from_memory((stbi_uc*)fileBytes, (int)file.size, &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+    stbi_uc *pixels = stbi_load_from_memory((stbi_uc*)fileBytes, (int)file.size, &texWidth, &texHeight, &texChannels, desiredChannelCount);
     ASSERT(pixels);
-    ASSERT(texChannels == 3);   // NOTE(james): all we support right now
+    ASSERT((u32)texChannels <= desiredChannelCount);
 
     EndTemporaryMemory(temp);
+
 
     if(width) *width = (u32)texWidth;
     if(height) *height = (u32)texHeight;
     if(channels) *channels = (u32)texChannels;
-    pixeldata = PushSize(arena, texWidth*texHeight*4);
-    Copy(texWidth*texHeight*4, pixels, pixeldata);
+    pixeldata = PushSize(arena, texWidth*texHeight*desiredChannelCount);
+    Copy(texWidth*texHeight*desiredChannelCount, pixels, pixeldata);
 
     stbi_image_free(pixels);
 }
@@ -751,11 +752,11 @@ CreateSphere(render_context& rc, f32 radius, u32 stackCount, u32 sliceCount)
     f32 sliceAngle = 0.0f;
 
     u32 numVertices = (stackCount+1) * (sliceCount+1);
-    gltf_vertex* vertices = PushArray(*rc.frameArena, numVertices, gltf_vertex);
+    render_vertex* vertices = PushArray(*rc.frameArena, numVertices, render_vertex);
     
     v3 pos = Vec3(0.0f, 0.0f, 0.0f);
     v3 normal = Vec3(0.0f, 0.0f, 0.0f);
-    // v2 texCoords = Vec2(0.0f, 0.0f);
+    v2 texCoords = Vec2(0.0f, 0.0f);
     f32 xy = 0.0f;
     f32 invLength = 1.0f / radius;
         
@@ -765,7 +766,7 @@ CreateSphere(render_context& rc, f32 radius, u32 stackCount, u32 sliceCount)
         stackAngle = Pi32 / 2.0f - stackIdx * stackStep;
         xy = radius * cosf(stackAngle);
         pos.Z = radius * sinf(stackAngle);
-        // texCoords.V = stackIdx / stackCount;
+        texCoords.V = (f32)stackIdx / (f32)stackCount;
 
         for(u32 sliceIdx = 0; sliceIdx <= sliceCount; ++sliceIdx)
         {
@@ -775,11 +776,12 @@ CreateSphere(render_context& rc, f32 radius, u32 stackCount, u32 sliceCount)
             pos.Y = xy * sinf(sliceAngle);
 
             normal = pos * invLength;
-            // texCoords.U = sliceIdx / sliceCount;
+            texCoords.U = (f32)sliceIdx / (f32)sliceCount;
 
-            gltf_vertex& vertex = vertices[curVertexIdx++];
+            render_vertex& vertex = vertices[curVertexIdx++];
             vertex.pos = pos;
             vertex.normal = normal;
+            vertex.texCoords = texCoords;
         }
     }
 
@@ -819,14 +821,35 @@ CreateSphere(render_context& rc, f32 radius, u32 stackCount, u32 sliceCount)
     render_geometry sphere{};
     sphere.indexCount = numIndices;
     sphere.indexBuffer = gfx.CreateBuffer(gfx.device, IndexBuffer(numIndices), 0);
-    sphere.vertexBuffer = gfx.CreateBuffer(gfx.device, VertexBuffer(numVertices, sizeof(gltf_vertex)), 0);
+    sphere.vertexBuffer = gfx.CreateBuffer(gfx.device, VertexBuffer(numVertices, sizeof(render_vertex)), 0);
 
     BeginStagingData(rc);
-    StageBufferData(rc, sizeof(gltf_vertex) * numVertices, vertices, sphere.vertexBuffer);
+    StageBufferData(rc, sizeof(render_vertex) * numVertices, vertices, sphere.vertexBuffer);
     StageBufferData(rc, sizeof(u32) * indices.size(), indices.data(), sphere.indexBuffer);
     EndStagingData(rc);
 
     return sphere;
+}
+
+internal GfxTexture
+LoadTexture(render_context& rc, const char* filename, TinyImageFormat format)
+{
+    GfxTextureDesc texDesc = {};
+    void* pixels = 0;
+    
+    u32 desiredChannelCount = TinyImageFormat_ChannelCount(format);
+    TempLoadImagePixels(*rc.frameArena, filename, desiredChannelCount, &texDesc.width, &texDesc.height, 0, pixels);
+    texDesc.type = GfxTextureType::Tex2D;
+    texDesc.format = format;
+    texDesc.access = GfxMemoryAccess::GpuOnly;
+    texDesc.mipLevels = 1;
+
+    GfxTexture texture = gfx.CreateTexture(gfx.device, texDesc);
+    ASSERT(texture.id);
+
+    StageTextureData(rc, texDesc.width*texDesc.height*desiredChannelCount, pixels, texture);
+
+    return texture;
 }
 
 #define NUM_ROWS 7
@@ -890,16 +913,17 @@ SetupRenderer(game_state& game)
 
     rc.depthTarget = gfx.CreateRenderTarget(gfx.device, DepthRenderTarget(gc.windowWidth, gc.windowHeight));
 
-    GfxTextureDesc texDesc = {};
+    //GfxTextureDesc texDesc = {};
 
-    void* pixels = 0;
-    TempLoadImagePixels(*rc.frameArena, "texture.jpg", &texDesc.width, &texDesc.height, 0, pixels);
-    texDesc.type = GfxTextureType::Tex2D;
-    texDesc.format = TinyImageFormat_R8G8B8A8_SRGB;
-    texDesc.access = GfxMemoryAccess::GpuOnly;
+    // void* pixels = 0;
+    // TempLoadImagePixels(*rc.frameArena, "texture.jpg", &texDesc.width, &texDesc.height, 0, pixels);
+    // texDesc.type = GfxTextureType::Tex2D;
+    // texDesc.format = TinyImageFormat_R8G8B8A8_SRGB;
+    // texDesc.access = GfxMemoryAccess::GpuOnly;
 
-    rc.texture = gfx.CreateTexture(gfx.device, texDesc);
+    // rc.texture = gfx.CreateTexture(gfx.device, texDesc);
     rc.sampler = gfx.CreateSampler(gfx.device, Sampler());
+    
 
     render_material meshMaterials[NUM_ROWS * NUM_COLS] = {};
     
@@ -911,7 +935,7 @@ SetupRenderer(game_state& game)
         {
             u32 index = (row * NUM_COLS) + col;
             render_material& material = meshMaterials[index];
-            material.albedo = Vec3(0.5f, 0.0f, 0.0f);
+            material.albedo = Vec3(0.5f, 0.5f, 0.5f);
             material.ao = 1.0f;
             material.metallic = metallic;
             material.roughness = Clamp((f32)col / (f32)NUM_COLS, 0.05f, 1.0f);  // clamp min to 0.05 because 0 looks "off"
@@ -925,10 +949,31 @@ SetupRenderer(game_state& game)
     StageBufferData(rc, sizeof(vertices), vertices, rc.ground.vertexBuffer);
     StageBufferData(rc, sizeof(indices), indices, rc.ground.indexBuffer);
     StageBufferData(rc, sizeof(colors), colors, rc.groundMaterial);
-    StageBufferData(rc, sizeof(meshMaterials), meshMaterials, rc.meshMaterial);
-    StageTextureData(rc, texDesc.width*texDesc.height*4, pixels, rc.texture);
-    // TODO(james): fix the crash in this next call...
+    //StageBufferData(rc, sizeof(meshMaterials), meshMaterials, rc.meshMaterial);
+    //rc.texture = LoadTexture(rc, "texture.jpg", TinyImageFormat_R8G8B8A8_SRGB);
+    
+    // StageTextureData(rc, texDesc.width*texDesc.height*4, pixels, rc.texture);
     TempLoadGltfGeometry(rc, "box.glb", &rc.numMeshes, &rc.meshes);
+    EndStagingData(rc);
+
+    rc.albedoSampler = gfx.CreateSampler(gfx.device, Sampler());
+    rc.normalSampler = gfx.CreateSampler(gfx.device, Sampler());
+    rc.metallicSampler = gfx.CreateSampler(gfx.device, Sampler());
+    rc.roughnessSampler = gfx.CreateSampler(gfx.device, Sampler());
+
+    // TODO(james): Figure out why I can't load more than 1 texture into the staging buffer
+   
+    BeginStagingData(rc);
+    rc.texNormals = LoadTexture(rc, "rustediron2_normal.png", TinyImageFormat_R8G8B8A8_UNORM);
+    EndStagingData(rc);
+    BeginStagingData(rc);
+    rc.texMetallic = LoadTexture(rc, "rustediron2_metallic.png", TinyImageFormat_R8_UNORM);
+    EndStagingData(rc);
+    BeginStagingData(rc);
+    rc.texRoughness = LoadTexture(rc, "rustediron2_roughness.png", TinyImageFormat_R8_UNORM);
+    EndStagingData(rc);
+    BeginStagingData(rc);
+    rc.texAlbedo = LoadTexture(rc, "rustediron2_basecolor.png", TinyImageFormat_R8G8B8A8_SRGB);
     EndStagingData(rc);
 }
 
@@ -1003,7 +1048,12 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
     gfx.CmdBindDescriptorSet(cmds, desc);
 
     GfxDescriptor meshMaterialDescriptors[] = {
-        NamedBufferDescriptor("materials", rc.meshMaterial),
+        // NamedBufferDescriptor("materials", rc.meshMaterial),
+        NamedTextureDescriptor("albedoMap", rc.texAlbedo, rc.albedoSampler),
+        NamedTextureDescriptor("normalMap", rc.texNormals, rc.normalSampler),
+        NamedTextureDescriptor("metallicMap", rc.texMetallic, rc.metallicSampler),
+        NamedTextureDescriptor("roughnessMap", rc.texRoughness, rc.roughnessSampler),
+
     };
     desc.setLocation = 1;
     desc.count = ARRAY_COUNT(meshMaterialDescriptors);

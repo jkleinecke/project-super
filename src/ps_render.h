@@ -138,6 +138,13 @@ struct gltf_vertex
     v3 pos;
 };
 
+struct render_vertex
+{
+    v3 pos;
+    v3 normal;
+    v2 texCoords;
+};
+
 struct render_mesh_vertex
 {
     v3 pos;
@@ -168,8 +175,17 @@ struct render_context
     GfxBuffer groundMaterial;
     GfxProgram groundProgram;
     GfxKernel groundKernel;
-    GfxTexture texture;
+    //GfxTexture texture;
     GfxSampler sampler;
+
+    GfxTexture texAlbedo;
+    GfxSampler albedoSampler;
+    GfxTexture texNormals;
+    GfxSampler normalSampler;
+    GfxTexture texMetallic;
+    GfxSampler metallicSampler;
+    GfxTexture texRoughness;
+    GfxSampler roughnessSampler;
 
     render_geometry ground;
     
