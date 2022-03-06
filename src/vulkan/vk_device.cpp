@@ -3690,14 +3690,14 @@ GfxResult CmdBindDescriptorSet(GfxCmdContext cmds, const GfxDescriptorSet& descS
                 {
                     vg_buffer* buffer = FromGfxBuffer(device, desc.buffer);
                     
-                    VkDescriptorBufferInfo bufferInfo{};
-                    bufferInfo.buffer = buffer->handle;
-                    bufferInfo.offset = (VkDeviceSize)desc.offset;
-                    bufferInfo.range = VK_WHOLE_SIZE;
+                    VkDescriptorBufferInfo* bufferInfo = PushStruct(*device.frameArena, VkDescriptorBufferInfo);
+                    bufferInfo->buffer = buffer->handle;
+                    bufferInfo->offset = (VkDeviceSize)desc.offset;
+                    bufferInfo->range = VK_WHOLE_SIZE;
 
                     writeData.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                     writeData.descriptorCount = 1;
-                    writeData.pBufferInfo = &bufferInfo;
+                    writeData.pBufferInfo = bufferInfo;
                 }
                 break;
             case GfxDescriptorType::Image:
