@@ -433,6 +433,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     GameClock& clock = input.clock;
     //gameState.skullRotationAngle += clock.elapsedFrameTime * 90.0f;
     const f32 velocity = 1.5f * clock.elapsedFrameTime;
+    const f32 digitalVelocity = 20.0f * clock.elapsedFrameTime;
     const f32 scaleRate = 0.4f * clock.elapsedFrameTime;
     const f32 rotRate = 90.0f * clock.elapsedFrameTime;
 
@@ -472,28 +473,39 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 gameState.scaleFactor *= (1.0f + (scaleRate * controller.rightTrigger.value));
             }
 
+            if(controller.left.pressed)
+            {
+                gameState.camera.position.X += digitalVelocity;
+            }
+
+            if(controller.right.pressed)
+            {
+                gameState.camera.position.X -= digitalVelocity;
+            }
+
             if(controller.up.pressed)
             {
-                gameState.camera.position.Y += velocity;
+                gameState.camera.position.Z -= digitalVelocity;
             }
 
             if(controller.down.pressed)
             {
-                gameState.camera.position.Y -= velocity;
+                gameState.camera.position.Z += digitalVelocity;
+            }
+
+            if(controller.rightShoulder.pressed)
+            {
+                gameState.camera.position.Y += digitalVelocity;
+            }
+
+            if(controller.leftShoulder.pressed)
+            {
+                gameState.camera.position.Y -= digitalVelocity;
             }
 
             if(controller.rightStickButton.pressed)
             {
                 gameState.camera.position = Vec3(1.0f, 5.0f, 5.0f);
-            }
-
-            if(controller.leftShoulder.pressed)
-            {
-                gameState.rotationAngle += rotRate;
-            }
-            if(controller.rightShoulder.pressed)
-            {
-                gameState.rotationAngle -= rotRate;
             }
 
             if(controller.y.pressed)
