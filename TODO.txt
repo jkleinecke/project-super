@@ -1,4 +1,13 @@
+** MAJOR TODOS
 
+    - Setup basic ECS for managing entities and components
+    - Create offline asset packing pipeline
+        - Load/Unload streaming asset packs based on player position
+    - Setup full lighting & shadow pipeline
+    
+
+
+** MINOR TODOS
 
     Win32 Platform:
         - File API
