@@ -33,20 +33,6 @@ win32_file_location FileLocationsTable[(u32)FileLocation::LocationsCount];
 global const int FIXED_RENDER_WIDTH = 1920;
 global const int FIXED_RENDER_HEIGHT = 1080;
 
-/*******************************************************************************
-
-    Things to do:
-    * File API
-       - Streaming API
-    * WM_ACTIVEAPP
-    * Harden sound latency with framerate
-    * Hardware Capabilities
-    * Finish logging system
-    * Base framerate on monitor refresh rate
-    * Toggle fullscreen window
-
-********************************************************************************/
-
 GAME_UPDATE_AND_RENDER(GameUpdateAndRenderStub) {}
 
 global_variable bool GlobalRunning = true;

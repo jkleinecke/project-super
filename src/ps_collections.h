@@ -8,6 +8,11 @@
 // insert() moves the element at the index to the end of the array to make room rather than moving all the elements down a position
 // erase() moves the element at the end of the array to the slot being erased
 
+// TODO(james): create our own implementation?
+#include <bitset>
+
+typedef std::bitset<32> bitset32;
+typedef std::bitset<64> bitset64;
 
 template<typename T>
 struct slice
@@ -440,8 +445,6 @@ struct hashtable
     #endif
 };
 
-
-
 namespace sort
 {
     template<typename T> struct comparer {
@@ -537,7 +540,6 @@ namespace sort
         heapSort(collection, comparer<T>::lessthan);
     }
 };
-
 
 #if TEST_COLLECTIONS
 #define EXPECT(cond) ASSERT(cond); if(!(cond)) return false

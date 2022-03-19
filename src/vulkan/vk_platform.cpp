@@ -25,26 +25,6 @@
 
 #include <SPIRV-Reflect/spirv_reflect.c>
 
-/*******************************************************************************
-
-    TODO List:
-
-    - Use volk to load vulkan functions direct from the driver
-    - Asset resource creation
-        - buffers
-        - textures? maybe just use materials
-        - shaders?
-    - Material system
-        - material description
-        - material instance
-    - Background upload of texture & buffer memory
-        - staging buffer?
-    - Integrate Shaderc for live compiling
-    - Move to GPU driven rendering
-
-    - Break out into a DLL
-
-********************************************************************************/
 
 global vg_backend g_VulkanBackend = {};
 

@@ -1,0 +1,49 @@
+
+
+    Win32 Platform:
+        - File API
+            - Streaming API
+        - WM_ACTIVEAPP
+        - Harden sound latency with framerate
+        - Hardware Capabilities
+        - Finish logging system
+        - Base framerate on monitor refresh rate
+        - Toggle fullscreen window
+
+    Renderer:
+        - BUG: Fix light sphere not working correctly
+        - Set up full lighting pipeline
+            - irradiance light probes
+            - shadow mapping
+        - deferred rendering?
+        - drive rendering from GPU compute and indirect drawing
+        - Consolidate vertex & index buffers, use storage buffer(s) for vertices?
+        - wind and weather?
+        - volumetric lighting
+        - ray tracing? (requires gfx api update)
+        - rendering configuration
+            - conditional rendering based on h/w support
+        - drive rendering prep from ECS
+        - DEBUG rendering
+        - UI/overlay rendering
+        - font rendering
+            - stb_font
+            - coverage mask based fonts? https://superluminal.eu/16xaa-font-rendering-using-coverage-masks-part-i/
+        - Store descriptors on the program directly rather than in the cmd buffer context (gfx api)
+
+    Vulkan:
+        - Handle system resize
+        - Use volk to load vulkan functions direct from the driver
+        - Asset resource creation
+            - buffers
+            - textures? maybe just use materials
+            - shaders?
+        - Material system
+            - material description
+            - material instance
+        - Background upload of texture & buffer memory
+            - staging buffer?
+        - Integrate Shaderc for live compiling
+        - Move to GPU driven rendering
+
+        - Break out into a DLL
