@@ -112,7 +112,7 @@ void main()
     float roughness = texture(roughnessMap, inTexCoords).r;
     float ao        = 1.0f; //texture(aoMap, inTexCoords).r;
 
-    vec3 N = normalize(inNormal);
+    vec3 N = normalize(normal);
     vec3 V = normalize(scene.cameraPos - inWorldPos);
 
     // NOTE(james): PBR metallic workflow let's us assume dailectric surface uses a constant of 0.4

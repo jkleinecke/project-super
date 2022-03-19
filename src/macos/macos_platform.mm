@@ -10,6 +10,7 @@
 // #include "ps_graphics.h"
 
 #include "macos_platform.h"
+#include "macos_platform_events.h"
 
 
 #if PROJECTSUPER_INTERNAL
@@ -563,12 +564,24 @@ MacosReloadCode(macos_state& state, macos_loaded_code& code)
 //---- OS MESSAGES
 //------------------------
 
-void MacosProcessMessages(macos_state& state)
+
+inline internal void
+MacosProcessKeyboardButton(InputButton& newState, bool pressed)
+{
+    newState.pressed = pressed;
+    newState.transitions = 1; 
+}
+
+void MacosProcessMessages(macos_state& state, InputContext& input)
 {
     NSEvent* Event;
 
 	//ZeroStruct(GameData->NewInput->FKeyPressed);
 	//memcpy(GameData->OldKeyboardState, GameData->KeyboardState, sizeof(GameData->KeyboardState));
+
+	InputController keyboard = {};
+	keyboard.isConnected = true;
+	keyboard.isAnalog = false;
 
 	do
 	{
@@ -579,96 +592,73 @@ void MacosProcessMessages(macos_state& state)
 
 		switch ([Event type])
 		{
-/*
-			case NSKeyDown:
-			case NSKeyUp:
+
+			case NSEventTypeKeyDown:
+			case NSEventTypeKeyUp:
 			{
 				u32 KeyCode = [Event keyCode];
 				unichar C = [[Event charactersIgnoringModifiers] characterAtIndex:0];
 				u32 ModifierFlags = [Event modifierFlags];
-				int CommandKeyFlag = (ModifierFlags & NSCommandKeyMask) > 0;
-				int ControlKeyFlag = (ModifierFlags & NSControlKeyMask) > 0;
-				int AlternateKeyFlag = (ModifierFlags & NSAlternateKeyMask) > 0;
-				int ShiftKeyFlag = (ModifierFlags & NSShiftKeyMask) > 0;
+				int CommandKeyFlag = (ModifierFlags & NSEventModifierFlagCommand) > 0;
+				int ControlKeyFlag = (ModifierFlags & NSEventModifierFlagControl) > 0;
+				int AlternateKeyFlag = (ModifierFlags & NSEventModifierFlagOption) > 0;
+				int ShiftKeyFlag = (ModifierFlags & NSEventModifierFlagShift) > 0;
 
-				int KeyDownFlag = ([Event type] == NSKeyDown) ? 1 : 0;
-				GameData->KeyboardState[KeyCode] = KeyDownFlag;
+				bool isPressed = ([Event type] == NSEventTypeKeyDown) ? true : false;
 
-				//printf("%s: keyCode: %d  unichar: %c\n", NSKeyDown ? "KeyDown" : "KeyUp", [Event keyCode], C);
+				LOG_DEBUG("%s: keyCode: %d char: %c", isPressed ? "KeyDown" : "KeyUp", KeyCode, C);
 
-				OSXKeyProcessing(KeyDownFlag, KeyCode, C,
-								ShiftKeyFlag, CommandKeyFlag, ControlKeyFlag, AlternateKeyFlag,
-								GameData->NewInput, GameData);
+				switch(KeyCode)
+				{
+					case kVK_Escape:
+						GlobalRunning = false;
+						break;
+					case kVK_ANSI_W:
+						MacosProcessKeyboardButton(keyboard.up, isPressed);
+						break;
+					case kVK_ANSI_A:
+						MacosProcessKeyboardButton(keyboard.left, isPressed);
+						break;
+					case kVK_ANSI_S:
+						MacosProcessKeyboardButton(keyboard.down, isPressed);
+						break;
+					case kVK_ANSI_D:
+						MacosProcessKeyboardButton(keyboard.right, isPressed);
+						break;
+					case kVK_ANSI_Q:
+						if(CommandKeyFlag)
+						{
+							GlobalRunning = false;
+						}
+					case kVK_ANSI_5:
+						MacosProcessKeyboardButton(keyboard.leftShoulder, isPressed);
+						break;
+					case kVK_ANSI_6:
+					case kVK_ANSI_E:
+						MacosProcessKeyboardButton(keyboard.rightShoulder, isPressed);
+						break;
+					case kVK_ANSI_1:
+						MacosProcessKeyboardButton(keyboard.x, isPressed);
+						break;
+					case kVK_ANSI_2:
+						MacosProcessKeyboardButton(keyboard.a, isPressed);
+						break;
+					case kVK_ANSI_3:
+						MacosProcessKeyboardButton(keyboard.b, isPressed);
+						break;
+					case kVK_ANSI_4:
+						MacosProcessKeyboardButton(keyboard.y, isPressed);
+						break;
+					// TODO(james): handle input recording
+				}
+
 			} break;
-
-			case NSFlagsChanged:
-			{
-				u32 KeyCode = 0;
-				u32 ModifierFlags = [Event modifierFlags];
-				int CommandKeyFlag = (ModifierFlags & NSCommandKeyMask) > 0;
-				int ControlKeyFlag = (ModifierFlags & NSControlKeyMask) > 0;
-				int AlternateKeyFlag = (ModifierFlags & NSAlternateKeyMask) > 0;
-				int ShiftKeyFlag = (ModifierFlags & NSShiftKeyMask) > 0;
-
-				GameData->KeyboardState[kVK_Command] = CommandKeyFlag;
-				GameData->KeyboardState[kVK_Control] = ControlKeyFlag;
-				GameData->KeyboardState[kVK_Alternate] = AlternateKeyFlag;
-				GameData->KeyboardState[kVK_Shift] = ShiftKeyFlag;
-
-				int KeyDownFlag = 0;
-
-				if (CommandKeyFlag != GameData->OldKeyboardState[kVK_Command])
-				{
-					KeyCode = kVK_Command;
-
-					if (CommandKeyFlag)
-					{
-						KeyDownFlag = 1;
-					}
-				}
-
-				if (ControlKeyFlag != GameData->OldKeyboardState[kVK_Control])
-				{
-					KeyCode = kVK_Control;
-
-					if (ControlKeyFlag)
-					{
-						KeyDownFlag = 1;
-					}
-				}
-
-				if (AlternateKeyFlag != GameData->OldKeyboardState[kVK_Alternate])
-				{
-					KeyCode = kVK_Option;
-
-					if (AlternateKeyFlag)
-					{
-						KeyDownFlag = 1;
-					}
-				}
-
-				if (ShiftKeyFlag != GameData->OldKeyboardState[kVK_Shift])
-				{
-					if (ShiftKeyFlag)
-					{
-						KeyDownFlag = 1;
-					}
-
-					KeyCode = kVK_Shift;
-				}
-
-				//printf("Keyboard flags changed: Cmd: %d  Ctrl: %d  Opt: %d  Shift: %d\n",
-			//			CommandKeyFlag, ControlKeyFlag, AlternateKeyFlag, ShiftKeyFlag);
-
-				OSXKeyProcessing(-1, KeyCode, KeyCode,
-								ShiftKeyFlag, CommandKeyFlag, ControlKeyFlag, AlternateKeyFlag,
-								GameData->NewInput, GameData);
-			} break;
-*/
 			default:
 				[NSApp sendEvent:Event];
 		}
 	} while (Event != nil);
+
+	input.controllers[0] = keyboard;
 
 }
 
@@ -721,17 +711,10 @@ int main(int argc, const char* argv[])
         NSFileManager* FileManager = [NSFileManager defaultManager];
         state.workingDirectory = [NSString stringWithFormat:@"%@/Contents/Resources",
             [[NSBundle mainBundle] bundlePath]];
-        // if ([FileManager changeCurrentDirectoryPath:state.workingDirectory] == NO)
-        // {
-        //     ASSERT(0);
-        // }
         NSLog(@"working directory: %@", state.workingDirectory);
 
 		EngineAppDelegate* appDelegate = [[EngineAppDelegate alloc] init];
 		[app setDelegate:appDelegate];
-
-        //macContext.AppDelegate = [[HandmadeAppDelegate alloc] init];
-        //[app setDelegate:Context.AppDelegate];
 
         [NSApp finishLaunching];
 
@@ -753,7 +736,6 @@ int main(int argc, const char* argv[])
 
         [Window setBackgroundColor: NSColor.redColor];
 		[Window setDelegate:appDelegate];
-        //[Window setDelegate:Context.AppDelegate];
 
         NSView* CV = [Window contentView];
         [CV setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
@@ -811,7 +793,7 @@ int main(int argc, const char* argv[])
 				MacosReloadCode(GlobalMacosState, gameCode);
 			}
 
-            MacosProcessMessages(state);
+            MacosProcessMessages(state, input);
 
 			if(gameFunctions.UpdateAndRender)
 			{
@@ -827,7 +809,7 @@ int main(int argc, const char* argv[])
 
 			// TODO(james): Sleep if we are running faster than the target framerate??
 
-			LOG_DEBUG("Frame Time: %.2f ms, Total Time: %.2f ms", elapsedFrameTime * 1000.0f, elapsedFrameTime * 1000.0f);
+			//LOG_DEBUG("Frame Time: %.2f ms, Total Time: %.2f ms", elapsedFrameTime * 1000.0f, elapsedFrameTime * 1000.0f);
 
 			++input.clock.frameCounter;
         }
