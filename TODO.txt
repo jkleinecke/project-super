@@ -9,6 +9,7 @@
 
 ** MINOR TODOS
 
+
     Win32 Platform:
         - File API
             - Streaming API
@@ -20,7 +21,6 @@
         - Toggle fullscreen window
 
     Renderer:
-        - BUG: Fix light sphere not working correctly
         - Set up full lighting pipeline
             - irradiance light probes
             - shadow mapping
