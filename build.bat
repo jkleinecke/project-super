@@ -64,7 +64,7 @@ set HostLinkerFlags=-STACK:0x100000,0x100000 %LinkerFlags% ole32.lib user32.lib 
 
 REM clang++ %CompilerDefines% -I..\src -Oi -Od -std=c++17 -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp  
 
-cl %GameCompilerFlags% -I%VulkanIncludeDir% -I..\src\libs ..\src\ps_game.cpp  ..\src\libs\tinyobjloader\tiny_obj_loader.cc -Fmps_game.map /link %GameLinkerFlags%
+cl %GameCompilerFlags% -I%VulkanIncludeDir% -I..\src\libs ..\src\ps_game.cpp ..\src\libs\flecs\flecs.c ..\src\libs\tinyobjloader\tiny_obj_loader.cc -Fmps_game.map /link %GameLinkerFlags%
 cl %HostCompilerFlags% -I..\src -I..\src\libs -I%VulkanIncludeDir% ..\src\win32\win32_platform.cpp ..\src\vulkan\vma.cpp -Fmwin32_platform.map /link -LIBPATH:%VulkanLibDir% %HostLinkerFlags%
 set LastError=%ERRORLEVEL%
 

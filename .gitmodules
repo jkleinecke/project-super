@@ -19,3 +19,6 @@
 [submodule "src/libs/cgltf"]
 	path = src/libs/cgltf
 	url = git@github.com:jkuhlmann/cgltf.git
+[submodule "src/libs/flecs"]
+	path = src/libs/flecs
+	url = git@github.com:SanderMertens/flecs.git

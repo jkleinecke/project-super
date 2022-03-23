@@ -1099,8 +1099,8 @@ RenderFrame(render_context& rc, game_state& game, const GameClock& clock)
 
     gfx.CmdBindPushConstant(cmds, "constants", &instance);
 
-    //gfx.CmdBindIndexBuffer(cmds, rc.meshes[0].indexBuffer);
-    //gfx.CmdBindVertexBuffer(cmds, rc.meshes[0].vertexBuffer);
+    gfx.CmdBindIndexBuffer(cmds, rc.sphere.indexBuffer);
+    gfx.CmdBindVertexBuffer(cmds, rc.sphere.vertexBuffer);
     gfx.CmdDrawIndexed(cmds, rc.sphere.indexCount, 1, 0, 0, 0);
 
     // Now we're done, prep for presenting

@@ -146,6 +146,9 @@ NonRestoredArena(umm initialSize = 0, umm minBlockSize = 0)
 #define BootstrapPushStructMember(type, Member, ...) (type *)BootstrapPushSize_(DEBUG_MEMORY_NAME("BootstrapPushStructMember") sizeof(type), OffsetOf(type, Member), ## __VA_ARGS__)
 #define BootstrapScratchArena(memName, ...) (memory_arena *)BootstrapPushSize_(DEBUG_MEMORY_NAME(memName) sizeof(memory_arena), 0, ## __VA_ARGS__)
 
+#define RepushArray(Arena, NewCount, OriginalCount, Type, Pointer, ...) (Type*)RePushSize_(DEBUG_MEMORY_NAME("RePushArray") Arena, (NewCount)*sizeof(Type), (OriginalCount)*sizeof(Type), Pointer, ## __VA_ARGS__)
+#define RepushSize(Arena, Newsize, SourceSize, SourcePointer, ...) RePushSize_(DEBUG_MEMORY_NAME("RePushSize") Arena, Newsize, SourceSize, SourcePointer, ## __VA_ARGS__)
+
 inline memory_index
 GetEffectiveSizeFor(const memory_arena& arena, memory_index sizeInit, arena_push_params params = DefaultArenaParams())
 {
