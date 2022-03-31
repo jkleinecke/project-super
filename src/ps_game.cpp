@@ -101,19 +101,9 @@ void ToggleSoundTone(SoundTone& tone, InputButton& button)
     }
 }
 
-typedef struct Message {
+struct Message {
     const char* text;
-} Message;
-
-void PrintMessage(ecs_iter_t* it)
-{
-    Message *msg = ecs_term(it, Message, 1);
-
-    for(int i = 0; i < it->count; ++i)
-    {
-        GAME_LOG("ECS Print Message: %s", msg[i].text);
-    }
-}
+};
 
 platform_api Platform;
 extern "C"
@@ -134,26 +124,27 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.renderer->gc = &graphics;
 
         {
-            gameState.world = ecs_init();
+            gameState.registry = entt::registry();
+            entt::registry& registry = gameState.registry;
+            auto entity = registry.create();
 
-            flecs::world ecs(gameState.world);
+            auto& m = registry.emplace<Message>(entity);
+            m.text = "Hello World!";
+
+            auto view = registry.view<Message>();
+            for(auto et : view)
+            {
+                Message& msg = view.get<Message>(et);
+                GAME_LOG("ECS Print Message: %s", msg.text);
+            }
 
             // TODO(james): setup ecs stages, register component types, systens, etc..
             // TODO(james): register the ECS OS API to line up with our existing platform layer
 
-            // ecs_set_stages(world, 1);
-            // gameState.stage1 = ecs_get_stage(world, 0);
-            // ecs_world_t* stage = gameState.stage1;
+            
 
             // TODO(james): just use automerging for now, may need to manually call ecs_merge() in the future with multiple threads involved
-            // ecs_set_automerge(stage, true);
-
-            ecs.system<Message>()
-                .each([](Message& msg) {
-                    GAME_LOG("ECS Print Message: %s", msg.text);
-                });
-
-            ecs.entity().set<Message>({"Hello World!"});
+            
         }
 
         SetupRenderer(gameState);
@@ -282,10 +273,6 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
     }
 
-    // TODO(james): break this up into component parts for more control
-    flecs::world ecs(gameState.world);
-    ecs.progress();
-    //ecs_progress(gameState.world, input.clock.elapsedFrameTime);
 
     gameState.camera.target = gameState.position;
     

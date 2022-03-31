@@ -1,5 +1,18 @@
 
-#include <flecs/flecs.h>
+#define ENTT_NOEXCEPTION
+#if PROJECTSUPER_SLOW
+    #define ENTT_ASSERT 
+#endif
+
+#if !PROJECTSUPER_INTERNAL
+    #define ENTT_DISABLE_ASSERT 
+#endif
+
+#undef global
+#undef internal
+#include <entt/single_include/entt/entt.hpp>
+#define internal static
+#define global static
 
 struct Position
 {

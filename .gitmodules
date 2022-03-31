@@ -22,3 +22,6 @@
 [submodule "src/libs/flecs"]
 	path = src/libs/flecs
 	url = git@github.com:SanderMertens/flecs.git
+[submodule "src/libs/entt"]
+	path = src/libs/entt
+	url = git@github.com:skypjack/entt.git

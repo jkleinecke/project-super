@@ -10,7 +10,6 @@
 #include "ps_stream.h"
 #include "ps_image.h"
 
-#include <flecs/flecs.h>
 #include "ps_entity.h"
 #include "ps_render.h"
 #include "ps_asset.h"
@@ -21,8 +20,7 @@ struct game_state
     memory_arena* frameArena;
     temporary_memory temporaryFrameMemory;
 
-    ecs_world_t* world;
-    // ecs_world_t* stage1;
+    entt::registry registry;
 
     game_assets* assets;
     render_context* renderer;
