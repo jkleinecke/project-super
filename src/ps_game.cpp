@@ -2,6 +2,7 @@
 #include "ps_audio_synth.cpp"
 #include "ps_render.cpp"
 #include "ps_asset.cpp"
+#include "ps_world.cpp"
 
 #if PROJECTSUPER_INTERNAL
 #define GAME_LOG(msg, ...) Platform.DEBUG_Log(LogLevel::Info, __FILE__, __LINE__, msg, __VA_ARGS__)
@@ -141,7 +142,7 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             // TODO(james): setup ecs stages, register component types, systens, etc..
             // TODO(james): register the ECS OS API to line up with our existing platform layer
 
-            
+            CreateTerrainEntity(registry);
 
             // TODO(james): just use automerging for now, may need to manually call ecs_merge() in the future with multiple threads involved
             

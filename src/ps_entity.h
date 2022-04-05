@@ -14,6 +14,8 @@
 #define internal static
 #define global static
 
+using ps_entity = entt::entity;
+
 struct Position
 {
     v3 position;
