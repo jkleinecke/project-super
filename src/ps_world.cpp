@@ -1,10 +1,7 @@
 
-#if 0
-internal ps_entity
-CreateTerrainEntity(entt::registry& registry)
+internal Entity
+CreateTerrainEntity(World& world)
 {
-    ps_entity ret = registry.create();
-
     // create a terrian of 30 x 33 cells, to fit a pixel size of 64 x 32 on a 1080p screen
     // Each cell will be 1 square meter for sizing purposes, which sets the unit tiling...
     
@@ -61,7 +58,6 @@ CreateTerrainEntity(entt::registry& registry)
     // TODO(james): Allocate vertex & index buffers on GPU for rendering
     
 
-    return ret;
+    // TODO(james): Create a more extensible way to reference terrain since each region will have one
+    return world.entity("terrain");
 }
-
-#endif

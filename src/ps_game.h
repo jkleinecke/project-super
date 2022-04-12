@@ -20,7 +20,8 @@ struct game_state
     memory_arena* frameArena;
     temporary_memory temporaryFrameMemory;
 
-    ecs_world_t* ecsworld;
+    World world;
+    //ecs_world_t* ecsworld;
 
     game_assets* assets;
     render_context* renderer;

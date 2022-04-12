@@ -134,20 +134,19 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.renderer->gc = &graphics;
 
         {
-            gameState.ecsworld = ecs_init();
-            flecs::world ecs(gameState.ecsworld);
-            ecs_world_t* world = gameState.ecsworld;
-
+            gameState.world = World();
+            World& ecs = gameState.world;
+            
             ecs.system<Message>()
                 .iter(PrintMessage);
                 //.each([](Message& msg){
                 //    GAME_LOG("ECS Message %s", msg.text);
                 //});
 
-            flecs::entity test = ecs.entity("test")
+            Entity test = ecs.entity("test")
                 .set(Message{.text="This is a test"});
             
-            flecs::entity test2 = ecs.entity("test2")
+            Entity test2 = ecs.entity("test2")
                 .set(Message{.text="Another test"});
                 
             ecs.progress(0.0f);
