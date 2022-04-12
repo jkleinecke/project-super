@@ -93,6 +93,17 @@ struct SceneBufferObject
     ALIGNAS(16) LightData light;
 };
 
+struct pbr_material
+{
+    ALIGNAS(16) v3 albedo;
+    ALIGNAS(4) f32 metallic;
+    ALIGNAS(4) f32 roughness;
+    ALIGNAS(4) f32 ao;
+    // ALIGNAS(16) v3 ambient;
+    // ALIGNAS(16) v3 diffuse;
+    // ALIGNAS(16) v3 specular;
+    // ALIGNAS(4) f32 shininess;
+};
 struct render_material
 {
     ALIGNAS(16) v3 albedo;
@@ -136,6 +147,12 @@ struct gltf_vertex
 {
     v3 normal;
     v3 pos;
+};
+
+struct simple_vertex
+{
+    v3 pos;
+    v3 normal;
 };
 
 struct render_vertex
