@@ -20,7 +20,7 @@ struct game_state
     memory_arena* frameArena;
     temporary_memory temporaryFrameMemory;
 
-    entt::registry registry;
+    ecs_world_t* ecsworld;
 
     game_assets* assets;
     render_context* renderer;

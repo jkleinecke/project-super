@@ -23,7 +23,7 @@
 #include "vk_device.cpp"
 #include "vk_platform.h"
 
-#include <SPIRV-Reflect/spirv_reflect.c>
+//#include <SPIRV-Reflect/spirv_reflect.c>
 
 
 global vg_backend g_VulkanBackend = {};

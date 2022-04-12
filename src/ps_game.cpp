@@ -106,6 +106,15 @@ struct Message {
     const char* text;
 };
 
+internal void
+PrintMessage(flecs::iter& it, const Message* msg)
+{
+    for(auto i : it)
+    {
+        GAME_LOG("ECS Message %s", msg[i].text);
+    }
+}
+
 platform_api Platform;
 extern "C"
 GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
@@ -125,24 +134,28 @@ GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState.renderer->gc = &graphics;
 
         {
-            gameState.registry = entt::registry();
-            entt::registry& registry = gameState.registry;
-            auto entity = registry.create();
+            gameState.ecsworld = ecs_init();
+            flecs::world ecs(gameState.ecsworld);
+            ecs_world_t* world = gameState.ecsworld;
 
-            auto& m = registry.emplace<Message>(entity);
-            m.text = "Hello World!";
+            ecs.system<Message>()
+                .iter(PrintMessage);
+                //.each([](Message& msg){
+                //    GAME_LOG("ECS Message %s", msg.text);
+                //});
 
-            auto view = registry.view<Message>();
-            for(auto et : view)
-            {
-                Message& msg = view.get<Message>(et);
-                GAME_LOG("ECS Print Message: %s", msg.text);
-            }
+            flecs::entity test = ecs.entity("test")
+                .set(Message{.text="This is a test"});
+            
+            flecs::entity test2 = ecs.entity("test2")
+                .set(Message{.text="Another test"});
+                
+            ecs.progress(0.0f);
 
             // TODO(james): setup ecs stages, register component types, systens, etc..
             // TODO(james): register the ECS OS API to line up with our existing platform layer
 
-            CreateTerrainEntity(registry);
+            //CreateTerrainEntity(registry);
 
             // TODO(james): just use automerging for now, may need to manually call ecs_merge() in the future with multiple threads involved
             

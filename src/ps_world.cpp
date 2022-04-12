@@ -1,4 +1,5 @@
 
+#if 0
 internal ps_entity
 CreateTerrainEntity(entt::registry& registry)
 {
@@ -62,3 +63,5 @@ CreateTerrainEntity(entt::registry& registry)
 
     return ret;
 }
+
+#endif
