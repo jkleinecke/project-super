@@ -857,10 +857,35 @@ LoadTexture(render_context& rc, const char* filename, TinyImageFormat format)
 #define NUM_COLS 7
 
 internal void
+LoadKernels(game_state& game)
+{
+    World& ecs = game.world;
+
+    render_context& rc = *game.renderer;
+    graphics_context& gc = *rc.gc;
+
+    // TODO(james): this may not be the best place for these, but it'll do for now
+    {
+        GfxProgram terrainProgram = LoadProgram(*rc.frameArena, "simple_pbr.vert.spv", "simple_pbr.frag.spv");
+        GfxPipelineDesc desc = DefaultPipeline(true);
+
+        GfxKernel terrainKernel = gfx.CreateGraphicsKernel(gfx.device, terrainProgram, desc);
+
+        ecs.entity("kernel_terrain")
+            .set<GfxKernel>(terrainKernel)
+            .set<GfxProgram>(terrainProgram);
+    }  
+}
+
+internal void
 SetupRenderer(game_state& game)
 {
     render_context& rc = *game.renderer;
     graphics_context& gc = *rc.gc;
+
+    LoadKernels(game);
+
+    // TODO(james): Remove most of the loading stuff below here
 
     f32 width = 20.0f;
     f32 depth = 20.0f;

@@ -374,93 +374,96 @@ LoadMaterials(game_state& game)
 }
 
 internal void
-LoadMeshes(game_state& game)
+LoadTerrainMesh(game_state& game)
 {
     World& ecs = game.world;
 
+    // **** Terrain Mesh ****
+    // create a terrian of 30 x 33 cells, to fit a pixel size of 64 x 32 on a 1080p screen
+    // Each cell will be 1 square meter for sizing purposes, which sets the unit tiling...
+    
+    // NOTE(james): The odd number allows us to have a "center" tile, if that matters...
+    const int max_x_tiles = 31; // 1984 pixels
+    const int max_y_tiles = 35; // 1120 pixels
+
+    // not technically half since some of the tiles will be partially offscreen
+    const int half_max_x_tiles = max_x_tiles / 2;
+    const int half_max_y_tiles = max_y_tiles / 2;
+
+    f32 x_offset = -(half_max_x_tiles + 0.5f);
+    f32 y_offset = -(half_max_y_tiles + 0.5f);
+
+    f32 x_intervals[max_x_tiles+1];
+    f32 y_intervals[max_y_tiles+1];
+
+    for(int i = 0; i < max_x_tiles; ++i)
     {
-        // **** Terrain Mesh ****
-        // create a terrian of 30 x 33 cells, to fit a pixel size of 64 x 32 on a 1080p screen
-        // Each cell will be 1 square meter for sizing purposes, which sets the unit tiling...
-        
-        // NOTE(james): The odd number allows us to have a "center" tile, if that matters...
-        const int max_x_tiles = 31; // 1984 pixels
-        const int max_y_tiles = 35; // 1120 pixels
+        x_intervals[i] = x_offset + (f32)i;
+    }
 
-        // not technically half since some of the tiles will be partially offscreen
-        const int half_max_x_tiles = max_x_tiles / 2;
-        const int half_max_y_tiles = max_y_tiles / 2;
+    for(int i = 0; i < max_y_tiles; ++i)
+    {
+        y_intervals[i] = y_offset + (f32)i;
+    }
 
-        f32 x_offset = -(half_max_x_tiles + 0.5f);
-        f32 y_offset = -(half_max_y_tiles + 0.5f);
+    u32 indices[max_x_tiles * max_y_tiles * 6] = {};
+    simple_vertex vertices[max_x_tiles * max_y_tiles * 4] = {};
 
-        f32 x_intervals[max_x_tiles+1];
-        f32 y_intervals[max_y_tiles+1];
-
-        for(int i = 0; i < max_x_tiles; ++i)
+    for(int y = 0; y < max_y_tiles; ++y)
+    {
+        for(int x = 0; x < max_x_tiles; ++x)
         {
-            x_intervals[i] = x_offset + (f32)i;
+            int i_idx = (y * max_x_tiles + x) * 6;
+            int v_idx = (y * max_x_tiles + x) * 4;
+
+            // TODO(james): allow y position to be changed?
+            // TODO(james): add texture coordinates
+            // NOTE(james): y_interval is actually the z-plane since y is up/down
+            vertices[v_idx + 0] = {{x_intervals[x]  ,0.0f,y_intervals[y]  }, {0.0f,1.0f,0.0f}};
+            vertices[v_idx + 1] = {{x_intervals[x]  ,0.0f,y_intervals[y+1]}, {0.0f,1.0f,0.0f}};
+            vertices[v_idx + 2] = {{x_intervals[x+1],0.0f,y_intervals[y+1]}, {0.0f,1.0f,0.0f}};
+            vertices[v_idx + 3] = {{x_intervals[x+1],0.0f,y_intervals[y]  }, {0.0f,1.0f,0.0f}};
+
+            indices[i_idx + 0] = v_idx + 0; 
+            indices[i_idx + 1] = v_idx + 2; 
+            indices[i_idx + 2] = v_idx + 1;
+            indices[i_idx + 3] = v_idx + 0; 
+            indices[i_idx + 4] = v_idx + 3; 
+            indices[i_idx + 5] = v_idx + 2;
         }
+    }
 
-        for(int i = 0; i < max_y_tiles; ++i)
-        {
-            y_intervals[i] = y_offset + (f32)i;
-        }
+    GfxBufferDesc vbinfo = {
+        .usageFlags = GfxBufferUsageFlags::Vertex,
+        .access = GfxMemoryAccess::GpuOnly,
+        .size = ARRAY_COUNT(vertices) * sizeof(simple_vertex),
+    };
 
-        u32 indices[max_x_tiles * max_y_tiles * 6] = {};
-        simple_vertex vertices[max_x_tiles * max_y_tiles * 4] = {};
+    GfxBufferDesc ibinfo = {
+        .usageFlags = GfxBufferUsageFlags::Index,
+        .access = GfxMemoryAccess::GpuOnly,
+        .size = ARRAY_COUNT(indices) * sizeof(u32),
+    };
 
-        for(int y = 0; y < max_y_tiles; ++y)
-        {
-            for(int x = 0; x < max_x_tiles; ++x)
-            {
-                int i_idx = (y * max_x_tiles + x) * 6;
-                int v_idx = (y * max_x_tiles + x) * 4;
-
-                // TODO(james): allow y position to be changed?
-                // TODO(james): add texture coordinates
-                // NOTE(james): y_interval is actually the z-plane since y is up/down
-                vertices[v_idx + 0] = {{x_intervals[x]  ,0.0f,y_intervals[y]  }, {0.0f,1.0f,0.0f}};
-                vertices[v_idx + 1] = {{x_intervals[x]  ,0.0f,y_intervals[y+1]}, {0.0f,1.0f,0.0f}};
-                vertices[v_idx + 2] = {{x_intervals[x+1],0.0f,y_intervals[y+1]}, {0.0f,1.0f,0.0f}};
-                vertices[v_idx + 3] = {{x_intervals[x+1],0.0f,y_intervals[y]  }, {0.0f,1.0f,0.0f}};
-
-                indices[i_idx + 0] = v_idx + 0; 
-                indices[i_idx + 1] = v_idx + 2; 
-                indices[i_idx + 2] = v_idx + 1;
-                indices[i_idx + 3] = v_idx + 0; 
-                indices[i_idx + 4] = v_idx + 3; 
-                indices[i_idx + 5] = v_idx + 2;
-            }
-        }
-
-        GfxBufferDesc vbinfo = {
-            .usageFlags = GfxBufferUsageFlags::Vertex,
-            .access = GfxMemoryAccess::GpuOnly,
-            .size = ARRAY_COUNT(vertices) * sizeof(simple_vertex),
+    render_geometry mesh = render_geometry{
+            .indexCount = ARRAY_COUNT(indices),
+            .indexBuffer = gfx.CreateBuffer(gfx.device, ibinfo, 0),
+            .vertexBuffer = gfx.CreateBuffer(gfx.device, vbinfo, 0),
         };
 
-        GfxBufferDesc ibinfo = {
-            .usageFlags = GfxBufferUsageFlags::Index,
-            .access = GfxMemoryAccess::GpuOnly,
-            .size = ARRAY_COUNT(indices) * sizeof(u32),
-        };
+    StageBufferData(*game.renderer, sizeof(vertices), vertices, mesh.vertexBuffer);
+    StageBufferData(*game.renderer, sizeof(indices), indices, mesh.indexBuffer);
 
-        render_geometry mesh = render_geometry{
-                .indexCount = ARRAY_COUNT(indices),
-                .indexBuffer = gfx.CreateBuffer(gfx.device, ibinfo, 0),
-                .vertexBuffer = gfx.CreateBuffer(gfx.device, vbinfo, 0),
-            };
-
-        StageBufferData(*game.renderer, sizeof(vertices), vertices, mesh.vertexBuffer);
-        StageBufferData(*game.renderer, sizeof(indices), indices, mesh.indexBuffer);
-
-        // TODO: Pass the data to the buffers via a staging buffer
-        ecs.entity("mesh_terrain")
-            .set<render_geometry>(mesh);
-    }    
+    // TODO: Pass the data to the buffers via a staging buffer
+    ecs.entity("mesh_terrain")
+        .set<render_geometry>(mesh);
 }
 
+internal void
+LoadMeshes(game_state& game)
+{
+    LoadTerrainMesh(game);
+}
 
 internal game_assets*
 AllocateGameAssets(game_state& game)
